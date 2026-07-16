@@ -1,0 +1,45 @@
+@import "tailwindcss";
+@import "leaflet/dist/leaflet.css";
+
+:root {
+  --color-brand: #6366f1;
+  --color-brand-dark: #4f46e5;
+}
+
+body {
+  margin: 0;
+  font-family: 'Inter', system-ui, sans-serif;
+  background: #0f0f1a;
+  color: #e2e8f0;
+}
+
+/* ── Pines de localidades ── */
+.pin-localidad, .pin-cabecera {
+  font-size: 16px;
+  filter: drop-shadow(0 2px 4px rgba(0,0,0,.5));
+  transform: translateY(-4px);
+}
+.pin-cabecera { font-size: 20px; }
+
+.etiqueta-seccion {
+  background: rgba(15,15,26,.85) !important;
+  border: 1px solid rgba(99,102,241,.4) !important;
+  color: #fff !important;
+  font-weight: 700;
+  font-size: 10px !important;
+  padding: 2px 6px !important;
+  border-radius: 6px !important;
+}
+
+.leaflet-control-layers {
+  background: rgba(15,15,26,.95) !important;
+  color: #fff !important;
+  border-radius: 10px !important;
+  border: 1px solid rgba(99,102,241,.3) !important;
+}
+.leaflet-control-layers-toggle {
+  filter: invert(1);
+}
+
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
