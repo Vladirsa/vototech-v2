@@ -1,13 +1,21 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
+import { useAuth } from '../lib/authStore';
+import { useNavigate } from 'react-router-dom';
 
 const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : '/api';
+
+const TIPOS_ELECCION = [
+  { id: 'ayuntamiento', label: '🏛️ Presidente Municipal' },
+  { id: 'pres_comunidad', label: '🏠 Presidente de Comunidad' },
+  { id: 'dip_local', label: '⚖️ Diputado Local' },
+  { id: 'dip_federal', label: '🏢 Diputado Federal' },
+  { id: 'gobernador', label: '🎖️ Gobernador' },
+];
 
 /**
  * Panel exclusivo del dueño de VotoTech — protegido con una clave
  * secreta (no es parte del sistema normal de usuarios/campañas).
- * Desde aquí se generan los códigos de acceso y se aprueban o
- * rechazan las campañas nuevas que se registran.
  */
 export default function AdminPlataforma() {
   const [clave, setClave] = useState(sessionStorage.getItem('vt_admin_key') || '');
@@ -16,26 +24,27 @@ export default function AdminPlataforma() {
   const [error, setError] = useState('');
   const [campanas, setCampanas] = useState([]);
   const [codigos, setCodigos] = useState([]);
+  const [municipios, setMunicipios] = useState([]);
   const [notaCodigo, setNotaCodigo] = useState('');
+  const navigate = useNavigate();
+  const iniciarSesion = useAuth((s) => s.iniciarSesion);
 
   const headers = { 'x-admin-key': clave };
 
   const cargar = async () => {
     try {
-      const [c, co] = await Promise.all([
+      const [c, co, m] = await Promise.all([
         axios.get(`${API_URL}/admin/campanas`, { headers }),
         axios.get(`${API_URL}/admin/codigos-acceso`, { headers }),
+        axios.get(`${API_URL}/admin/municipios`, { headers }),
       ]);
       setCampanas(c.data.data);
       setCodigos(co.data.data);
+      setMunicipios(m.data.data);
       setAutenticado(true);
       sessionStorage.setItem('vt_admin_key', clave);
       setError('');
     } catch (e) {
-      // Mostrar el error REAL en vez de un mensaje genérico — así se
-      // puede distinguir "clave incorrecta" (403) de "no conecta con
-      // el servidor" (sin respuesta) o "el servidor no tiene la clave
-      // configurada" (500).
       if (e.response?.status === 403) {
         setError('❌ La clave que escribiste no coincide con SUPER_ADMIN_KEY en el servidor.');
       } else if (e.response?.status === 500) {
@@ -57,21 +66,38 @@ export default function AdminPlataforma() {
     cargar();
   };
 
+  const borrarCodigo = async (id) => {
+    if (!confirm('¿Borrar este código? Ya no se va a poder usar.')) return;
+    await axios.delete(`${API_URL}/admin/codigos-acceso/${id}`, { headers });
+    cargar();
+  };
+
   const aprobar = async (id) => { await axios.patch(`${API_URL}/admin/campanas/${id}/aprobar`, {}, { headers }); cargar(); };
   const rechazar = async (id) => { await axios.patch(`${API_URL}/admin/campanas/${id}/rechazar`, {}, { headers }); cargar(); };
 
+  const continuarComo = async (id) => {
+    const { data } = await axios.post(`${API_URL}/admin/campanas/${id}/continuar`, {}, { headers });
+    iniciarSesion(data.data.token, { nombre: data.data.nombre, rol: 'candidato' }, data.data.subdominio);
+    navigate('/dashboard');
+  };
+
   const [creandoDemo, setCreandoDemo] = useState(false);
   const [mensajeDemo, setMensajeDemo] = useState('');
+  const [tipoEleccionDemo, setTipoEleccionDemo] = useState('ayuntamiento');
+  const [municipioDemo, setMunicipioDemo] = useState(3);
 
   const crearDemo = async () => {
     setCreandoDemo(true);
     setMensajeDemo('');
     try {
-      const { data } = await axios.post(`${API_URL}/admin/crear-demo`, {}, { headers });
-      setMensajeDemo(`✅ Demo creada — Correo: ${data.data.email} · Contraseña: ${data.data.password}`);
+      const nombreMun = municipios.find((m) => m.clave_ine === parseInt(municipioDemo))?.nombre || '';
+      const { data } = await axios.post(`${API_URL}/admin/crear-demo`, {
+        tipoEleccion: tipoEleccionDemo, municipioClaveIne: municipioDemo, nombreMunicipio: nombreMun,
+      }, { headers });
+      setMensajeDemo(`✅ Demo creada (${nombreMun}) — Correo: ${data.data.email} · Contraseña: ${data.data.password}`);
       cargar();
     } catch (e) {
-      setMensajeDemo('⚠️ Error al crear la demo. Intenta de nuevo.');
+      setMensajeDemo('⚠️ Error al crear la demo: ' + (e.response?.data?.error || e.message));
     }
     setCreandoDemo(false);
   };
@@ -103,10 +129,25 @@ export default function AdminPlataforma() {
       <div className="max-w-3xl mx-auto space-y-6">
         <h1 className="text-2xl font-black text-white">🔐 Panel de Administración VotoTech</h1>
 
-        {/* Cuenta demo para presentaciones de venta */}
-        <div className="bg-gradient-to-br from-purple-900/40 to-pink-900/40 border border-purple-700/30 rounded-xl p-4 space-y-2">
+        {/* Cuenta demo para presentaciones de venta — ahora personalizable */}
+        <div className="bg-gradient-to-br from-purple-900/40 to-pink-900/40 border border-purple-700/30 rounded-xl p-4 space-y-2.5">
           <h2 className="text-sm font-bold text-white">🎬 Cuenta Demo (para presentaciones)</h2>
-          <p className="text-[10px] text-slate-400">Crea o reconstruye desde cero una campaña de ejemplo llena de datos — sin usar terminal.</p>
+          <p className="text-[10px] text-slate-400">Personaliza la demo según a quién vayas a presentar — su municipio, su tipo de elección.</p>
+
+          <div className="grid grid-cols-2 gap-2">
+            <select value={tipoEleccionDemo} onChange={(e) => setTipoEleccionDemo(e.target.value)}
+              className="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs">
+              {TIPOS_ELECCION.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+            </select>
+            <select value={municipioDemo} onChange={(e) => setMunicipioDemo(e.target.value)}
+              className="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs">
+              {municipios.map((m) => <option key={m.clave_ine} value={m.clave_ine}>{m.nombre}</option>)}
+            </select>
+          </div>
+          {tipoEleccionDemo !== 'ayuntamiento' && tipoEleccionDemo !== 'pres_comunidad' && (
+            <p className="text-[9px] text-amber-400">⚠️ Solo hay resultados históricos reales cargados para Ayuntamiento y Pdte. de Comunidad — con otros tipos, el mapa no mostrará colores de partido, pero el resto del sistema funciona igual.</p>
+          )}
+
           <button onClick={crearDemo} disabled={creandoDemo}
             className="w-full py-2.5 rounded-lg bg-purple-600 text-white text-sm font-bold disabled:opacity-50">
             {creandoDemo ? '⏳ Creando demo...' : '🎬 Crear / Reconstruir Demo'}
@@ -129,29 +170,40 @@ export default function AdminPlataforma() {
                 <span className="font-mono text-indigo-400">{c.codigo}</span>
                 <span className="text-slate-500">{c.nota || '—'}</span>
                 <span className={c.usado ? 'text-slate-600' : 'text-emerald-400'}>{c.usado ? '✅ Usado' : '🟢 Disponible'}</span>
+                <button onClick={() => borrarCodigo(c.id)} className="text-slate-600 hover:text-red-400 text-xs">🗑️</button>
               </div>
             ))}
           </div>
         </div>
 
-        {/* Campañas pendientes de aprobar */}
+        {/* Campañas registradas — con fechas y acceso directo */}
         <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 space-y-2">
           <h2 className="text-sm font-bold text-white">📋 Campañas registradas</h2>
           <div className="space-y-2">
             {campanas.map((c) => (
-              <div key={c.id} className="flex items-center justify-between bg-slate-800/50 rounded-lg px-3 py-2.5">
-                <div>
-                  <div className="text-sm font-bold text-white">{c.nombre_candidato}</div>
-                  <div className="text-[10px] text-slate-500">{c.subdominio}.vototech.mx · {c.tipo_eleccion} · {c.total_usuarios} usuarios</div>
-                </div>
-                <div className="flex items-center gap-2">
+              <div key={c.id} className="bg-slate-800/50 rounded-lg px-3 py-2.5 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="text-sm font-bold text-white">{c.nombre_candidato} {c.es_demo && <span className="text-purple-400">(demo)</span>}</div>
+                    <div className="text-[10px] text-slate-500">{c.subdominio}.vototech.mx · {c.tipo_eleccion} · {c.total_usuarios} usuarios</div>
+                  </div>
                   <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${ESTADO_COLOR[c.estado_aprobacion]}`}>{c.estado_aprobacion}</span>
-                  {c.estado_aprobacion === 'pendiente' && (
-                    <>
-                      <button onClick={() => aprobar(c.id)} className="text-[10px] font-bold text-emerald-400 px-2 py-1">✅ Aprobar</button>
-                      <button onClick={() => rechazar(c.id)} className="text-[10px] font-bold text-red-400 px-2 py-1">✕ Rechazar</button>
-                    </>
-                  )}
+                </div>
+                <div className="flex items-center justify-between">
+                  <div className="text-[9px] text-slate-500">
+                    Registrada: {new Date(c.creado_en).toLocaleDateString('es-MX')}
+                    {c.ultimo_acceso && <> · Último acceso: {new Date(c.ultimo_acceso).toLocaleDateString('es-MX')}</>}
+                    {!c.ultimo_acceso && <> · Sin accesos todavía</>}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {c.estado_aprobacion === 'pendiente' && (
+                      <>
+                        <button onClick={() => aprobar(c.id)} className="text-[10px] font-bold text-emerald-400 px-2 py-1">✅ Aprobar</button>
+                        <button onClick={() => rechazar(c.id)} className="text-[10px] font-bold text-red-400 px-2 py-1">✕ Rechazar</button>
+                      </>
+                    )}
+                    <button onClick={() => continuarComo(c.id)} className="text-[10px] font-bold text-indigo-400 px-2 py-1">▶️ Continuar</button>
+                  </div>
                 </div>
               </div>
             ))}

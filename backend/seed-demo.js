@@ -18,8 +18,12 @@ const NOMBRES = ['María González', 'Juan Pérez', 'Rosa Martínez', 'Carlos He
   'Jorge Vázquez', 'Elena Cruz', 'Roberto Morales', 'Patricia Reyes', 'Fernando Ortiz',
   'Gabriela Jiménez', 'Ricardo Castro', 'Verónica Romero', 'Alejandro Suárez'];
 
-export async function crearDemo() {
-  console.log('🎬 Creando cuenta DEMO...\n');
+export async function crearDemo(opciones = {}) {
+  const tipoEleccion = opciones.tipoEleccion || 'ayuntamiento';
+  const municipioClaveIne = opciones.municipioClaveIne || 3; // Apizaco por defecto (tiene datos reales)
+  const nombreMunicipio = opciones.nombreMunicipio || 'Apizaco';
+
+  console.log(`🎬 Creando cuenta DEMO (${tipoEleccion} — ${nombreMunicipio})...\n`);
 
   // Borrar demo anterior si existe (para que cada presentación arranque limpia)
   await query('DELETE FROM campanas WHERE subdominio=$1', [DEMO_SUBDOMINIO]);
@@ -30,13 +34,13 @@ export async function crearDemo() {
   const campana = await query(
     `INSERT INTO campanas (nombre_candidato, eslogan, partido, tipo_eleccion, estado_id, territorio_tipo, territorio_id,
        subdominio, activa, estado_aprobacion, es_demo, fecha_eleccion, tope_gasto_ople)
-     VALUES ('Candidato Demo','Juntos por un mejor futuro','morena','ayuntamiento',29,'municipio',3,
-       $1, true, 'aprobada', true, '2027-06-06', 850000)
+     VALUES ('Candidato Demo','Juntos por un mejor futuro','morena',$1,29,'municipio',$2,
+       $3, true, 'aprobada', true, '2027-06-06', 850000)
      RETURNING id`,
-    [DEMO_SUBDOMINIO]
+    [tipoEleccion, municipioClaveIne, DEMO_SUBDOMINIO]
   );
   const campanaId = campana.rows[0].id;
-  console.log('✅ Campaña demo creada (Ayuntamiento de Apizaco)');
+  console.log(`✅ Campaña demo creada (${tipoEleccion} de ${nombreMunicipio})`);
 
   // 2. Usuario candidato (cuenta principal de acceso)
   const candidato = await query(
@@ -92,7 +96,8 @@ export async function crearDemo() {
   // clasificaciones representadas para que se vea el motor funcionando
   const seccionesApizaco = await query(
     `SELECT numero FROM secciones s JOIN municipios m ON m.id=s.municipio_id
-     WHERE m.estado_id=29 AND m.clave_ine=3 ORDER BY numero LIMIT 15`
+     WHERE m.estado_id=29 AND m.clave_ine=$1 ORDER BY numero LIMIT 15`,
+    [municipioClaveIne]
   );
   const secciones = seccionesApizaco.rows.map(r => r.numero);
 

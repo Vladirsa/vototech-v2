@@ -8,9 +8,15 @@ import { useAuth } from '../lib/authStore';
 // de prueba fijo para poder trabajar sin tener subdominios reales.
 function detectarSubdominio() {
   const host = window.location.hostname;
-  if (host === 'localhost' || host === '127.0.0.1') return 'andrea'; // demo local
-  const partes = host.split('.');
-  return partes.length > 2 ? partes[0] : null;
+  if (host === 'localhost' || host === '127.0.0.1') return null;
+  // Solo detectar automático cuando es un dominio propio real
+  // (candidato.vototech.mx) — en Vercel (vototech-v2.vercel.app) o
+  // cualquier otro dominio temporal, se pide el subdominio a mano.
+  if (host.endsWith('.vototech.mx')) {
+    const partes = host.split('.');
+    return partes.length > 2 ? partes[0] : null;
+  }
+  return null;
 }
 
 export default function Login() {
@@ -20,7 +26,8 @@ export default function Login() {
   const [cargando, setCargando] = useState(false);
   const navigate = useNavigate();
   const iniciarSesion = useAuth((s) => s.iniciarSesion);
-  const subdominio = detectarSubdominio();
+  const [subdominio, setSubdominio] = useState(detectarSubdominio() || '');
+  const subdominioAutomatico = !!detectarSubdominio();
 
   const manejarSubmit = async (e) => {
     e.preventDefault();
@@ -45,7 +52,7 @@ export default function Login() {
           <div className="text-5xl mb-3">🗳️</div>
           <h1 className="text-2xl font-black text-white">VotoTech</h1>
           <p className="text-sm text-indigo-400 mt-1">Sistema de Gestión Electoral</p>
-          {subdominio && (
+          {subdominioAutomatico && (
             <div className="mt-3 inline-block px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/30 text-xs text-indigo-300">
               📍 {subdominio}.vototech.mx
             </div>
@@ -56,6 +63,18 @@ export default function Login() {
           {error && (
             <div className="bg-red-500/10 border border-red-500/30 text-red-400 text-xs rounded-lg px-3 py-2">
               ⚠️ {error}
+            </div>
+          )}
+
+          {!subdominioAutomatico && (
+            <div>
+              <label className="block text-xs font-semibold text-slate-400 mb-1.5">Subdominio de tu campaña</label>
+              <input
+                required value={subdominio} onChange={(e) => setSubdominio(e.target.value.toLowerCase().trim())}
+                className="w-full px-4 py-2.5 rounded-xl bg-slate-800/80 border border-slate-700 text-white text-sm focus:outline-none focus:border-indigo-500"
+                placeholder="ej: demo"
+              />
+              <p className="text-[10px] text-slate-500 mt-1">El identificador que elegiste al registrar tu campaña</p>
             </div>
           )}
 
