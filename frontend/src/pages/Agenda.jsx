@@ -1,18 +1,20 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import api from '../lib/api';
 
 export default function Agenda() {
+  const [params] = useSearchParams();
+  const seccionUrl = params.get('seccion') ? parseInt(params.get('seccion')) : null;
   const [eventos, setEventos] = useState([]);
-  const [mostrarForm, setMostrarForm] = useState(false);
-  const [form, setForm] = useState({ titulo: '', tipo: 'evento', fecha_inicio: '', lugar: '' });
+  const [mostrarForm, setMostrarForm] = useState(!!seccionUrl);
+  const [form, setForm] = useState({ titulo: '', tipo: 'evento', fecha_inicio: '', lugar: '', seccion_numero: seccionUrl || '' });
 
   const cargar = () => api.get('/agenda').then((r) => setEventos(r.data.data));
   useEffect(() => { cargar(); }, []);
 
   const guardar = async () => {
-    await api.post('/agenda', form);
-    setForm({ titulo: '', tipo: 'evento', fecha_inicio: '', lugar: '' });
+    await api.post('/agenda', { ...form, seccion_numero: form.seccion_numero ? parseInt(form.seccion_numero) : undefined });
+    setForm({ titulo: '', tipo: 'evento', fecha_inicio: '', lugar: '', seccion_numero: '' });
     setMostrarForm(false);
     cargar();
   };
@@ -45,6 +47,8 @@ export default function Agenda() {
             <input type="datetime-local" value={form.fecha_inicio} onChange={(e) => setForm({ ...form, fecha_inicio: e.target.value })}
               className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
             <input placeholder="Lugar" value={form.lugar} onChange={(e) => setForm({ ...form, lugar: e.target.value })}
+              className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+            <input placeholder="Sección (opcional)" type="number" value={form.seccion_numero} onChange={(e) => setForm({ ...form, seccion_numero: e.target.value })}
               className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
             <button onClick={guardar} disabled={!form.titulo || !form.fecha_inicio}
               className="w-full py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-bold disabled:opacity-40">Guardar evento</button>

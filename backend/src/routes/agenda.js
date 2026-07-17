@@ -27,6 +27,8 @@ const esquemaEvento = z.object({
   lugar: z.string().max(255).optional(),
   seccion_numero: z.number().int().optional(),
   descripcion: z.string().max(1000).optional(),
+  lat: z.number().optional(),
+  lng: z.number().optional(),
 });
 
 router.post('/', async (req, res) => {
@@ -43,10 +45,10 @@ router.post('/', async (req, res) => {
   }
 
   const resultado = await query(
-    `INSERT INTO agenda (campana_id, titulo, tipo, fecha_inicio, fecha_fin, lugar, seccion_id, descripcion, creado_por)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+    `INSERT INTO agenda (campana_id, titulo, tipo, fecha_inicio, fecha_fin, lugar, seccion_id, descripcion, creado_por, lat, lng)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
     [req.usuario.campana_id, d.titulo, d.tipo, d.fecha_inicio, d.fecha_fin || null,
-     d.lugar || null, seccionId, d.descripcion || null, req.usuario.sub]
+     d.lugar || null, seccionId, d.descripcion || null, req.usuario.sub, d.lat || null, d.lng || null]
   );
 
   res.status(201).json({ ok: true, data: resultado.rows[0] });

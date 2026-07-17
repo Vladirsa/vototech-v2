@@ -1,6 +1,11 @@
 @import "tailwindcss";
 @import "leaflet/dist/leaflet.css";
 
+/* Modo claro/oscuro controlado por una clase .dark en <html>, no por
+   preferencia del sistema — así el usuario decide y se guarda su elección. */
+@custom-variant dark (&:where(.dark, .dark *));
+@custom-variant light (&:where(.light, .light *));
+
 :root {
   --color-brand: #6366f1;
   --color-brand-dark: #4f46e5;
@@ -11,6 +16,12 @@ body {
   font-family: 'Inter', system-ui, sans-serif;
   background: #0f0f1a;
   color: #e2e8f0;
+  transition: background-color 0.2s, color 0.2s;
+}
+
+html.light body {
+  background: #f8fafc;
+  color: #0f172a;
 }
 
 /* ── Pines de localidades ── */

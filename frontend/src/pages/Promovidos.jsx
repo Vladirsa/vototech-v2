@@ -10,9 +10,9 @@ const CLASIFICACION_ESTILO = {
   adversario:  { color: 'text-slate-500', bg: 'bg-slate-500/10', label: '⛔ Adversario' },
 };
 
-function ModalAgregar({ onCerrar, onGuardado }) {
+function ModalAgregar({ onCerrar, onGuardado, seccionInicial }) {
   const [form, setForm] = useState({
-    nombre: '', telefono: '', seccion_numero: '', partido: '', calle: '', lat: null, lng: null,
+    nombre: '', telefono: '', seccion_numero: seccionInicial || '', partido: '', calle: '', lat: null, lng: null,
     comprometido: false, temperatura: 'tibio', consentimiento: false,
   });
   const [error, setError] = useState('');
@@ -125,9 +125,10 @@ function PanelWhatsAppMasivo({ persuadibles }) {
 
 export default function Promovidos() {
   const [params] = useSearchParams();
+  const seccionFiltro = params.get('seccion') ? parseInt(params.get('seccion')) : null;
   const [lista, setLista] = useState([]);
   const [modoSeguimiento, setModoSeguimiento] = useState(params.get('filtro') === 'seguimiento');
-  const [mostrarModal, setMostrarModal] = useState(false);
+  const [mostrarModal, setMostrarModal] = useState(params.get('agregar') === '1');
   const [cargando, setCargando] = useState(true);
   const [tab, setTab] = useState('lista');
 
@@ -138,6 +139,11 @@ export default function Promovidos() {
   };
 
   useEffect(() => { cargar(); }, [modoSeguimiento]);
+
+  // Si se llegó desde el mapa con una sección específica (ej: /promovidos?seccion=12),
+  // filtrar la lista para mostrar solo esa sección — así el botón "Ver promovidos
+  // aquí" del mapa de verdad lleva a algo relevante y no a la lista completa.
+  const listaFiltrada = seccionFiltro ? lista.filter((p) => p.seccion_numero === seccionFiltro) : lista;
 
   const registrarContacto = async (id, resultado) => {
     await api.post(`/promovidos/${id}/contacto`, { tipo: 'visita', resultado });
@@ -163,6 +169,13 @@ export default function Promovidos() {
           </div>
         </div>
 
+        {seccionFiltro && (
+          <div className="flex items-center justify-between bg-indigo-500/10 border border-indigo-500/30 rounded-lg px-3 py-2">
+            <span className="text-xs text-indigo-300">📍 Mostrando solo la sección {seccionFiltro} (llegaste desde el mapa)</span>
+            <Link to="/promovidos" className="text-xs font-bold text-indigo-400">Ver todos ✕</Link>
+          </div>
+        )}
+
         <div className="flex gap-2">
           <button onClick={() => { setModoSeguimiento(false); setTab('lista'); }}
             className={`px-3 py-1.5 rounded-full text-xs font-bold ${!modoSeguimiento && tab === 'lista' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
@@ -182,11 +195,11 @@ export default function Promovidos() {
 
         {tab === 'lista' && (cargando ? (
           <div className="text-center text-slate-500 py-10">⏳ Cargando...</div>
-        ) : lista.length === 0 ? (
-          <div className="text-center text-slate-500 py-10">Sin registros todavía</div>
+        ) : listaFiltrada.length === 0 ? (
+          <div className="text-center text-slate-500 py-10">{seccionFiltro ? `Sin promovidos todavía en la sección ${seccionFiltro}` : 'Sin registros todavía'}</div>
         ) : (
           <div className="space-y-2">
-            {lista.map((p) => {
+            {listaFiltrada.map((p) => {
               const est = CLASIFICACION_ESTILO[p.clasificacion] || CLASIFICACION_ESTILO.persuadible;
               return (
                 <div key={p.id} className={`rounded-xl border border-slate-800 ${est.bg} p-4`}>
@@ -214,7 +227,7 @@ export default function Promovidos() {
         ))}
       </div>
 
-      {mostrarModal && <ModalAgregar onCerrar={() => setMostrarModal(false)} onGuardado={() => { setMostrarModal(false); cargar(); }} />}
+      {mostrarModal && <ModalAgregar seccionInicial={seccionFiltro} onCerrar={() => setMostrarModal(false)} onGuardado={() => { setMostrarModal(false); cargar(); }} />}
     </div>
   );
 }

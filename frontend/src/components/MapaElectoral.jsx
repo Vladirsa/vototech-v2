@@ -3,6 +3,7 @@ import { MapContainer, TileLayer, GeoJSON, Marker, Popup, LayersControl, useMap 
 import L from 'leaflet';
 import 'leaflet.heat';
 import axios from 'axios';
+import { useNavigate } from 'react-router-dom';
 import api from '../lib/api';
 
 // Colores por clasificación estratégica (Base/Persuadible/Adversario) —
@@ -60,6 +61,7 @@ function VueloCamara({ centro, zoom }) {
 }
 
 export default function MapaElectoral({ campanaId, territorioTipo, territorioId, tipoEleccion = 'ayuntamiento', anio = 2024 }) {
+  const navigate = useNavigate();
   const [geoSecciones, setGeoSecciones] = useState(null);
   const [localidades, setLocalidades] = useState([]);
   const [resultados, setResultados] = useState({});
@@ -292,6 +294,21 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
     }).catch(() => setSeccionesActivas7d(new Set()));
   }, [capaPulso]);
 
+  // ── AGENDA EN EL MAPA — eventos con ubicación (recorridos, mítines) ──
+  const [eventosAgenda, setEventosAgenda] = useState([]);
+  const [capaAgenda, setCapaAgenda] = useState(false);
+
+  useEffect(() => {
+    api.get('/agenda').then(r => setEventosAgenda(r.data.data.filter(e => e.lat && e.lng))).catch(() => setEventosAgenda([]));
+  }, []);
+
+  const ICONO_EVENTO = { evento: '🎪', reunion: '👥', recorrido: '🚶', entrevista: '🎤' };
+  const iconoEvento = (tipo) => new L.DivIcon({
+    className: '',
+    html: `<div style="font-size:18px;filter:drop-shadow(0 1px 3px rgba(0,0,0,.7))">${ICONO_EVENTO[tipo] || '📅'}</div>`,
+    iconSize: [22, 22],
+  });
+
 
   // ── SECTORIZACIÓN: seleccionar varias secciones y asignarlas de un jalón ──
   const [modoSectorizacion, setModoSectorizacion] = useState(false);
@@ -519,6 +536,18 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
           </Marker>
         ))}
 
+        {/* Agenda con ubicación — recorridos, mítines, reuniones en el mapa */}
+        {capaAgenda && eventosAgenda.map((e) => (
+          <Marker key={e.id} position={[e.lat, e.lng]} icon={iconoEvento(e.tipo)}>
+            <Popup>
+              <div style={{ fontSize: 12 }}>
+                <strong>{ICONO_EVENTO[e.tipo]} {e.titulo}</strong><br />
+                {new Date(e.fecha_inicio).toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' })}
+              </div>
+            </Popup>
+          </Marker>
+        ))}
+
         {/* Incidencias activas con GPS — urgencia por color */}
         {capaIncidencias && incidencias.map((inc) => (
           <Marker key={inc.id} position={[inc.lat, inc.lng]} icon={iconoIncidencia(inc.urgencia)}>
@@ -643,6 +672,10 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
           <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
             <input type="checkbox" checked={capaActivos} onChange={e => setCapaActivos(e.target.checked)} />
             📺 Activos ({activos.length}: bardas, espectaculares...)
+          </label>
+          <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+            <input type="checkbox" checked={capaAgenda} onChange={e => setCapaAgenda(e.target.checked)} />
+            📅 Agenda con ubicación ({eventosAgenda.length})
           </label>
           <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
             <input type="checkbox" checked={capaIncidencias} onChange={e => setCapaIncidencias(e.target.checked)} />
@@ -777,6 +810,26 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
                 ) : fichaTecnica.total_votos_historico > 0 ? (
                   <div className="text-[10px] text-emerald-400 border-t border-slate-700 pt-2">✅ Meta cubierta con tus promovidos actuales</div>
                 ) : null}
+              </div>
+
+              {/* ── ACCIONES RÁPIDAS — conectan directo con otros módulos ── */}
+              <div className="grid grid-cols-2 gap-2 pt-1">
+                <button onClick={() => navigate(`/promovidos?seccion=${seccionActiva}`)}
+                  className="py-2 rounded-lg bg-indigo-600/80 text-white text-[10px] font-bold">
+                  👁️ Ver promovidos aquí
+                </button>
+                <button onClick={() => navigate(`/promovidos?seccion=${seccionActiva}&agregar=1`)}
+                  className="py-2 rounded-lg bg-emerald-600/80 text-white text-[10px] font-bold">
+                  + Agregar promovido aquí
+                </button>
+                <button onClick={() => navigate(`/agenda?seccion=${seccionActiva}`)}
+                  className="py-2 rounded-lg bg-amber-600/80 text-white text-[10px] font-bold">
+                  📅 Agendar evento aquí
+                </button>
+                <button onClick={() => navigate(`/incidencias?seccion=${seccionActiva}`)}
+                  className="py-2 rounded-lg bg-red-600/80 text-white text-[10px] font-bold">
+                  🚨 Reportar incidencia
+                </button>
               </div>
             </div>
           )}
