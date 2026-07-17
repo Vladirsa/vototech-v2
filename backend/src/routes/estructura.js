@@ -174,4 +174,60 @@ router.post('/', async (req, res) => {
   }
 });
 
+const esquemaEditar = z.object({
+  nombre: z.string().min(2).max(200).optional(),
+  telefono: z.string().max(20).optional(),
+  rol: z.enum(['jefe_campana', 'coord_general', 'coord_distrital', 'coord_municipal', 'coord_seccional', 'promotor']).optional(),
+  parent_id: z.string().uuid().nullable().optional(),
+  territorio_id: z.number().int().nullable().optional(),
+  meta_diaria: z.number().int().optional(),
+  activo: z.boolean().optional(),
+});
+
+/**
+ * PATCH /api/estructura/:id
+ * Corregir un error (rol equivocado, coordinador mal asignado) o
+ * dar de baja a alguien sin tener que borrar su historial de trabajo.
+ */
+router.patch('/:id', async (req, res) => {
+  const parseado = esquemaEditar.safeParse(req.body);
+  if (!parseado.success) return res.status(400).json({ ok: false, error: parseado.error.errors[0].message });
+  const d = parseado.data;
+
+  // No dejar que alguien se asigne a sí mismo como su propio jefe
+  if (d.parent_id === req.params.id) return res.status(400).json({ ok: false, error: 'No puede ser su propio coordinador' });
+
+  const campos = [];
+  const valores = [];
+  let i = 1;
+  for (const [campo, valor] of Object.entries(d)) {
+    campos.push(`${campo}=$${i}`);
+    valores.push(valor);
+    i++;
+  }
+  if (campos.length === 0) return res.status(400).json({ ok: false, error: 'Nada que actualizar' });
+
+  valores.push(req.params.id, req.usuario.campana_id);
+  const resultado = await query(
+    `UPDATE usuarios SET ${campos.join(', ')} WHERE id=$${i} AND campana_id=$${i + 1} RETURNING id, nombre, rol, activo`,
+    valores
+  );
+  if (!resultado.rows[0]) return res.status(404).json({ ok: false, error: 'No encontrado' });
+  res.json({ ok: true, data: resultado.rows[0] });
+});
+
+/**
+ * GET /api/estructura/:id/zonas
+ * Qué secciones tiene asignadas esta persona (de la Sectorización
+ * del mapa) — para que se vea aquí también, no solo en el mapa.
+ */
+router.get('/:id/zonas', async (req, res) => {
+  const resultado = await query(
+    `SELECT s.numero FROM zonas_asignadas z JOIN secciones s ON s.id = z.seccion_id
+     WHERE z.campana_id=$1 AND z.usuario_id=$2 ORDER BY s.numero`,
+    [req.usuario.campana_id, req.params.id]
+  );
+  res.json({ ok: true, data: resultado.rows.map((r) => r.numero) });
+});
+
 export default router;
