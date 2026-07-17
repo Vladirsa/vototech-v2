@@ -19,7 +19,7 @@ router.get('/', async (req, res) => {
 });
 
 const esquemaActivo = z.object({
-  tipo: z.enum(['espectacular', 'barda', 'manta', 'ine_representante']),
+  tipo: z.enum(['espectacular', 'barda', 'manta', 'ine_representante', 'utilitario']),
   seccion_numero: z.number().int().optional(),
   direccion: z.string().max(255).optional(),
   lat: z.number().optional(),
@@ -31,6 +31,8 @@ const esquemaActivo = z.object({
   nombre_rep: z.string().max(200).optional(),
   telefono_rep: z.string().max(20).optional(),
   notas: z.string().max(300).optional(),
+  cantidad: z.number().int().optional(),
+  subtipo: z.string().max(50).optional(),
 });
 
 router.post('/', async (req, res) => {
@@ -45,11 +47,11 @@ router.post('/', async (req, res) => {
   }
 
   const resultado = await query(
-    `INSERT INTO activos (campana_id, tipo, seccion_id, direccion, lat, lng, empresa, costo, fecha_ini, fecha_vence, nombre_rep, telefono_rep, notas, registrado_por)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`,
+    `INSERT INTO activos (campana_id, tipo, seccion_id, direccion, lat, lng, empresa, costo, fecha_ini, fecha_vence, nombre_rep, telefono_rep, notas, cantidad, subtipo, registrado_por)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *`,
     [req.usuario.campana_id, d.tipo, seccionId, d.direccion || null, d.lat || null, d.lng || null,
      d.empresa || null, d.costo || null, d.fecha_ini || null, d.fecha_vence || null,
-     d.nombre_rep || null, d.telefono_rep || null, d.notas || null, req.usuario.sub]
+     d.nombre_rep || null, d.telefono_rep || null, d.notas || null, d.cantidad || null, d.subtipo || null, req.usuario.sub]
   );
 
   res.status(201).json({ ok: true, data: resultado.rows[0] });

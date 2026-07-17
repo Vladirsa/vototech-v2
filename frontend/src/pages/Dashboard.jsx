@@ -3,233 +3,250 @@ import { Link } from 'react-router-dom';
 import api from '../lib/api';
 import { useAuth } from '../lib/authStore';
 
-const FASE_COLOR = {
-  identificacion: 'from-blue-600 to-cyan-600',
-  persuasion: 'from-amber-600 to-orange-600',
-  cierre: 'from-orange-600 to-red-600',
-  movilizacion: 'from-red-600 to-rose-600',
-  dia_d: 'from-purple-600 to-pink-600',
-  sin_fecha: 'from-slate-600 to-slate-700',
-};
+const ROL_CORTO = { coord_general: 'Coord. General', coord_distrital: 'Coord. Distrital', coord_municipal: 'Coord. Municipal', coord_seccional: 'Coord. Seccional' };
+const ICONO_ACTIVO = { espectacular: '📺', barda: '🧱', manta: '🎏', ine_representante: '🗳️', utilitario: '👕' };
+const NOMBRE_ACTIVO = { espectacular: 'Espectaculares', barda: 'Bardas', manta: 'Mantas', ine_representante: 'Representantes', utilitario: 'Utilitarios' };
+
+function Gauge({ porcentaje }) {
+  const pct = Math.min(100, Math.max(0, porcentaje));
+  const angulo = (pct / 100) * 180; // semicírculo
+  const r = 70, cx = 90, cy = 90;
+  const puntoFinal = { x: cx + r * Math.cos(Math.PI - (angulo * Math.PI) / 180), y: cy - r * Math.sin(Math.PI - (angulo * Math.PI) / 180) };
+  const largeArc = angulo > 180 ? 1 : 0;
+
+  return (
+    <svg viewBox="0 0 180 100" className="w-40 h-24">
+      <path d={`M 20 90 A 70 70 0 0 1 160 90`} fill="none" stroke="#1e293b" strokeWidth="14" strokeLinecap="round" />
+      {pct > 0 && (
+        <path d={`M 20 90 A 70 70 0 ${largeArc} 1 ${puntoFinal.x} ${puntoFinal.y}`} fill="none" stroke="url(#grad)" strokeWidth="14" strokeLinecap="round" />
+      )}
+      <defs>
+        <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" stopColor="#6366f1" />
+          <stop offset="100%" stopColor="#a855f7" />
+        </linearGradient>
+      </defs>
+      <circle cx="20" cy="90" r="4" fill="#ef4444" />
+      <circle cx="160" cy="90" r="4" fill="#ef4444" />
+      <text x="90" y="72" textAnchor="middle" className="fill-white" style={{ fontSize: 26, fontWeight: 900 }}>{pct}%</text>
+      <text x="90" y="88" textAnchor="middle" className="fill-slate-400" style={{ fontSize: 9 }}>de la meta</text>
+    </svg>
+  );
+}
 
 export default function Dashboard() {
   const usuario = useAuth((s) => s.usuario);
-  const [hoy, setHoy] = useState(null);
-  const [resumenPromos, setResumenPromos] = useState(null);
-  const [prioridad, setPrioridad] = useState(null);
-  const [tendencia, setTendencia] = useState([]);
-  const [proximosEventos, setProximosEventos] = useState([]);
-  const [finanzas, setFinanzas] = useState(null);
-  const [saludEstructura, setSaludEstructura] = useState(null);
-  const [incidenciasUrgentes, setIncidenciasUrgentes] = useState(0);
+  const [d, setD] = useState(null);
   const [cargando, setCargando] = useState(true);
 
   useEffect(() => {
-    Promise.all([
-      api.get('/priorizacion/hoy'),
-      api.get('/promovidos/resumen'),
-      api.get('/priorizacion'),
-      api.get('/reportes/tendencia'),
-      api.get('/agenda'),
-      api.get('/finanzas'),
-      api.get('/estructura/salud'),
-      api.get('/incidencias'),
-    ]).then(([hoyRes, promosRes, prioRes, tendRes, agendaRes, finRes, saludRes, incRes]) => {
-      setHoy(hoyRes.data.data);
-      setResumenPromos(promosRes.data.data);
-      setPrioridad(prioRes.data);
-      setTendencia(tendRes.data.data);
-      const ahora = Date.now();
-      setProximosEventos(
-        agendaRes.data.data
-          .filter((e) => new Date(e.fecha_inicio).getTime() > ahora)
-          .slice(0, 3)
-      );
-      setFinanzas(finRes.data.resumen);
-      setSaludEstructura(saludRes.data.data);
-      setIncidenciasUrgentes(incRes.data.data.filter((i) => i.estado === 'activa' && i.urgencia === 'urgente').length);
-      setCargando(false);
-    }).catch(() => setCargando(false));
+    api.get('/dashboard/resumen').then((r) => { setD(r.data.data); setCargando(false); }).catch(() => setCargando(false));
   }, []);
 
-  if (cargando) {
-    return <div className="min-h-screen bg-slate-950 dark:bg-slate-950 light:bg-slate-50 flex items-center justify-center text-slate-500">⏳ Cargando...</div>;
+  if (cargando || !d) {
+    return <div className="min-h-screen bg-slate-950 flex items-center justify-center text-slate-500">⏳ Calculando panel de mando...</div>;
   }
 
-  const colorFase = FASE_COLOR[hoy?.fase] || FASE_COLOR.sin_fecha;
-  const maxTendencia = Math.max(1, ...tendencia.map((t) => t.promovidos));
-  const fmtDinero = (n) => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }).format(n || 0);
+  const fmt = (n) => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }).format(n || 0);
+  const maxDistrito = Math.max(1, ...d.actividad_por_distrito.map((a) => parseInt(a.total)));
+  const ALERTA_ESTILO = {
+    critica: 'bg-red-500/10 border-red-500/40 text-red-300',
+    advertencia: 'bg-amber-500/10 border-amber-500/40 text-amber-300',
+    meta: 'bg-purple-500/10 border-purple-500/40 text-purple-300',
+    info: 'bg-indigo-500/10 border-indigo-500/40 text-indigo-300',
+  };
+  const ALERTA_ICONO = { critica: '⚠️', advertencia: '📋', meta: '🎯', info: '💡' };
 
   return (
-    <div className="min-h-screen bg-slate-950 dark:bg-slate-950 light:bg-slate-50 p-4 md:p-8 transition-colors">
-      <div className="max-w-5xl mx-auto space-y-6">
-        {/* Encabezado */}
+    <div className="min-h-screen bg-slate-950 p-4 md:p-8">
+      <div className="max-w-6xl mx-auto space-y-5">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-black text-white dark:text-white light:text-slate-900">Hola, {usuario?.nombre?.split(' ')[0] || 'Equipo'} 👋</h1>
-            <p className="text-sm text-slate-500">Este es el estado real de tu campaña hoy</p>
+            <h1 className="text-2xl font-black text-white">Hola, {usuario?.nombre?.split(' ')[0] || 'Equipo'} 👋</h1>
+            <p className="text-sm text-slate-500">Panel de mando — {d.candidato}</p>
           </div>
           <Link to="/mapa" className="px-4 py-2 rounded-xl bg-indigo-600 text-white text-sm font-bold">🗺️ Ver mapa</Link>
         </div>
 
-        {/* 🎯 QUÉ HACER HOY + contador de días, más grande y visible */}
-        <div className={`rounded-2xl p-6 bg-gradient-to-br ${colorFase} shadow-xl`}>
-          <div className="flex items-start gap-4">
-            <div className="text-4xl">{hoy?.icono}</div>
-            <div className="flex-1">
-              {hoy?.dias_restantes != null && (
-                <div className="flex items-baseline gap-2 mb-1">
-                  <span className="text-3xl font-black text-white">{hoy.dias_restantes}</span>
-                  <span className="text-xs font-bold text-white/70 uppercase tracking-wide">días para la elección</span>
+        {/* 🎯 AVANCE HACIA LA META ELECTORAL */}
+        <div className="bg-gradient-to-br from-slate-900 to-indigo-950/60 border border-indigo-800/30 rounded-2xl p-5 flex flex-col md:flex-row items-center gap-6">
+          <Gauge porcentaje={d.meta_electoral.porcentaje} />
+          <div className="flex-1 w-full">
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-lg">🎯</span>
+              <h2 className="font-black text-white">Avance hacia la meta electoral</h2>
+            </div>
+            <div className="space-y-1.5 text-sm">
+              <div className="flex justify-between"><span className="flex items-center gap-2 text-slate-400"><span className="w-2 h-2 rounded-full bg-purple-500" />Promovidos registrados</span><strong className="text-purple-400">{d.meta_electoral.promovidos_registrados}</strong></div>
+              <div className="flex justify-between"><span className="flex items-center gap-2 text-slate-400"><span className="w-2 h-2 rounded-full bg-emerald-500" />Meta de votos</span><strong className="text-emerald-400">{d.meta_electoral.meta_votos.toLocaleString()}</strong></div>
+              <div className="flex justify-between"><span className="flex items-center gap-2 text-slate-400"><span className="w-2 h-2 rounded-full bg-amber-500" />Faltan para la meta</span><strong className="text-amber-400">{d.meta_electoral.faltan_para_meta.toLocaleString()}</strong></div>
+            </div>
+            <div className="h-2 bg-slate-800 rounded-full overflow-hidden mt-3">
+              <div className="h-full bg-gradient-to-r from-indigo-500 to-purple-500" style={{ width: `${d.meta_electoral.porcentaje}%` }} />
+            </div>
+            {d.meta_electoral.ritmo_necesario != null && (
+              <p className="text-[11px] text-slate-500 mt-2">Ritmo necesario: <strong className="text-amber-400">{d.meta_electoral.ritmo_necesario} promovidos/día</strong> durante {d.meta_electoral.dias_restantes} días</p>
+            )}
+          </div>
+        </div>
+
+        {/* 6 KPIs */}
+        <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
+          {[
+            ['secciones_ganadas', '🟢', 'Secciones ganadas', 'border-emerald-700/50', 'text-emerald-400'],
+            ['secciones_con_promotores', '🔵', 'Secciones con promotores', 'border-blue-700/50', 'text-blue-400'],
+            ['secciones_perdidas', '🔴', 'Secciones perdidas', 'border-red-700/50', 'text-red-400'],
+            ['promovidos_hoy', '🟣', 'Promovidos hoy', 'border-purple-700/50', 'text-purple-400'],
+            ['comprometidos_hoy', '🟡', 'Comprometidos hoy', 'border-indigo-700/50', 'text-indigo-400'],
+            ['incidencias_activas', '🟢', 'Incidencias activas', 'border-emerald-700/50', 'text-emerald-400'],
+          ].map(([key, ico, label, border, color]) => (
+            <div key={key} className={`bg-slate-900/60 border ${border} rounded-xl p-3`}>
+              <div className={`text-2xl font-black ${color}`}>{d.kpis[key]}</div>
+              <div className="text-[10px] text-slate-500 mt-0.5">{label}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Alertas · Secciones críticas · Agenda de hoy */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+            <h3 className="text-xs font-bold text-slate-400 uppercase mb-3">⚠️ Alertas del sistema</h3>
+            <div className="space-y-2">
+              {d.alertas.map((a, i) => (
+                <div key={i} className={`text-xs rounded-lg border px-3 py-2 ${ALERTA_ESTILO[a.tipo]}`}>{ALERTA_ICONO[a.tipo]} {a.texto}</div>
+              ))}
+            </div>
+          </div>
+
+          <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+            <h3 className="text-xs font-bold text-slate-400 uppercase mb-3">🔴 Secciones más críticas</h3>
+            <div className="space-y-2">
+              {d.secciones_criticas.length === 0 ? <div className="text-xs text-slate-500">Sin secciones críticas por ahora</div> :
+                d.secciones_criticas.map((s) => (
+                  <div key={s.seccion} className="flex items-center gap-2 text-xs">
+                    <span className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0" />
+                    <span className="text-white font-bold w-8">{s.seccion}</span>
+                    <div className="flex-1 h-1.5 bg-slate-800 rounded-full overflow-hidden"><div className="h-full bg-red-500" style={{ width: `${Math.min(100, s.deficit_votos / 3)}%` }} /></div>
+                    <span className="text-red-400 text-[10px] flex-shrink-0">-{s.deficit_votos} votos</span>
+                  </div>
+                ))}
+            </div>
+            <Link to="/priorizacion" className="text-[10px] font-bold text-indigo-400 block pt-2">Ver todas en Priorización →</Link>
+          </div>
+
+          <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+            <h3 className="text-xs font-bold text-slate-400 uppercase mb-3">📅 Agenda de hoy</h3>
+            {d.agenda_hoy.length === 0 ? (
+              <div className="text-xs text-slate-500 text-center py-4">Sin eventos programados hoy</div>
+            ) : (
+              <div className="space-y-2">
+                {d.agenda_hoy.map((e, i) => (
+                  <div key={i} className="text-xs">
+                    <div className="font-bold text-white">{e.titulo}</div>
+                    <div className="text-slate-500">{new Date(e.fecha_inicio).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })} {e.lugar && `· ${e.lugar}`}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <Link to="/agenda" className="text-[10px] font-bold text-indigo-400 block pt-2">+ Agregar evento →</Link>
+          </div>
+        </div>
+
+        {/* Actividad de campo por distrito */}
+        <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+          <h3 className="text-xs font-bold text-slate-400 uppercase mb-3">🔥 Actividad de campo — últimos 7 días por distrito local</h3>
+          {d.actividad_por_distrito.length === 0 ? (
+            <div className="text-xs text-slate-500 text-center py-2">Sin actividad reciente registrada</div>
+          ) : (
+            <>
+              <div className="flex gap-1.5 flex-wrap">
+                {d.actividad_por_distrito.map((a) => {
+                  const intensidad = parseInt(a.total) / maxDistrito;
+                  const color = intensidad > 0.66 ? '#22c55e' : intensidad > 0.33 ? '#eab308' : '#ef4444';
+                  return (
+                    <div key={a.distrito_local} className="w-11 h-11 rounded-lg flex items-center justify-center text-xs font-black text-white" style={{ background: color, opacity: 0.3 + intensidad * 0.7 }} title={`${a.total} contactos`}>
+                      {a.distrito_local}
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="flex items-center justify-between text-[9px] text-slate-500 mt-2">
+                <span>Sin actividad</span>
+                <div className="flex-1 h-1.5 mx-2 rounded-full bg-gradient-to-r from-red-500 via-yellow-500 to-emerald-500" />
+                <span>Muy activo</span>
+              </div>
+            </>
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Actividad reciente de promotores */}
+          <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+            <h3 className="text-xs font-bold text-slate-400 uppercase mb-3">👤 Actividad reciente de promotores</h3>
+            {d.actividad_reciente.length === 0 ? (
+              <div className="text-xs text-slate-500 text-center py-4">Sin reportes registrados</div>
+            ) : (
+              <div className="space-y-2 max-h-56 overflow-y-auto">
+                {d.actividad_reciente.map((r, i) => (
+                  <div key={i} className="text-xs flex items-center justify-between">
+                    <span className="text-slate-300"><strong className="text-white">{r.promotor}</strong> registró a {r.promovido}</span>
+                    <span className="text-slate-500 text-[10px]">Secc. {r.seccion_numero}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <Link to="/promovidos" className="text-[10px] font-bold text-indigo-400 block pt-2">Ver todos los reportes →</Link>
+          </div>
+
+          {/* Mejor promotor + coordinadores */}
+          <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 space-y-3">
+            {d.mejor_promotor && (
+              <div>
+                <h3 className="text-xs font-bold text-slate-400 uppercase mb-2">🏆 Mejor promotor</h3>
+                <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3 flex items-center justify-between">
+                  <span className="text-sm font-bold text-white">🥇 {d.mejor_promotor.nombre}</span>
+                  <span className="text-amber-400 text-xs font-bold">{d.mejor_promotor.total_promovidos} promovidos</span>
                 </div>
-              )}
-              <p className="text-white font-semibold leading-relaxed">{hoy?.mensaje}</p>
+              </div>
+            )}
+            <div>
+              <h3 className="text-xs font-bold text-slate-400 uppercase mb-2">🗂️ Coordinadores</h3>
+              <div className="space-y-1.5 max-h-32 overflow-y-auto">
+                {d.coordinadores.map((c) => (
+                  <div key={c.id} className="flex items-center justify-between text-xs">
+                    <span className="text-slate-300">{c.nombre} <span className="text-slate-600">({ROL_CORTO[c.rol]})</span></span>
+                    <span className="text-slate-400">{c.equipo} equipo · {c.promovidos_equipo} prom.</span>
+                  </div>
+                ))}
+              </div>
+              <Link to="/estructura" className="text-[10px] font-bold text-indigo-400 block pt-2">Ver estructura completa →</Link>
             </div>
           </div>
         </div>
 
-        {/* Alertas urgentes — solo aparecen si hay algo que atender */}
-        {(incidenciasUrgentes > 0 || saludEstructura?.resumen?.sobrecargado > 0) && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {incidenciasUrgentes > 0 && (
-              <Link to="/incidencias" className="bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3 flex items-center justify-between hover:bg-red-500/20">
-                <span className="text-sm text-red-300">🚨 <strong>{incidenciasUrgentes}</strong> incidencia(s) urgente(s) sin resolver</span>
-                <span className="text-xs font-bold text-red-400">Ver →</span>
-              </Link>
-            )}
-            {saludEstructura?.resumen?.sobrecargado > 0 && (
-              <Link to="/estructura" className="bg-orange-500/10 border border-orange-500/30 rounded-xl px-4 py-3 flex items-center justify-between hover:bg-orange-500/20">
-                <span className="text-sm text-orange-300">🔴 <strong>{saludEstructura.resumen.sobrecargado}</strong> coordinador(es) sobrecargado(s)</span>
-                <span className="text-xs font-bold text-orange-400">Ver →</span>
-              </Link>
-            )}
-          </div>
-        )}
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {/* Columna principal */}
-          <div className="md:col-span-2 space-y-6">
-            {/* Resumen de promovidos */}
-            <div>
-              <h2 className="text-sm font-bold text-slate-400 uppercase tracking-wide mb-3">Tu gente, clasificada</h2>
-              <div className="grid grid-cols-3 gap-3">
-                <div className="bg-slate-900/60 dark:bg-slate-900/60 light:bg-white border border-emerald-800/50 light:border-emerald-200 rounded-2xl p-4">
-                  <div className="text-2xl font-black text-emerald-400">{resumenPromos?.por_clasificacion?.base || 0}</div>
-                  <div className="text-xs text-slate-400 mt-1">✅ Base — asegúralos para el día D</div>
-                </div>
-                <div className="bg-slate-900/60 dark:bg-slate-900/60 light:bg-white border border-amber-800/50 light:border-amber-200 rounded-2xl p-4">
-                  <div className="text-2xl font-black text-amber-400">{resumenPromos?.por_clasificacion?.persuadible || 0}</div>
-                  <div className="text-xs text-slate-400 mt-1">🎯 Persuadibles — aquí rinde tu esfuerzo</div>
-                </div>
-                <div className="bg-slate-900/60 dark:bg-slate-900/60 light:bg-white border border-slate-800 light:border-slate-200 rounded-2xl p-4">
-                  <div className="text-2xl font-black text-slate-400">{resumenPromos?.por_clasificacion?.adversario || 0}</div>
-                  <div className="text-xs text-slate-400 mt-1">⛔ Adversarios — no gastes aquí</div>
-                </div>
-              </div>
-              {resumenPromos?.persuadibles_sin_seguimiento > 0 && (
-                <div className="mt-3 bg-amber-500/10 border border-amber-500/30 rounded-xl px-4 py-3 flex items-center justify-between">
-                  <span className="text-sm text-amber-300">
-                    ⚠️ <strong>{resumenPromos.persuadibles_sin_seguimiento}</strong> persuadibles llevan más de 15 días sin contacto
-                  </span>
-                  <Link to="/promovidos?filtro=seguimiento" className="text-xs font-bold text-amber-400 underline">Ver lista →</Link>
-                </div>
-              )}
-            </div>
-
-            {/* 📈 Gráfica de tendencia — dato que ya existía pero nunca se mostraba */}
-            <div>
-              <h2 className="text-sm font-bold text-slate-400 uppercase tracking-wide mb-3">📈 Ritmo de registro (últimos 14 días)</h2>
-              <div className="bg-slate-900/60 dark:bg-slate-900/60 light:bg-white border border-slate-800 light:border-slate-200 rounded-2xl p-4">
-                {tendencia.length === 0 ? (
-                  <div className="text-xs text-slate-500 text-center py-6">Aún no hay suficiente actividad para mostrar tendencia</div>
-                ) : (
-                  <div className="flex items-end gap-1.5 h-24">
-                    {tendencia.map((t) => (
-                      <div key={t.fecha} className="flex-1 flex flex-col items-center gap-1 group relative">
-                        <div className="w-full bg-indigo-500 rounded-t hover:bg-indigo-400 transition-all"
-                          style={{ height: `${Math.max(4, (t.promovidos / maxTendencia) * 100)}%` }} />
-                        <div className="absolute -top-6 opacity-0 group-hover:opacity-100 text-[9px] bg-slate-800 px-1.5 py-0.5 rounded text-white whitespace-nowrap transition-opacity">
-                          {t.promovidos} el {new Date(t.fecha).toLocaleDateString('es-MX', { day: 'numeric', month: 'short' })}
-                        </div>
-                      </div>
-                    ))}
+        {/* Activos y Finanzas */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+            <h3 className="text-xs font-bold text-slate-400 uppercase mb-3">📺 Activos de campaña</h3>
+            <div className="grid grid-cols-2 gap-2">
+              {Object.keys(NOMBRE_ACTIVO).map((tipo) => (
+                <div key={tipo} className="bg-slate-800/50 rounded-lg p-2.5 flex items-center gap-2">
+                  <span className="text-lg">{ICONO_ACTIVO[tipo]}</span>
+                  <div>
+                    <div className="text-sm font-black text-white">{tipo === 'utilitario' ? (d.activos[tipo]?.cantidad || 0) : (d.activos[tipo]?.total || 0)}</div>
+                    <div className="text-[9px] text-slate-500">{NOMBRE_ACTIVO[tipo]}</div>
                   </div>
-                )}
-              </div>
+                </div>
+              ))}
             </div>
-
-            {/* Resumen del Motor de Priorización */}
-            {prioridad && (
-              <div>
-                <div className="flex items-center justify-between mb-3">
-                  <h2 className="text-sm font-bold text-slate-400 uppercase tracking-wide">Territorio</h2>
-                  <Link to="/priorizacion" className="text-xs font-bold text-indigo-400">Ver análisis completo →</Link>
-                </div>
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-                  {[
-                    ['criticas', '🔴', 'Críticas', 'text-red-400'],
-                    ['recuperables', '🟠', 'Recuperables', 'text-orange-400'],
-                    ['disputa', '🟡', 'En disputa', 'text-yellow-400'],
-                    ['consolidar', '🟢', 'A consolidar', 'text-emerald-400'],
-                    ['perdidas', '⚫', 'Sin esperanza', 'text-slate-500'],
-                  ].map(([key, ico, label, color]) => (
-                    <div key={key} className="bg-slate-900/60 dark:bg-slate-900/60 light:bg-white border border-slate-800 light:border-slate-200 rounded-xl p-3 text-center">
-                      <div className="text-xl mb-1">{ico}</div>
-                      <div className={`text-xl font-black ${color}`}>{prioridad.resumen[key]}</div>
-                      <div className="text-[10px] text-slate-500 mt-0.5">{label}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
+            <Link to="/activos" className="text-[10px] font-bold text-indigo-400 block pt-2">Gestionar activos →</Link>
           </div>
 
-          {/* Columna lateral */}
-          <div className="space-y-6">
-            {/* Próximos eventos de Agenda */}
-            <div>
-              <h2 className="text-sm font-bold text-slate-400 uppercase tracking-wide mb-3">📅 Próximos eventos</h2>
-              <div className="bg-slate-900/60 dark:bg-slate-900/60 light:bg-white border border-slate-800 light:border-slate-200 rounded-2xl p-4 space-y-2.5">
-                {proximosEventos.length === 0 ? (
-                  <div className="text-xs text-slate-500 text-center py-2">Sin eventos próximos</div>
-                ) : proximosEventos.map((e) => (
-                  <div key={e.id} className="text-xs">
-                    <div className="font-bold text-white dark:text-white light:text-slate-800">{e.titulo}</div>
-                    <div className="text-slate-500">{new Date(e.fecha_inicio).toLocaleDateString('es-MX', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</div>
-                  </div>
-                ))}
-                <Link to="/agenda" className="text-[10px] font-bold text-indigo-400 block pt-1">Ver toda la agenda →</Link>
-              </div>
-            </div>
-
-            {/* Finanzas resumen */}
-            {finanzas?.tope_ople && (
-              <div>
-                <h2 className="text-sm font-bold text-slate-400 uppercase tracking-wide mb-3">💰 Control financiero</h2>
-                <div className="bg-slate-900/60 dark:bg-slate-900/60 light:bg-white border border-slate-800 light:border-slate-200 rounded-2xl p-4">
-                  <div className="h-2 bg-slate-800 rounded-full overflow-hidden mb-2">
-                    <div className={`h-full ${finanzas.porcentaje_usado > 90 ? 'bg-red-500' : finanzas.porcentaje_usado > 70 ? 'bg-amber-500' : 'bg-emerald-500'}`}
-                      style={{ width: `${Math.min(100, finanzas.porcentaje_usado)}%` }} />
-                  </div>
-                  <div className="text-xs text-slate-400">{fmtDinero(finanzas.total_gastado)} de {fmtDinero(finanzas.tope_ople)} ({finanzas.porcentaje_usado}%)</div>
-                  <Link to="/finanzas" className="text-[10px] font-bold text-indigo-400 block pt-2">Ver detalle →</Link>
-                </div>
-              </div>
-            )}
-
-            {/* Semáforo de salud de estructura */}
-            {saludEstructura && (
-              <div>
-                <h2 className="text-sm font-bold text-slate-400 uppercase tracking-wide mb-3">🗂️ Salud de estructura</h2>
-                <div className="bg-slate-900/60 dark:bg-slate-900/60 light:bg-white border border-slate-800 light:border-slate-200 rounded-2xl p-4 grid grid-cols-2 gap-2 text-center">
-                  <div><div className="text-emerald-400 font-black">{saludEstructura.resumen.sano}</div><div className="text-[9px] text-slate-500">Sano</div></div>
-                  <div><div className="text-red-400 font-black">{saludEstructura.resumen.sobrecargado}</div><div className="text-[9px] text-slate-500">Sobrecargado</div></div>
-                  <div><div className="text-amber-400 font-black">{saludEstructura.resumen.bajo}</div><div className="text-[9px] text-slate-500">Subutilizado</div></div>
-                  <div><div className="text-slate-500 font-black">{saludEstructura.resumen.vacio}</div><div className="text-[9px] text-slate-500">Sin equipo</div></div>
-                  <Link to="/estructura" className="col-span-2 text-[10px] font-bold text-indigo-400 pt-1">Ver estructura →</Link>
-                </div>
-              </div>
-            )}
+          <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+            <h3 className="text-xs font-bold text-slate-400 uppercase mb-3">💰 Gasto total de campaña</h3>
+            <div className="text-3xl font-black text-emerald-400">{fmt(d.gasto_total)}</div>
+            <p className="text-[10px] text-slate-500 mt-1">Incluye todos los gastos registrados en Finanzas</p>
+            <Link to="/finanzas" className="text-[10px] font-bold text-indigo-400 block pt-2">Ver control financiero →</Link>
           </div>
         </div>
       </div>
