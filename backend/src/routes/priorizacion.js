@@ -281,6 +281,7 @@ router.get('/seccion/:numero', async (req, res) => {
         lista_nominal: seccion.lista_nominal,
         distrito_federal: seccion.distrito_federal,
         distrito_local: seccion.distrito_local,
+        partido_campana: campana.partido,
         anio_historico: anio,
         votos_historicos: votos,
         total_votos_historico: totalVotos,

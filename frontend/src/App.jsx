@@ -11,6 +11,7 @@ import Codigos from './pages/Codigos';
 import DiaEleccion from './pages/DiaEleccion';
 import Incidencias from './pages/Incidencias';
 import Finanzas from './pages/Finanzas';
+import Activos from './pages/Activos';
 import AdminPlataforma from './pages/AdminPlataforma';
 import MapaElectoral from './components/MapaElectoral';
 import RutaProtegida from './components/RutaProtegida';
@@ -32,6 +33,7 @@ export default function App() {
         <Route path="/dia-eleccion" element={<RutaProtegida><DiaEleccion /></RutaProtegida>} />
         <Route path="/incidencias" element={<RutaProtegida><Incidencias /></RutaProtegida>} />
         <Route path="/finanzas" element={<RutaProtegida><Finanzas /></RutaProtegida>} />
+        <Route path="/activos" element={<RutaProtegida><Activos /></RutaProtegida>} />
         <Route
           path="/mapa"
           element={

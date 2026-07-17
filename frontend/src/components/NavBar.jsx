@@ -12,6 +12,7 @@ const MODULOS = [
   { ruta: '/dia-eleccion', ic: '🗳️', label: 'Día D' },
   { ruta: '/incidencias', ic: '🚨', label: 'Incidencias' },
   { ruta: '/finanzas', ic: '💰', label: 'Finanzas' },
+  { ruta: '/activos', ic: '📺', label: 'Activos' },
 ];
 
 export default function NavBar() {

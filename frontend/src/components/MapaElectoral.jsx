@@ -219,6 +219,50 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
     }).catch(() => setSeccionesCubiertas(new Set()));
   }, [mostrarCobertura]);
 
+  // ── ACTIVOS DE CAMPAÑA (bardas, espectaculares, mantas, representantes) ──
+  const [activos, setActivos] = useState([]);
+  const [capaActivos, setCapaActivos] = useState(false);
+
+  useEffect(() => {
+    api.get('/activos').then(r => setActivos(r.data.data.filter(a => a.lat && a.lng))).catch(() => setActivos([]));
+  }, []);
+
+  const ICONO_ACTIVO = { espectacular: '📺', barda: '🧱', manta: '🎏', ine_representante: '🗳️' };
+  const iconoActivo = (tipo) => new L.DivIcon({
+    className: '',
+    html: `<div style="font-size:18px;filter:drop-shadow(0 1px 3px rgba(0,0,0,.7))">${ICONO_ACTIVO[tipo] || '📍'}</div>`,
+    iconSize: [22, 22],
+  });
+
+  // ── SECTORIZACIÓN: seleccionar varias secciones y asignarlas de un jalón ──
+  const [modoSectorizacion, setModoSectorizacion] = useState(false);
+  const [seccionesSeleccionadas, setSeccionesSeleccionadas] = useState(new Set());
+  const [coordinadores, setCoordinadores] = useState([]);
+  const [zonasAsignadas, setZonasAsignadas] = useState([]);
+
+  useEffect(() => {
+    if (!modoSectorizacion) return;
+    api.get('/estructura').then(r => setCoordinadores(r.data.data.filter(u => u.rol !== 'promotor')));
+    api.get('/zonas').then(r => setZonasAsignadas(r.data.data));
+  }, [modoSectorizacion]);
+
+  const alClickSeccion = (numero) => {
+    if (!modoSectorizacion) { setSeccionActiva(numero); return; }
+    setSeccionesSeleccionadas((prev) => {
+      const nuevo = new Set(prev);
+      nuevo.has(numero) ? nuevo.delete(numero) : nuevo.add(numero);
+      return nuevo;
+    });
+  };
+
+  const asignarZona = async (usuarioId) => {
+    if (seccionesSeleccionadas.size === 0) return;
+    const { data } = await api.post('/zonas/asignar', { usuario_id: usuarioId, secciones: [...seccionesSeleccionadas] });
+    alert(`✅ ${data.asignadas} secciones asignadas`);
+    setSeccionesSeleccionadas(new Set());
+    api.get('/zonas').then(r => setZonasAsignadas(r.data.data));
+  };
+
   const ESTADO_CASA_COLOR = {
     sin_visitar: '#64748b', visitado: '#3b82f6', promovido: '#10b981', competencia: '#ef4444', no_toco: '#f59e0b',
   };
@@ -295,6 +339,11 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
     // Cobertura de estructura: borde punteado rojo si NO tiene coordinador
     // seccional asignado — para detectar huecos de un vistazo
     const sinCobertura = mostrarCobertura && !seccionesCubiertas.has(num);
+    const seleccionadaParaZona = modoSectorizacion && seccionesSeleccionadas.has(num);
+
+    if (seleccionadaParaZona) {
+      return { fillColor: '#a855f7', fillOpacity: 0.6, color: '#c084fc', weight: 3, opacity: 1 };
+    }
 
     return {
       fillColor: colorRelleno,
@@ -315,7 +364,7 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
       mouseout: (e) => {
         e.target.setStyle(estiloSeccion(feature));
       },
-      click: () => setSeccionActiva(feature.properties.seccion),
+      click: () => alClickSeccion(feature.properties.seccion),
     });
     // Etiqueta permanente con el número de sección (SORPRESA: se ve solo con buen zoom, evita saturar)
     capa.bindTooltip(String(feature.properties.seccion).padStart(3, '0'), {
@@ -365,7 +414,7 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
 
         {seccionesFiltradas && (
           <GeoJSON
-            key={`${coloreadoActivo}-${seccionActiva}-${territorioId}-${tipoEleccion}-${anio}-${modoColoreado}-${mostrarCobertura}-${Object.keys(prioridadPorSeccion).length}-${seccionesCubiertas.size}`}
+            key={`${coloreadoActivo}-${seccionActiva}-${territorioId}-${tipoEleccion}-${anio}-${modoColoreado}-${mostrarCobertura}-${Object.keys(prioridadPorSeccion).length}-${seccionesCubiertas.size}-${modoSectorizacion}-${seccionesSeleccionadas.size}`}
             data={seccionesFiltradas}
             style={estiloSeccion}
             onEachFeature={alPasarMouse}
@@ -400,6 +449,19 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
                 {c.partido_competencia && <>Partido: {c.partido_competencia.toUpperCase()}<br /></>}
                 {c.promovido_nombre && <>👤 {c.promovido_nombre}<br /></>}
                 <em style={{ fontSize: 10, color: '#888' }}>Toca el punto para cambiar su estado</em>
+              </div>
+            </Popup>
+          </Marker>
+        ))}
+
+        {/* Activos de campaña (bardas, espectaculares, mantas, representantes) */}
+        {capaActivos && activos.map((a) => (
+          <Marker key={a.id} position={[a.lat, a.lng]} icon={iconoActivo(a.tipo)}>
+            <Popup>
+              <div style={{ fontSize: 12 }}>
+                <strong>{ICONO_ACTIVO[a.tipo]} {a.tipo === 'ine_representante' ? a.nombre_rep : a.direccion}</strong><br />
+                {a.tipo !== 'ine_representante' && a.empresa && <>Empresa: {a.empresa}<br /></>}
+                Estado: {a.estado}
               </div>
             </Popup>
           </Marker>
@@ -487,6 +549,10 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
             <input type="checkbox" checked={capaCalor} onChange={e => setCapaCalor(e.target.checked)} />
             🔥 Mapa de calor (densidad de promovidos)
           </label>
+          <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+            <input type="checkbox" checked={capaActivos} onChange={e => setCapaActivos(e.target.checked)} />
+            📺 Activos ({activos.length}: bardas, espectaculares...)
+          </label>
           <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer border-t border-slate-800 pt-2">
             <input type="checkbox" checked={mostrarCobertura} onChange={e => setMostrarCobertura(e.target.checked)} />
             🗂️ Cobertura de estructura (borde rojo = sin coordinador)
@@ -566,15 +632,27 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
                 <div className="bg-slate-800/60 rounded-lg p-2.5">
                   <div className="text-[10px] text-slate-500 uppercase font-bold mb-1.5">Resultados históricos {fichaTecnica.anio_historico}</div>
                   <div className="space-y-1">
-                    {Object.entries(fichaTecnica.votos_historicos).sort((a, b) => b[1] - a[1]).map(([p, v]) => (
-                      <div key={p} className="flex items-center justify-between">
-                        <span className={`font-bold ${p === fichaTecnica.ganador_historico ? 'text-amber-400' : 'text-slate-400'}`}>
-                          {p === fichaTecnica.ganador_historico && '👑 '}{p.toUpperCase()}
-                        </span>
-                        <span className="text-white">{v.toLocaleString()} ({fichaTecnica.total_votos_historico ? Math.round(v / fichaTecnica.total_votos_historico * 100) : 0}%)</span>
-                      </div>
-                    ))}
+                    {Object.entries(fichaTecnica.votos_historicos).sort((a, b) => b[1] - a[1]).map(([p, v]) => {
+                      const esTuPartido = p === fichaTecnica.partido_campana;
+                      const esGanador = p === fichaTecnica.ganador_historico;
+                      return (
+                        <div key={p} className={`flex items-center justify-between rounded px-1.5 py-0.5 ${esTuPartido ? 'bg-indigo-500/20 ring-1 ring-indigo-500/40' : ''}`}>
+                          <span className={`font-bold ${esGanador ? 'text-amber-400' : esTuPartido ? 'text-indigo-300' : 'text-slate-400'}`}>
+                            {esGanador && '👑 '}{esTuPartido && !esGanador && '⭐ '}{p.toUpperCase()}
+                          </span>
+                          <span className="text-white">{v.toLocaleString()} ({fichaTecnica.total_votos_historico ? Math.round(v / fichaTecnica.total_votos_historico * 100) : 0}%)</span>
+                        </div>
+                      );
+                    })}
                   </div>
+                  {/* Comparador directo: tú vs quien gobierna ahora */}
+                  {fichaTecnica.partido_campana && fichaTecnica.ganador_historico && fichaTecnica.partido_campana !== fichaTecnica.ganador_historico && (
+                    <div className="mt-2 pt-2 border-t border-slate-700 text-[10px] text-slate-300">
+                      Vas <strong className="text-red-400">
+                        {((fichaTecnica.votos_historicos[fichaTecnica.ganador_historico] || 0) - (fichaTecnica.votos_historicos[fichaTecnica.partido_campana] || 0)).toLocaleString()} votos abajo
+                      </strong> de {fichaTecnica.ganador_historico.toUpperCase()} (quien gobierna actualmente)
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="text-[10px] text-amber-400 bg-amber-500/10 rounded-lg p-2">⚠️ Sin datos históricos cargados para este tipo de elección</div>
@@ -617,7 +695,32 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
             📊 Ficha técnica del municipio
           </button>
         )}
+        <button onClick={() => { setModoSectorizacion(v => !v); setSeccionesSeleccionadas(new Set()); }}
+          className={`w-full px-4 py-2.5 rounded-xl backdrop-blur text-sm font-bold shadow-lg ${modoSectorizacion ? 'bg-purple-600 text-white' : 'bg-slate-900/90 text-slate-300'}`}>
+          ✂️ {modoSectorizacion ? 'Salir de Sectorización' : 'Modo Sectorización'}
+        </button>
       </div>
+
+      {/* Panel de control de sectorización — aparece solo en ese modo */}
+      {modoSectorizacion && (
+        <div className="absolute bottom-4 left-4 right-4 md:right-auto z-[1500] md:w-72 bg-slate-900/95 backdrop-blur border border-purple-700/40 rounded-2xl p-4 space-y-2.5">
+          <div className="text-sm font-bold text-white">✂️ Modo Sectorización</div>
+          <p className="text-[10px] text-slate-400">Toca varias secciones en el mapa para seleccionarlas, luego elige a quién se las asignas.</p>
+          <div className="text-xs text-purple-300 font-bold">{seccionesSeleccionadas.size} secciones seleccionadas</div>
+          {seccionesSeleccionadas.size > 0 && (
+            <select onChange={(e) => e.target.value && asignarZona(e.target.value)} defaultValue=""
+              className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs">
+              <option value="" disabled>Asignar a...</option>
+              {coordinadores.map((c) => <option key={c.id} value={c.id}>{c.nombre} ({c.rol})</option>)}
+            </select>
+          )}
+          {zonasAsignadas.length > 0 && (
+            <div className="text-[10px] text-slate-500 pt-1 border-t border-slate-800">
+              {zonasAsignadas.length} secciones ya tienen zona asignada en total
+            </div>
+          )}
+        </div>
+      )}
 
       {/* 📊 RESUMEN COMPLETO DE MUNICIPIO — modal grande con todo el detalle */}
       {mostrarResumenMunicipio && (
