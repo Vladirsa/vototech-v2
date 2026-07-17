@@ -26,6 +26,7 @@ import iaRoutes from './routes/ia.js';
 import whatsappRoutes from './routes/whatsapp.js';
 import casasRoutes from './routes/casas.js';
 import fotosRoutes from './routes/fotos.js';
+import exportarRoutes from './routes/exportar.js';
 import adminRoutes from './routes/admin.js';
 
 const app = express();
@@ -89,6 +90,7 @@ app.use('/api/ia', iaRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
 app.use('/api/casas', casasRoutes);
 app.use('/api/fotos', fotosRoutes);
+app.use('/api/exportar', exportarRoutes);
 app.use('/api/admin', adminRoutes);
 
 app.get('/api/salud', (req, res) => {

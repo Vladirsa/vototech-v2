@@ -33,7 +33,7 @@ const upload = multer({
 
 const LIMITES = {
   incidencia: 5,   // máximo 5 fotos por incidencia
-  acta: 1,         // 1 foto del acta por casilla
+  acta: 3,         // hasta 3 actas por casilla (elecciones concurrentes: Ayto + Dip Local + Gubernatura)
   casa: 1,         // 1 foto por casa (evidencia de visita)
 };
 

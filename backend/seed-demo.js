@@ -18,7 +18,7 @@ const NOMBRES = ['María González', 'Juan Pérez', 'Rosa Martínez', 'Carlos He
   'Jorge Vázquez', 'Elena Cruz', 'Roberto Morales', 'Patricia Reyes', 'Fernando Ortiz',
   'Gabriela Jiménez', 'Ricardo Castro', 'Verónica Romero', 'Alejandro Suárez'];
 
-async function main() {
+export async function crearDemo() {
   console.log('🎬 Creando cuenta DEMO...\n');
 
   // Borrar demo anterior si existe (para que cada presentación arranque limpia)
@@ -151,8 +151,13 @@ async function main() {
   console.log(`  Correo:     ${DEMO_EMAIL}`);
   console.log(`  Contraseña: ${DEMO_PASSWORD}`);
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+  return { subdominio: DEMO_SUBDOMINIO, email: DEMO_EMAIL, password: DEMO_PASSWORD };
 }
 
-main()
-  .then(() => pool.end())
-  .catch((e) => { console.error('❌ Error creando demo:', e); process.exit(1); });
+// Si se ejecuta directamente con "node seed-demo.js", correr y cerrar.
+if (import.meta.url === `file://${process.argv[1]}`) {
+  crearDemo()
+    .then(() => pool.end())
+    .catch((e) => { console.error('❌ Error creando demo:', e); process.exit(1); });
+}

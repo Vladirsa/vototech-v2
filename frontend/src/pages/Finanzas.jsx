@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import api from '../lib/api';
+import api, { descargarArchivo } from '../lib/api';
 
 const CATEGORIAS = ['propaganda_impresa', 'espectaculares', 'eventos', 'transporte', 'personal', 'tecnologia', 'publicidad_digital', 'otro'];
 
@@ -37,9 +37,15 @@ export default function Finanzas() {
             <h1 className="text-2xl font-black text-white">💰 Control Financiero</h1>
             <Link to="/dashboard" className="text-xs text-indigo-400">← Dashboard</Link>
           </div>
-          <button onClick={() => setMostrarForm(!mostrarForm)} className="px-4 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-bold">
-            {mostrarForm ? 'Cancelar' : '+ Gasto'}
-          </button>
+          <div className="flex gap-2">
+            <button onClick={() => descargarArchivo('/exportar/gastos', 'gastos_ople.xlsx')}
+              className="px-3 py-2.5 rounded-xl bg-emerald-700/50 text-emerald-300 text-sm font-bold" title="Excel formato OPLE">
+              📥 Excel OPLE
+            </button>
+            <button onClick={() => setMostrarForm(!mostrarForm)} className="px-4 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-bold">
+              {mostrarForm ? 'Cancelar' : '+ Gasto'}
+            </button>
+          </div>
         </div>
 
         <div className="bg-gradient-to-br from-emerald-900/40 to-teal-900/40 border border-emerald-700/30 rounded-2xl p-4">

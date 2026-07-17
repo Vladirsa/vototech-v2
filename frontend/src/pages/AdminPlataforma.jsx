@@ -47,6 +47,22 @@ export default function AdminPlataforma() {
   const aprobar = async (id) => { await axios.patch(`${API_URL}/admin/campanas/${id}/aprobar`, {}, { headers }); cargar(); };
   const rechazar = async (id) => { await axios.patch(`${API_URL}/admin/campanas/${id}/rechazar`, {}, { headers }); cargar(); };
 
+  const [creandoDemo, setCreandoDemo] = useState(false);
+  const [mensajeDemo, setMensajeDemo] = useState('');
+
+  const crearDemo = async () => {
+    setCreandoDemo(true);
+    setMensajeDemo('');
+    try {
+      const { data } = await axios.post(`${API_URL}/admin/crear-demo`, {}, { headers });
+      setMensajeDemo(`✅ Demo creada — Correo: ${data.data.email} · Contraseña: ${data.data.password}`);
+      cargar();
+    } catch (e) {
+      setMensajeDemo('⚠️ Error al crear la demo. Intenta de nuevo.');
+    }
+    setCreandoDemo(false);
+  };
+
   if (!autenticado) {
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
@@ -67,6 +83,17 @@ export default function AdminPlataforma() {
     <div className="min-h-screen bg-slate-950 p-4 md:p-8">
       <div className="max-w-3xl mx-auto space-y-6">
         <h1 className="text-2xl font-black text-white">🔐 Panel de Administración VotoTech</h1>
+
+        {/* Cuenta demo para presentaciones de venta */}
+        <div className="bg-gradient-to-br from-purple-900/40 to-pink-900/40 border border-purple-700/30 rounded-xl p-4 space-y-2">
+          <h2 className="text-sm font-bold text-white">🎬 Cuenta Demo (para presentaciones)</h2>
+          <p className="text-[10px] text-slate-400">Crea o reconstruye desde cero una campaña de ejemplo llena de datos — sin usar terminal.</p>
+          <button onClick={crearDemo} disabled={creandoDemo}
+            className="w-full py-2.5 rounded-lg bg-purple-600 text-white text-sm font-bold disabled:opacity-50">
+            {creandoDemo ? '⏳ Creando demo...' : '🎬 Crear / Reconstruir Demo'}
+          </button>
+          {mensajeDemo && <div className="text-xs text-purple-200 bg-slate-900/50 rounded-lg p-2">{mensajeDemo}</div>}
+        </div>
 
         {/* Generar códigos de acceso */}
         <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 space-y-2">

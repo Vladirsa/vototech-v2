@@ -2,6 +2,7 @@ import { Router } from 'express';
 import crypto from 'crypto';
 import { query } from '../db/pool.js';
 import { requiereSuperAdmin } from '../middleware/superAdmin.js';
+import { crearDemo } from '../../seed-demo.js';
 
 const router = Router();
 router.use(requiereSuperAdmin); // TODO en este archivo requiere la clave secreta
@@ -59,6 +60,21 @@ router.patch('/campanas/:id/rechazar', async (req, res) => {
     [req.params.id]
   );
   res.json({ ok: true, data: resultado.rows[0] });
+});
+
+/**
+ * POST /api/admin/crear-demo
+ * Crea (o reconstruye desde cero) la cuenta demo con datos de ejemplo
+ * completos — un solo click desde el panel, sin necesitar terminal.
+ */
+router.post('/crear-demo', async (req, res) => {
+  try {
+    const credenciales = await crearDemo();
+    res.json({ ok: true, data: credenciales, mensaje: 'Cuenta demo creada correctamente' });
+  } catch (e) {
+    console.error('Error creando demo:', e);
+    res.status(500).json({ ok: false, error: 'No se pudo crear la demo: ' + e.message });
+  }
 });
 
 export default router;

@@ -30,3 +30,19 @@ api.interceptors.response.use(
 );
 
 export default api;
+
+/**
+ * Descarga un archivo (Excel) autenticado — no se puede usar un link
+ * directo porque el navegador no mandaría el token de sesión.
+ */
+export async function descargarArchivo(ruta, nombreArchivo) {
+  const respuesta = await api.get(ruta, { responseType: 'blob' });
+  const url = window.URL.createObjectURL(respuesta.data);
+  const enlace = document.createElement('a');
+  enlace.href = url;
+  enlace.download = nombreArchivo;
+  document.body.appendChild(enlace);
+  enlace.click();
+  enlace.remove();
+  window.URL.revokeObjectURL(url);
+}

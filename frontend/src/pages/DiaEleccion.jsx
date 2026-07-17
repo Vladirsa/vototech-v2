@@ -147,7 +147,7 @@ export default function DiaEleccion() {
                     <div className="text-[10px] text-slate-400 mb-2">
                       {Object.entries(r.votos).sort((a, b) => b[1] - a[1]).map(([p, v]) => `${p.toUpperCase()}: ${v}`).join(' · ')}
                     </div>
-                    <SubidaFotos contexto="acta" referenciaId={r.id} maximo={1} />
+                    <SubidaFotos contexto="acta" referenciaId={r.id} maximo={3} />
                   </div>
                 ))}
               </div>
