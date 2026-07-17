@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import api from '../lib/api';
-import { useAuth } from '../lib/authStore';
 
 const TIPOS_ELECCION = [
   { id: 'ayuntamiento', label: '🏛️ Presidente Municipal', desc: 'Un municipio completo' },
@@ -15,13 +14,12 @@ export default function RegistroCampana() {
   const [paso, setPaso] = useState(1);
   const [form, setForm] = useState({
     nombre_candidato: '', email: '', password: '', partido: 'morena',
-    tipo_eleccion: '', estado_id: 29, subdominio: '',
+    tipo_eleccion: '', estado_id: 29, subdominio: '', codigo_acceso: '',
   });
   const [error, setError] = useState('');
   const [cargando, setCargando] = useState(false);
   const [exito, setExito] = useState(null);
   const navigate = useNavigate();
-  const iniciarSesion = useAuth((s) => s.iniciarSesion);
 
   const actualizar = (campo, valor) => setForm((f) => ({ ...f, [campo]: valor }));
 
@@ -37,10 +35,7 @@ export default function RegistroCampana() {
     setCargando(true);
     try {
       const { data } = await api.post('/auth/registrar-campana', form);
-      if (data.ok) {
-        setExito(data);
-        iniciarSesion(data.token, { nombre: form.nombre_candidato, rol: 'candidato' }, form.subdominio);
-      }
+      if (data.ok) setExito(data);
     } catch (err) {
       setError(err.response?.data?.error || 'Error al crear la campaña');
     }
@@ -49,16 +44,16 @@ export default function RegistroCampana() {
 
   if (exito) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-950 via-emerald-950 to-slate-950 p-4">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-950 via-amber-950 to-slate-950 p-4">
         <div className="max-w-md text-center">
-          <div className="text-6xl mb-4">🎉</div>
-          <h1 className="text-2xl font-black text-white mb-2">¡Campaña creada!</h1>
+          <div className="text-6xl mb-4">⏳</div>
+          <h1 className="text-2xl font-black text-white mb-2">Registro recibido</h1>
           <p className="text-slate-400 text-sm mb-6">{exito.mensaje}</p>
           <button
-            onClick={() => navigate('/mapa')}
-            className="px-6 py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-bold text-sm"
+            onClick={() => navigate('/login')}
+            className="px-6 py-3 rounded-xl bg-gradient-to-r from-amber-600 to-orange-600 text-white font-bold text-sm"
           >
-            Entrar al sistema →
+            Ir a Iniciar Sesión →
           </button>
         </div>
       </div>
@@ -109,7 +104,14 @@ export default function RegistroCampana() {
                 <input type="password" value={form.password} onChange={(e) => actualizar('password', e.target.value)}
                   className="w-full px-4 py-2.5 rounded-xl bg-slate-800/80 border border-slate-700 text-white text-sm focus:outline-none focus:border-indigo-500" />
               </div>
-              <button onClick={() => setPaso(2)} disabled={!form.nombre_candidato || !form.email || form.password.length < 8}
+              <div>
+                <label className="block text-xs font-semibold text-slate-400 mb-1.5">Código de acceso</label>
+                <input value={form.codigo_acceso} onChange={(e) => actualizar('codigo_acceso', e.target.value.toUpperCase())}
+                  placeholder="ACC-XXXXXXXX"
+                  className="w-full px-4 py-2.5 rounded-xl bg-slate-800/80 border border-amber-700/50 text-white text-sm font-mono focus:outline-none focus:border-amber-500" />
+                <p className="text-[10px] text-slate-500 mt-1">¿No tienes uno? Contacta a VotoTech para obtenerlo.</p>
+              </div>
+              <button onClick={() => setPaso(2)} disabled={!form.nombre_candidato || !form.email || form.password.length < 8 || !form.codigo_acceso}
                 className="w-full py-3 rounded-xl bg-indigo-600 text-white font-bold text-sm disabled:opacity-40">
                 Siguiente →
               </button>

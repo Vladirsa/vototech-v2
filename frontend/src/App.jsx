@@ -11,6 +11,7 @@ import Codigos from './pages/Codigos';
 import DiaEleccion from './pages/DiaEleccion';
 import Incidencias from './pages/Incidencias';
 import Finanzas from './pages/Finanzas';
+import AdminPlataforma from './pages/AdminPlataforma';
 import MapaElectoral from './components/MapaElectoral';
 import RutaProtegida from './components/RutaProtegida';
 
@@ -21,6 +22,7 @@ export default function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/registro" element={<RegistroCampana />} />
         <Route path="/registro-invitacion" element={<RegistroInvitacion />} />
+        <Route path="/vt-admin-plataforma" element={<AdminPlataforma />} />
         <Route path="/dashboard" element={<RutaProtegida><Dashboard /></RutaProtegida>} />
         <Route path="/promovidos" element={<RutaProtegida><Promovidos /></RutaProtegida>} />
         <Route path="/priorizacion" element={<RutaProtegida><Priorizacion /></RutaProtegida>} />

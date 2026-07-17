@@ -19,6 +19,7 @@ const esquemaRegistroCampana = z.object({
   territorio_tipo: z.enum(['municipio', 'seccion', 'distrito', 'estatal']).optional(),
   territorio_id: z.number().int().optional(),
   fecha_eleccion: z.string().optional(),
+  codigo_acceso: z.string().min(3, 'Se requiere un código de acceso válido'),
 });
 
 /**
@@ -35,20 +36,39 @@ router.post('/registrar-campana', async (req, res) => {
   const datos = parseado.data;
 
   try {
+    // ── VALIDAR CÓDIGO DE ACCESO ────────────────────────────
+    // Sin un código válido y sin usar todavía, no se puede registrar
+    // ninguna campaña — esto es lo que evita que cualquiera en
+    // internet cree cuentas sin que el dueño de la plataforma lo sepa.
+    const codigoRow = await query(
+      'SELECT * FROM codigos_acceso_campana WHERE codigo=$1 AND usado=false',
+      [datos.codigo_acceso]
+    );
+    if (codigoRow.rows.length === 0) {
+      return res.status(403).json({ ok: false, error: 'Código de acceso inválido o ya utilizado. Contacta a VotoTech para obtener uno.' });
+    }
+
     // ¿El subdominio ya existe?
     const existente = await query('SELECT id FROM campanas WHERE subdominio = $1', [datos.subdominio]);
     if (existente.rows.length > 0) {
       return res.status(409).json({ ok: false, error: 'Ese subdominio ya está en uso, elige otro' });
     }
 
-    // Crear la campaña
+    // Crear la campaña — nace en estado "pendiente", activa=false,
+    // hasta que el dueño de la plataforma la apruebe manualmente.
     const campana = await query(
-      `INSERT INTO campanas (nombre_candidato, partido, tipo_eleccion, estado_id, subdominio, territorio_tipo, territorio_id, fecha_eleccion)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id, subdominio`,
+      `INSERT INTO campanas (nombre_candidato, partido, tipo_eleccion, estado_id, subdominio, territorio_tipo, territorio_id, fecha_eleccion, activa, estado_aprobacion)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false, 'pendiente') RETURNING id, subdominio`,
       [datos.nombre_candidato, datos.partido || null, datos.tipo_eleccion, datos.estado_id, datos.subdominio,
        datos.territorio_tipo || null, datos.territorio_id || null, datos.fecha_eleccion || null]
     );
     const campanaId = campana.rows[0].id;
+
+    // Marcar el código como usado, ligado a esta campaña
+    await query(
+      'UPDATE codigos_acceso_campana SET usado=true, usado_por_campana_id=$1, usado_en=now() WHERE id=$2',
+      [campanaId, codigoRow.rows[0].id]
+    );
 
     // Crear el primer usuario (candidato) con contraseña segura (bcrypt, nunca texto plano)
     const passwordHash = await bcrypt.hash(datos.password, 12);
@@ -58,18 +78,14 @@ router.post('/registrar-campana', async (req, res) => {
       [campanaId, datos.nombre_candidato, datos.email, passwordHash]
     );
 
-    const token = generarToken({
-      id: usuario.rows[0].id,
-      campana_id: campanaId,
-      rol: 'candidato',
-      nombre: datos.nombre_candidato,
-    });
-
+    // NO se da token de acceso todavía — la campaña queda pendiente
+    // de aprobación manual. La persona tendrá que intentar iniciar
+    // sesión después, y el sistema le dirá si ya fue aprobada.
     res.status(201).json({
       ok: true,
-      token,
+      pendiente: true,
       campana: { id: campanaId, subdominio: datos.subdominio },
-      mensaje: `Campaña creada. Tu sistema estará disponible en ${datos.subdominio}.vototech.mx`,
+      mensaje: 'Tu registro fue recibido correctamente. Un administrador de VotoTech revisará tu solicitud — te avisaremos cuando puedas entrar al sistema.',
     });
   } catch (e) {
     console.error('Error registrando campaña:', e);
@@ -98,7 +114,8 @@ router.post('/login', async (req, res) => {
 
   try {
     const resultado = await query(
-      `SELECT u.id, u.nombre, u.email, u.password_hash, u.rol, u.activo, c.id as campana_id
+      `SELECT u.id, u.nombre, u.email, u.password_hash, u.rol, u.activo,
+              c.id as campana_id, c.activa as campana_activa, c.estado_aprobacion
        FROM usuarios u
        JOIN campanas c ON c.id = u.campana_id
        WHERE c.subdominio = $1 AND u.email = $2`,
@@ -112,6 +129,16 @@ router.post('/login', async (req, res) => {
 
     if (!usuario.activo) {
       return res.status(403).json({ ok: false, error: 'Tu cuenta está desactivada. Contacta al Jefe de Campaña.' });
+    }
+
+    // La campaña completa puede estar pendiente de aprobación o
+    // rechazada por el dueño de la plataforma — sin importar que
+    // el usuario/contraseña sean correctos, no se deja entrar.
+    if (usuario.estado_aprobacion === 'pendiente') {
+      return res.status(403).json({ ok: false, error: '⏳ Tu campaña todavía está en revisión. Te avisaremos por correo cuando puedas entrar.' });
+    }
+    if (usuario.estado_aprobacion === 'rechazada' || !usuario.campana_activa) {
+      return res.status(403).json({ ok: false, error: 'Esta campaña no está activa. Contacta a VotoTech para más información.' });
     }
 
     const passwordOk = await bcrypt.compare(password, usuario.password_hash);

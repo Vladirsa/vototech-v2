@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../lib/api';
 import { useSocket } from '../lib/useSocket';
+import SubidaFotos from '../components/SubidaFotos';
 
 const PARTIDOS = ['morena', 'pan', 'pri', 'prd', 'mc', 'pvem', 'pt', 'pac'];
 
@@ -131,7 +132,28 @@ export default function DiaEleccion() {
           <button onClick={() => setTab('caceria')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'caceria' ? 'bg-red-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🎯 Cacería ({caceria.length})</button>
         </div>
 
-        {tab === 'captura' && <FormularioCaptura onGuardado={cargar} />}
+        {tab === 'captura' && (
+          <>
+            <FormularioCaptura onGuardado={cargar} />
+            {resultados.length > 0 && (
+              <div className="space-y-2">
+                <h3 className="text-xs font-bold text-slate-400 uppercase">Casillas capturadas</h3>
+                {resultados.map((r) => (
+                  <div key={r.id} className="rounded-xl border border-slate-800 bg-slate-900/60 p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-bold text-white">Sección {String(r.seccion_numero).padStart(3, '0')} · Casilla {r.casilla}</span>
+                      <span className="text-[10px] text-slate-500">{r.capturado_por_nombre}</span>
+                    </div>
+                    <div className="text-[10px] text-slate-400 mb-2">
+                      {Object.entries(r.votos).sort((a, b) => b[1] - a[1]).map(([p, v]) => `${p.toUpperCase()}: ${v}`).join(' · ')}
+                    </div>
+                    <SubidaFotos contexto="acta" referenciaId={r.id} maximo={1} />
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
 
         {tab === 'caceria' && (
           <div className="space-y-2">

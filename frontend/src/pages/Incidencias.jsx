@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../lib/api';
 import { useSocket } from '../lib/useSocket';
+import SubidaFotos from '../components/SubidaFotos';
 
 const URGENCIA_COLOR = { urgente: 'border-red-500/50 bg-red-500/10', alta: 'border-orange-500/50 bg-orange-500/10', media: 'border-amber-500/50 bg-amber-500/10', baja: 'border-slate-700 bg-slate-800/30' };
 const TIPO_LABEL = { compra_votos: '🚫 Compra de votos', violencia: '⚠️ Violencia', irregularidad: '📋 Irregularidad', logistica: '🔧 Logística', representante: '🗳️ Representante', propaganda: '📢 Propaganda', otro: '📌 Otro' };
@@ -81,6 +82,9 @@ export default function Incidencias() {
                 <span className="text-[9px] uppercase font-bold text-slate-400">{i.urgencia}</span>
               </div>
               <p className="text-xs text-slate-300">{i.descripcion}</p>
+              <div className="mt-2">
+                <SubidaFotos contexto="incidencia" referenciaId={i.id} maximo={5} />
+              </div>
               <div className="flex items-center justify-between mt-2">
                 <span className="text-[10px] text-slate-500">{i.seccion_numero && `Sección ${i.seccion_numero} · `}{i.reportado_por_nombre}</span>
                 {i.estado !== 'resuelta' && <button onClick={() => resolver(i.id)} className="text-[10px] font-bold text-emerald-400">✅ Resolver</button>}
