@@ -15,7 +15,7 @@ router.use(requiereAuth); // todo este módulo requiere sesión
  * ni a propósito.
  */
 router.get('/', async (req, res) => {
-  const { seccion, clasificacion, registrador } = req.query;
+  const { seccion, clasificacion, registrador, temperatura, buscar } = req.query;
   let sql = `
     SELECT p.*, s.numero as seccion_numero, u.nombre as registrado_por_nombre
     FROM promovidos p
@@ -27,6 +27,8 @@ router.get('/', async (req, res) => {
   if (seccion) { params.push(seccion); sql += ` AND s.numero = $${params.length}`; }
   if (clasificacion) { params.push(clasificacion); sql += ` AND p.clasificacion = $${params.length}`; }
   if (registrador) { params.push(registrador); sql += ` AND p.registrado_por = $${params.length}`; }
+  if (temperatura) { params.push(temperatura); sql += ` AND p.temperatura = $${params.length}`; }
+  if (buscar) { params.push(`%${buscar}%`); sql += ` AND (unaccent(p.nombre) ILIKE unaccent($${params.length}) OR p.telefono ILIKE $${params.length})`; }
   sql += ' ORDER BY p.creado_en DESC LIMIT 2000';
 
   const resultado = await query(sql, params);
@@ -258,6 +260,83 @@ router.post('/:id/contacto', async (req, res) => {
     console.error('Error registrando contacto:', e);
     res.status(500).json({ ok: false, error: 'Error al registrar el contacto' });
   }
+});
+
+/**
+ * GET /api/promovidos/:id
+ * Ficha completa de un promovido — incluye TODO su historial de
+ * contactos, para ver la evolución real de la relación, no solo
+ * el contador.
+ */
+router.get('/:id', async (req, res) => {
+  const promovido = await query(
+    `SELECT p.*, s.numero as seccion_numero, u.nombre as registrado_por_nombre
+     FROM promovidos p
+     LEFT JOIN secciones s ON s.id = p.seccion_id
+     LEFT JOIN usuarios u ON u.id = p.registrado_por
+     WHERE p.id=$1 AND p.campana_id=$2`,
+    [req.params.id, req.usuario.campana_id]
+  );
+  if (!promovido.rows[0]) return res.status(404).json({ ok: false, error: 'No encontrado' });
+
+  const historial = await query(
+    `SELECT c.*, u.nombre as usuario_nombre FROM contactos c
+     JOIN usuarios u ON u.id = c.usuario_id
+     WHERE c.promovido_id=$1 ORDER BY c.creado_en DESC`,
+    [req.params.id]
+  );
+
+  res.json({ ok: true, data: { ...promovido.rows[0], historial: historial.rows } });
+});
+
+const esquemaEditar = z.object({
+  nombre: z.string().min(2).max(200).optional(),
+  telefono: z.string().max(20).optional(),
+  curp: z.string().max(18).optional(),
+  seccion_numero: z.number().int().optional(),
+  calle: z.string().max(255).optional(),
+  partido: z.string().max(20).optional(),
+  comprometido: z.boolean().optional(),
+  temperatura: z.enum(['frio', 'tibio', 'caliente']).optional(),
+});
+
+/**
+ * PATCH /api/promovidos/:id
+ * Corregir datos — el trigger de clasificación automática se vuelve
+ * a disparar solo (partido/comprometido/temperatura cambiaron), así
+ * que si editas el partido, la clasificación Base/Persuadible/
+ * Adversario se recalcula sola.
+ */
+router.patch('/:id', async (req, res) => {
+  const parseado = esquemaEditar.safeParse(req.body);
+  if (!parseado.success) return res.status(400).json({ ok: false, error: parseado.error.errors[0].message });
+  const d = parseado.data;
+
+  let seccionId;
+  if (d.seccion_numero) {
+    const s = await query('SELECT id FROM secciones WHERE estado_id=29 AND numero=$1', [d.seccion_numero]);
+    seccionId = s.rows[0]?.id;
+  }
+
+  const campos = [];
+  const valores = [];
+  let i = 1;
+  for (const [campo, valor] of Object.entries(d)) {
+    if (campo === 'seccion_numero') continue;
+    campos.push(`${campo}=$${i}`);
+    valores.push(valor);
+    i++;
+  }
+  if (seccionId) { campos.push(`seccion_id=$${i}`); valores.push(seccionId); i++; }
+  if (campos.length === 0) return res.status(400).json({ ok: false, error: 'Nada que actualizar' });
+
+  valores.push(req.params.id, req.usuario.campana_id);
+  const resultado = await query(
+    `UPDATE promovidos SET ${campos.join(', ')} WHERE id=$${i} AND campana_id=$${i + 1} RETURNING *`,
+    valores
+  );
+  if (!resultado.rows[0]) return res.status(404).json({ ok: false, error: 'No encontrado' });
+  res.json({ ok: true, data: resultado.rows[0] });
 });
 
 export default router;

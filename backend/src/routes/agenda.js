@@ -59,4 +59,68 @@ router.delete('/:id', async (req, res) => {
   res.json({ ok: true });
 });
 
+const esquemaEditar = z.object({
+  titulo: z.string().min(2).max(200).optional(),
+  tipo: z.enum(['evento', 'reunion', 'recorrido', 'entrevista']).optional(),
+  fecha_inicio: z.string().optional(),
+  fecha_fin: z.string().optional(),
+  lugar: z.string().max(255).optional(),
+  seccion_numero: z.number().int().optional(),
+  descripcion: z.string().max(1000).optional(),
+  lat: z.number().optional(),
+  lng: z.number().optional(),
+});
+
+/**
+ * PATCH /api/agenda/:id
+ * Corregir un evento (cambió la hora, el lugar, etc.) sin tener
+ * que borrarlo y crearlo de nuevo.
+ */
+router.patch('/:id', async (req, res) => {
+  const parseado = esquemaEditar.safeParse(req.body);
+  if (!parseado.success) return res.status(400).json({ ok: false, error: parseado.error.errors[0].message });
+  const d = parseado.data;
+
+  let seccionId;
+  if (d.seccion_numero) {
+    const s = await query('SELECT id FROM secciones WHERE estado_id=29 AND numero=$1', [d.seccion_numero]);
+    seccionId = s.rows[0]?.id;
+  }
+
+  const campos = [];
+  const valores = [];
+  let i = 1;
+  for (const [campo, valor] of Object.entries(d)) {
+    if (campo === 'seccion_numero') continue;
+    campos.push(`${campo}=$${i}`);
+    valores.push(valor);
+    i++;
+  }
+  if (seccionId) { campos.push(`seccion_id=$${i}`); valores.push(seccionId); i++; }
+  if (campos.length === 0) return res.status(400).json({ ok: false, error: 'Nada que actualizar' });
+
+  valores.push(req.params.id, req.usuario.campana_id);
+  const resultado = await query(
+    `UPDATE agenda SET ${campos.join(', ')} WHERE id=$${i} AND campana_id=$${i + 1} RETURNING *`,
+    valores
+  );
+  if (!resultado.rows[0]) return res.status(404).json({ ok: false, error: 'No encontrado' });
+  res.json({ ok: true, data: resultado.rows[0] });
+});
+
+/**
+ * PATCH /api/agenda/:id/completar
+ * Marca un evento como realizado — esto es lo que alimenta
+ * "reuniones realizadas" como concepto medible, no solo la agenda
+ * a futuro.
+ */
+router.patch('/:id/completar', async (req, res) => {
+  const resultado = await query(
+    `UPDATE agenda SET realizado = true WHERE id=$1 AND campana_id=$2 RETURNING *`,
+    [req.params.id, req.usuario.campana_id]
+  );
+  if (!resultado.rows[0]) return res.status(404).json({ ok: false, error: 'No encontrado' });
+  res.json({ ok: true, data: resultado.rows[0] });
+});
+
 export default router;

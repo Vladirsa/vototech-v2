@@ -54,4 +54,95 @@ router.get('/tendencia', async (req, res) => {
   res.json({ ok: true, data: resultado.rows });
 });
 
+/**
+ * GET /api/reportes/estadisticas
+ * Análisis histórico agregado de TODO el territorio de la campaña:
+ * participación promedio, distribución de competitividad, y el
+ * desglose de partidos sumando todas las secciones — la foto
+ * completa, no sección por sección.
+ */
+router.get('/estadisticas', async (req, res) => {
+  const campanaId = req.usuario.campana_id;
+
+  try {
+    const campanaRes = await query('SELECT partido, tipo_eleccion, territorio_tipo, territorio_id FROM campanas WHERE id=$1', [campanaId]);
+    const campana = campanaRes.rows[0];
+
+    let filtroTerritorio = '';
+    const paramsTerr = [];
+    if (campana.territorio_tipo === 'municipio' && campana.territorio_id) {
+      filtroTerritorio = 'AND s.municipio_id = (SELECT id FROM municipios WHERE estado_id=29 AND clave_ine=$1)';
+      paramsTerr.push(campana.territorio_id);
+    }
+
+    const seccionesRes = await query(`SELECT s.id, s.numero, s.lista_nominal FROM secciones s WHERE s.estado_id=29 ${filtroTerritorio}`, paramsTerr);
+    const seccionIds = seccionesRes.rows.map((s) => s.id);
+    const listaNominalTotal = seccionesRes.rows.reduce((s, r) => s + (r.lista_nominal || 0), 0);
+
+    const anioRes = await query('SELECT MAX(anio) as anio FROM resultados_historicos WHERE tipo_eleccion=$1', [campana.tipo_eleccion]);
+    const anio = anioRes.rows[0]?.anio;
+
+    let votosPorPartido = {}, totalVotosGeneral = 0;
+    let distribucion = { arrasador: 0, comodo: 0, cerrado: 0, empate: 0 }; // margen de victoria por sección
+    let participacionPorSeccion = [];
+
+    if (anio && seccionIds.length > 0) {
+      const hist = await query(
+        `SELECT seccion_id, partido, votos FROM resultados_historicos WHERE tipo_eleccion=$1 AND anio=$2 AND seccion_id = ANY($3)`,
+        [campana.tipo_eleccion, anio, seccionIds]
+      );
+      const porSeccion = {};
+      hist.rows.forEach((r) => {
+        votosPorPartido[r.partido] = (votosPorPartido[r.partido] || 0) + r.votos;
+        totalVotosGeneral += r.votos;
+        if (!porSeccion[r.seccion_id]) porSeccion[r.seccion_id] = {};
+        porSeccion[r.seccion_id][r.partido] = r.votos;
+      });
+
+      seccionesRes.rows.forEach((s) => {
+        const votos = porSeccion[s.id];
+        if (!votos) return;
+        const total = Object.values(votos).reduce((a, b) => a + b, 0);
+        if (total === 0) return;
+        const ordenados = Object.values(votos).sort((a, b) => b - a);
+        const margen = ordenados.length > 1 ? ((ordenados[0] - ordenados[1]) / total) * 100 : 100;
+        if (margen > 30) distribucion.arrasador++;
+        else if (margen > 15) distribucion.comodo++;
+        else if (margen > 5) distribucion.cerrado++;
+        else distribucion.empate++;
+
+        if (s.lista_nominal > 0) participacionPorSeccion.push((total / s.lista_nominal) * 100);
+      });
+    }
+
+    const participacionPromedio = participacionPorSeccion.length > 0
+      ? +(participacionPorSeccion.reduce((a, b) => a + b, 0) / participacionPorSeccion.length).toFixed(1)
+      : null;
+
+    // Promovidos por partido declarado (para comparar intención actual vs histórico)
+    const promosPartidoRes = await query(
+      `SELECT partido, COUNT(*) as total FROM promovidos WHERE campana_id=$1 AND partido IS NOT NULL GROUP BY partido`,
+      [campanaId]
+    );
+
+    res.json({
+      ok: true,
+      data: {
+        anio_historico: anio,
+        total_secciones: seccionesRes.rows.length,
+        lista_nominal_total: listaNominalTotal,
+        participacion_promedio: participacionPromedio,
+        votos_por_partido: votosPorPartido,
+        total_votos_historico: totalVotosGeneral,
+        distribucion_competitividad: distribucion,
+        promovidos_por_partido: Object.fromEntries(promosPartidoRes.rows.map((r) => [r.partido, parseInt(r.total)])),
+        partido_campana: campana.partido,
+      },
+    });
+  } catch (e) {
+    console.error('Error en estadísticas:', e);
+    res.status(500).json({ ok: false, error: 'Error al calcular estadísticas' });
+  }
+});
+
 export default router;

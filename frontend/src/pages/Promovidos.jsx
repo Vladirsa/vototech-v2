@@ -123,6 +123,107 @@ function PanelWhatsAppMasivo({ persuadibles }) {
   );
 }
 
+function ModalDetalle({ promovidoId, onCerrar, onActualizado }) {
+  const [detalle, setDetalle] = useState(null);
+  const [editando, setEditando] = useState(false);
+  const [form, setForm] = useState(null);
+
+  const cargar = () => api.get(`/promovidos/${promovidoId}`).then((r) => { setDetalle(r.data.data); setForm(r.data.data); });
+  useEffect(cargar, [promovidoId]);
+
+  const guardar = async () => {
+    await api.patch(`/promovidos/${promovidoId}`, {
+      nombre: form.nombre, telefono: form.telefono, partido: form.partido,
+      comprometido: form.comprometido, temperatura: form.temperatura,
+    });
+    setEditando(false);
+    cargar();
+    onActualizado();
+  };
+
+  if (!detalle) return null;
+  const est = CLASIFICACION_ESTILO[detalle.clasificacion] || CLASIFICACION_ESTILO.persuadible;
+  const RESULTADO_ICONO = { positivo: '👍', neutral: '😐', negativo: '👎', sin_respuesta: '📵' };
+
+  return (
+    <div className="fixed inset-0 bg-black/70 flex items-end md:items-center justify-center z-50" onClick={onCerrar}>
+      <div className="bg-slate-900 border border-slate-700 rounded-t-2xl md:rounded-2xl w-full max-w-md p-5 space-y-4 max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-black text-white">{detalle.nombre}</h2>
+          <button onClick={onCerrar} className="text-slate-500">✕</button>
+        </div>
+
+        {!editando ? (
+          <>
+            <div className="flex items-center gap-2">
+              <span className={`text-xs font-bold ${est.color}`}>{est.label}</span>
+              {detalle.veces_intentado > 1 && (
+                <span className="text-[10px] bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded-full">⚠️ Intentado {detalle.veces_intentado}x</span>
+              )}
+            </div>
+            <div className="text-xs text-slate-400 space-y-1">
+              <div>📞 {detalle.telefono || 'Sin teléfono'}</div>
+              <div>📍 {detalle.seccion_numero ? `Sección ${detalle.seccion_numero}` : 'Sin sección'} {detalle.calle && `· ${detalle.calle}`}</div>
+              <div>🏛️ {detalle.partido?.toUpperCase() || 'Sin partido declarado'} {detalle.comprometido && '· ✅ Comprometido'}</div>
+              <div>🌡️ Temperatura: {detalle.temperatura}</div>
+              <div className="text-slate-500">Registrado por {detalle.registrado_por_nombre} el {new Date(detalle.creado_en).toLocaleDateString('es-MX')}</div>
+            </div>
+
+            <div>
+              <div className="text-[10px] font-bold text-slate-500 uppercase mb-2">📋 Historial de contactos ({detalle.historial.length})</div>
+              {detalle.historial.length === 0 ? (
+                <div className="text-xs text-slate-500">Sin contactos registrados todavía</div>
+              ) : (
+                <div className="space-y-2">
+                  {detalle.historial.map((h) => (
+                    <div key={h.id} className="bg-slate-800/50 rounded-lg p-2 text-xs">
+                      <div className="flex justify-between">
+                        <span className="font-bold text-white">{RESULTADO_ICONO[h.resultado] || '📝'} {h.tipo}</span>
+                        <span className="text-slate-500">{new Date(h.creado_en).toLocaleDateString('es-MX')}</span>
+                      </div>
+                      <div className="text-slate-400">{h.usuario_nombre}{h.notas && ` — ${h.notas}`}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <button onClick={() => setEditando(true)} className="w-full py-2.5 rounded-lg bg-indigo-600/80 text-white text-sm font-bold">✏️ Editar datos</button>
+          </>
+        ) : (
+          <>
+            <input value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })}
+              className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+            <input value={form.telefono || ''} onChange={(e) => setForm({ ...form, telefono: e.target.value })} placeholder="Teléfono"
+              className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+            <select value={form.partido || ''} onChange={(e) => setForm({ ...form, partido: e.target.value })}
+              className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
+              <option value="">Sin partido</option>
+              {['morena','pan','pri','prd','mc','pvem','pt','pac','independiente'].map(p => <option key={p} value={p}>{p.toUpperCase()}</option>)}
+            </select>
+            <div className="flex gap-2">
+              {['frio','tibio','caliente'].map(t => (
+                <button key={t} onClick={() => setForm({ ...form, temperatura: t })}
+                  className={`flex-1 py-2 rounded-lg text-xs font-bold border ${form.temperatura===t ? 'bg-indigo-600 border-indigo-500 text-white' : 'border-slate-700 text-slate-400'}`}>
+                  {t==='frio'?'❄️':t==='tibio'?'🌡️':'🔥'} {t}
+                </button>
+              ))}
+            </div>
+            <label className="flex items-center gap-2 text-xs text-slate-300">
+              <input type="checkbox" checked={form.comprometido} onChange={(e) => setForm({ ...form, comprometido: e.target.checked })} />
+              Está comprometido a votar por nosotros
+            </label>
+            <div className="flex gap-2">
+              <button onClick={() => setEditando(false)} className="flex-1 py-2 rounded-lg bg-slate-800 text-slate-300 text-xs font-bold">Cancelar</button>
+              <button onClick={guardar} className="flex-[2] py-2 rounded-lg bg-emerald-600 text-white text-xs font-bold">Guardar cambios</button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function Promovidos() {
   const [params] = useSearchParams();
   const seccionFiltro = params.get('seccion') ? parseInt(params.get('seccion')) : null;
@@ -131,6 +232,9 @@ export default function Promovidos() {
   const [mostrarModal, setMostrarModal] = useState(params.get('agregar') === '1');
   const [cargando, setCargando] = useState(true);
   const [tab, setTab] = useState('lista');
+  const [busqueda, setBusqueda] = useState('');
+  const [filtroTemperatura, setFiltroTemperatura] = useState('todas');
+  const [detalleId, setDetalleId] = useState(null);
 
   const cargar = () => {
     setCargando(true);
@@ -143,7 +247,10 @@ export default function Promovidos() {
   // Si se llegó desde el mapa con una sección específica (ej: /promovidos?seccion=12),
   // filtrar la lista para mostrar solo esa sección — así el botón "Ver promovidos
   // aquí" del mapa de verdad lleva a algo relevante y no a la lista completa.
-  const listaFiltrada = seccionFiltro ? lista.filter((p) => p.seccion_numero === seccionFiltro) : lista;
+  const listaFiltrada = lista
+    .filter((p) => !seccionFiltro || p.seccion_numero === seccionFiltro)
+    .filter((p) => filtroTemperatura === 'todas' || p.temperatura === filtroTemperatura)
+    .filter((p) => !busqueda || p.nombre.toLowerCase().includes(busqueda.toLowerCase()) || p.telefono?.includes(busqueda));
 
   const registrarContacto = async (id, resultado) => {
     await api.post(`/promovidos/${id}/contacto`, { tipo: 'visita', resultado });
@@ -191,6 +298,20 @@ export default function Promovidos() {
           </button>
         </div>
 
+        {tab === 'lista' && (
+          <div className="flex gap-2">
+            <input placeholder="🔍 Buscar por nombre o teléfono..." value={busqueda} onChange={(e) => setBusqueda(e.target.value)}
+              className="flex-1 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs" />
+            <select value={filtroTemperatura} onChange={(e) => setFiltroTemperatura(e.target.value)}
+              className="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs">
+              <option value="todas">Toda temperatura</option>
+              <option value="frio">❄️ Frío</option>
+              <option value="tibio">🌡️ Tibio</option>
+              <option value="caliente">🔥 Caliente</option>
+            </select>
+          </div>
+        )}
+
         {tab === 'whatsapp' && <PanelWhatsAppMasivo persuadibles={lista.filter((p) => p.clasificacion === 'persuadible')} />}
 
         {tab === 'lista' && (cargando ? (
@@ -203,9 +324,12 @@ export default function Promovidos() {
               const est = CLASIFICACION_ESTILO[p.clasificacion] || CLASIFICACION_ESTILO.persuadible;
               return (
                 <div key={p.id} className={`rounded-xl border border-slate-800 ${est.bg} p-4`}>
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between cursor-pointer" onClick={() => setDetalleId(p.id)}>
                     <div>
-                      <div className="text-sm font-bold text-white">{p.nombre}</div>
+                      <div className="text-sm font-bold text-white flex items-center gap-1.5">
+                        {p.nombre}
+                        {p.veces_intentado > 1 && <span className="text-[9px] bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded-full">⚠️ {p.veces_intentado}x</span>}
+                      </div>
                       <div className="text-[10px] text-slate-500">
                         {p.seccion_numero ? `Sección ${String(p.seccion_numero).padStart(3,'0')}` : 'Sin sección'} · {p.partido?.toUpperCase() || 'Sin partido'}
                         {p.dias_sin_contacto != null && ` · ${p.dias_sin_contacto} días sin contacto`}
@@ -228,6 +352,7 @@ export default function Promovidos() {
       </div>
 
       {mostrarModal && <ModalAgregar seccionInicial={seccionFiltro} onCerrar={() => setMostrarModal(false)} onGuardado={() => { setMostrarModal(false); cargar(); }} />}
+      {detalleId && <ModalDetalle promovidoId={detalleId} onCerrar={() => setDetalleId(null)} onActualizado={cargar} />}
     </div>
   );
 }
