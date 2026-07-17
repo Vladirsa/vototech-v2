@@ -4,30 +4,39 @@
 // a la base de datos — sin pasar por el editor SQL del navegador,
 // que tiene límite de tamaño.
 //
-// Se corre UNA sola vez después de desplegar, con: npm run seed
-import 'dotenv/config';
+// Se puede correr manualmente con: npm run seed
+// O se ejecuta SOLO automáticamente al arrancar el servidor si detecta
+// que la base de datos está vacía (ver src/index.js) — así funciona
+// incluso en hosting gratuito donde no hay acceso fácil a una terminal.
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { pool } from './src/db/pool.js';
+import { pool, query } from './src/db/pool.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rutaDb = path.join(__dirname, 'src/db');
 
-async function main() {
+export async function correrSeed() {
   console.log('🌱 Iniciando carga de datos...\n');
 
-  // 1. MUNICIPIOS ya se cargan vía seed_municipios.sql (archivo pequeño,
-  // se asume que ya se corrió en el paso anterior del SQL Editor)
+  // Tabla de control: marca cuándo terminó la carga COMPLETA con éxito.
+  // Sin esto, si el proceso se corta a la mitad (ej. el servidor se
+  // reinicia durante el primer despliegue), quedaría con datos a
+  // medias y el sistema pensaría erróneamente que ya no hace falta
+  // volver a intentarlo (porque solo revisaba si "secciones" tenía
+  // datos, y esa tabla se llena rápido, antes de que el resto termine).
+  await query(`CREATE TABLE IF NOT EXISTS meta_seed (
+    id SMALLINT PRIMARY KEY DEFAULT 1, completado_en TIMESTAMPTZ
+  )`);
+  await query(`INSERT INTO meta_seed (id, completado_en) VALUES (1, NULL) ON CONFLICT (id) DO NOTHING`);
 
-  // 2. SECCIONES con geometría real
   console.log('📍 Cargando secciones...');
   const geo = JSON.parse(fs.readFileSync(path.join(rutaDb, 'secciones_tlaxcala.geojson'), 'utf-8'));
   let contSecciones = 0;
   for (const feat of geo.features) {
     const { seccion, municipio, distrito_federal, distrito_local } = feat.properties;
     try {
-      await pool.query(
+      await query(
         `INSERT INTO secciones (estado_id, municipio_id, numero, distrito_federal, distrito_local, geom)
          SELECT 29, m.id, $1, $2, $3, $4::jsonb
          FROM municipios m WHERE m.estado_id=29 AND m.clave_ine=$5
@@ -39,13 +48,12 @@ async function main() {
   }
   console.log(`   ✅ ${contSecciones} secciones cargadas\n`);
 
-  // 3. LOCALIDADES
   console.log('🏘️ Cargando localidades...');
   const localidades = JSON.parse(fs.readFileSync(path.join(rutaDb, 'localidades_tlaxcala.json'), 'utf-8'));
   let contLoc = 0;
   for (const l of localidades) {
     try {
-      await pool.query(
+      await query(
         `INSERT INTO localidades (seccion_id, municipio_id, nombre, es_cabecera, lat, lng)
          SELECT s.id, m.id, $1, $2, $3, $4
          FROM secciones s JOIN municipios m ON m.estado_id=29 AND m.clave_ine=$5
@@ -57,10 +65,9 @@ async function main() {
   }
   console.log(`   ✅ ${contLoc} localidades cargadas\n`);
 
-  // 4. RESULTADOS ELECTORALES REALES (Ayuntamiento y Pdte. Comunidad 2024)
   console.log('🗳️ Cargando resultados electorales...');
   const cargarHist = (archivo, varName) => {
-    const c = fs.readFileSync(path.join(__dirname, '../datos-origen', archivo), 'utf-8');
+    const c = fs.readFileSync(path.join(__dirname, 'datos-origen', archivo), 'utf-8');
     const start = c.indexOf(`var ${varName}=`) + `var ${varName}=`.length;
     return JSON.parse(c.slice(start, -1));
   };
@@ -75,7 +82,7 @@ async function main() {
       for (const [partido, votos] of filas) {
         if (votos === 0) continue;
         try {
-          await pool.query(
+          await query(
             `INSERT INTO resultados_historicos (seccion_id, tipo_eleccion, anio, partido, votos, lista_nominal, total_votos, casillas)
              SELECT s.id, $1, $2, $3, $4, $5, $6, $7
              FROM secciones s WHERE s.estado_id=29 AND s.numero=$8
@@ -102,7 +109,14 @@ async function main() {
   } catch (e) { console.log('   ⚠️ Sin datos de Pdte. Comunidad (archivo no encontrado, se omite)'); }
 
   console.log('\n🎉 Carga completa.');
-  await pool.end();
+  await query('UPDATE meta_seed SET completado_en = now() WHERE id=1');
 }
 
-main().catch((e) => { console.error('❌ Error general:', e); process.exit(1); });
+// Si se ejecuta directamente con "node seed.js" (no importado desde otro
+// archivo), correr y cerrar la conexión al terminar.
+if (import.meta.url === `file://${process.argv[1]}`) {
+  correrSeed()
+    .then(() => pool.end())
+    .catch((e) => { console.error('❌ Error general:', e); process.exit(1); });
+}
+

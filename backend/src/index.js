@@ -7,6 +7,8 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import jwt from 'jsonwebtoken';
 import { setIo } from './io.js';
+import { query } from './db/pool.js';
+import { correrSeed } from '../seed.js';
 
 import authRoutes from './routes/auth.js';
 import geoRoutes from './routes/geo.js';
@@ -127,6 +129,27 @@ io.on('connection', (socket) => {
   });
 });
 
-httpServer.listen(PORT, () => {
+httpServer.listen(PORT, async () => {
   console.log(`✅ VotoTech Backend + WebSockets corriendo en http://localhost:${PORT}`);
+
+  // Auto-carga de datos: si la tabla de secciones está vacía, significa
+  // que es la primera vez que el servidor arranca en este ambiente
+  // (ej. recién desplegado en Render) — carga todo automáticamente,
+  // sin necesitar acceso a una terminal manual.
+  try {
+    await query(`CREATE TABLE IF NOT EXISTS meta_seed (
+      id SMALLINT PRIMARY KEY DEFAULT 1, completado_en TIMESTAMPTZ
+    )`);
+    const resultado = await query('SELECT completado_en FROM meta_seed WHERE id=1');
+    const yaCompletado = resultado.rows[0]?.completado_en;
+
+    if (!yaCompletado) {
+      console.log('\n🌱 Carga de datos no completada todavía — cargando datos geográficos y electorales automáticamente...\n');
+      await correrSeed();
+    } else {
+      console.log(`ℹ️  Datos ya cargados completamente el ${yaCompletado} — se omite la carga automática.`);
+    }
+  } catch (e) {
+    console.error('⚠️ No se pudo verificar/cargar datos automáticamente:', e.message);
+  }
 });

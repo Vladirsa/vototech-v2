@@ -5,15 +5,26 @@ const { Pool } = pg;
 // una conexión nueva por cada petición (como hacía PHP), se reutiliza
 // un grupo de conexiones ya abiertas — esto es una de las razones
 // principales por las que este stack aguanta mucha más carga simultánea.
-export const pool = new Pool({
-  host: process.env.DB_HOST || 'localhost',
-  port: process.env.DB_PORT || 5432,
-  database: process.env.DB_NAME || 'vototech_dev',
-  user: process.env.DB_USER || 'postgres',
-  password: process.env.DB_PASSWORD || 'votodev123',
-  max: 20,                      // máximo de conexiones simultáneas
-  idleTimeoutMillis: 30000,
-});
+//
+// Soporta DOS formas de configurar la conexión:
+// 1. DATABASE_URL — una sola línea completa (la que da Supabase/Render)
+// 2. DB_HOST/DB_PORT/DB_NAME/DB_USER/DB_PASSWORD — piezas separadas (desarrollo local)
+export const pool = process.env.DATABASE_URL
+  ? new Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: { rejectUnauthorized: false }, // Supabase/Render requieren SSL
+      max: 20,
+      idleTimeoutMillis: 30000,
+    })
+  : new Pool({
+      host: process.env.DB_HOST || 'localhost',
+      port: process.env.DB_PORT || 5432,
+      database: process.env.DB_NAME || 'vototech_dev',
+      user: process.env.DB_USER || 'postgres',
+      password: process.env.DB_PASSWORD || 'votodev123',
+      max: 20,
+      idleTimeoutMillis: 30000,
+    });
 
 pool.on('error', (err) => {
   console.error('Error inesperado en el pool de PostgreSQL:', err);
