@@ -45,6 +45,7 @@ app.use(cors({
     if (!origin) return callback(null, true); // peticiones sin origin (Postman, apps móviles)
     const permitido =
       origin.endsWith('.vototech.mx') ||
+      origin.endsWith('.vercel.app') ||          // dominio temporal de Vercel (mientras no haya dominio propio)
       origin === 'http://localhost:5173' || // desarrollo local
       process.env.DOMINIOS_PERMITIDOS?.split(',').includes(origin);
     callback(permitido ? null : new Error('Origen no permitido por CORS'), permitido);

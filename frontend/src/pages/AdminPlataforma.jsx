@@ -11,6 +11,7 @@ const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/
  */
 export default function AdminPlataforma() {
   const [clave, setClave] = useState(sessionStorage.getItem('vt_admin_key') || '');
+  const [verClave, setVerClave] = useState(false);
   const [autenticado, setAutenticado] = useState(false);
   const [error, setError] = useState('');
   const [campanas, setCampanas] = useState([]);
@@ -81,8 +82,14 @@ export default function AdminPlataforma() {
         <div className="max-w-sm w-full bg-slate-900/60 border border-slate-800 rounded-2xl p-6 space-y-3">
           <h1 className="text-lg font-black text-white">🔐 Panel VotoTech</h1>
           {error && <div className="bg-red-500/10 text-red-400 text-xs rounded-lg px-3 py-2">{error}</div>}
-          <input type="password" placeholder="Clave de administrador" value={clave} onChange={(e) => setClave(e.target.value)}
-            className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+          <div className="relative">
+            <input type={verClave ? 'text' : 'password'} placeholder="Clave de administrador" value={clave} onChange={(e) => setClave(e.target.value)}
+              className="w-full px-3 py-2.5 pr-10 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+            <button type="button" onClick={() => setVerClave(!verClave)}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white text-sm px-1">
+              {verClave ? '🙈' : '👁️'}
+            </button>
+          </div>
           <button onClick={cargar} className="w-full py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-bold">Entrar</button>
         </div>
       </div>
