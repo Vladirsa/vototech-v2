@@ -234,6 +234,65 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
     iconSize: [22, 22],
   });
 
+  // ── INCIDENCIAS EN EL MAPA (ya se capturan con GPS, faltaba mostrarlas) ──
+  const [incidencias, setIncidencias] = useState([]);
+  const [capaIncidencias, setCapaIncidencias] = useState(false);
+
+  useEffect(() => {
+    api.get('/incidencias').then(r => setIncidencias(r.data.data.filter(i => i.lat && i.lng && i.estado === 'activa'))).catch(() => setIncidencias([]));
+  }, []);
+
+  const ICONO_URGENCIA = { urgente: '#dc2626', alta: '#f97316', media: '#eab308', baja: '#64748b' };
+  const iconoIncidencia = (urgencia) => new L.DivIcon({
+    className: '',
+    html: `<div style="width:16px;height:16px;background:${ICONO_URGENCIA[urgencia]};border:2px solid white;border-radius:50% 50% 50% 0;transform:rotate(-45deg);box-shadow:0 1px 4px rgba(0,0,0,.6)"></div>`,
+    iconSize: [16, 16],
+  });
+
+  // ── LISTA DE CACERÍA GEOLOCALIZADA (día D: confirmados que no han votado) ──
+  const [caceria, setCaceria] = useState([]);
+  const [capaCaceria, setCapaCaceria] = useState(false);
+
+  useEffect(() => {
+    if (!capaCaceria) return;
+    api.get('/dia-eleccion/caceria').then(r => setCaceria(r.data.data)).catch(() => setCaceria([]));
+  }, [capaCaceria]);
+
+  const caceriaConPosicion = useMemo(() => {
+    return caceria.map((p) => {
+      const centro = centroidesSeccion[p.seccion_numero];
+      if (!centro) return null;
+      const jitter = () => (Math.random() - 0.5) * 0.003;
+      return { ...p, _lat: centro[0] + jitter(), _lng: centro[1] + jitter() };
+    }).filter(Boolean);
+  }, [caceria, centroidesSeccion]);
+
+  const iconoCaceria = new L.DivIcon({
+    className: '',
+    html: `<div style="width:12px;height:12px;background:#dc2626;border:2px solid white;border-radius:50%;box-shadow:0 0 0 4px rgba(220,38,38,.3)"></div>`,
+    iconSize: [12, 12],
+  });
+
+  // ── ACTIVIDAD RECIENTE ("pulso") — secciones con/sin contactos en 7 días ──
+  const [capaPulso, setCapaPulso] = useState(false);
+  const [seccionesActivas7d, setSeccionesActivas7d] = useState(new Set());
+
+  useEffect(() => {
+    if (!capaPulso) return;
+    api.get('/promovidos').then(r => {
+      const haceUnaSemana = Date.now() - 7 * 86400000;
+      const activas = new Set();
+      r.data.data.forEach((p) => {
+        const fechaRef = p.ultimo_contacto || p.creado_en;
+        if (fechaRef && new Date(fechaRef).getTime() > haceUnaSemana && p.seccion_numero) {
+          activas.add(p.seccion_numero);
+        }
+      });
+      setSeccionesActivas7d(activas);
+    }).catch(() => setSeccionesActivas7d(new Set()));
+  }, [capaPulso]);
+
+
   // ── SECTORIZACIÓN: seleccionar varias secciones y asignarlas de un jalón ──
   const [modoSectorizacion, setModoSectorizacion] = useState(false);
   const [seccionesSeleccionadas, setSeccionesSeleccionadas] = useState(new Set());
@@ -336,6 +395,12 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
       opacidad = 0.55;
     }
 
+    // Pulso de actividad: verde si hubo contacto en los últimos 7 días, gris apagado si no
+    if (capaPulso) {
+      colorRelleno = seccionesActivas7d.has(num) ? '#22c55e' : '#3f3f46';
+      opacidad = seccionesActivas7d.has(num) ? 0.5 : 0.6;
+    }
+
     // Cobertura de estructura: borde punteado rojo si NO tiene coordinador
     // seccional asignado — para detectar huecos de un vistazo
     const sinCobertura = mostrarCobertura && !seccionesCubiertas.has(num);
@@ -414,7 +479,7 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
 
         {seccionesFiltradas && (
           <GeoJSON
-            key={`${coloreadoActivo}-${seccionActiva}-${territorioId}-${tipoEleccion}-${anio}-${modoColoreado}-${mostrarCobertura}-${Object.keys(prioridadPorSeccion).length}-${seccionesCubiertas.size}-${modoSectorizacion}-${seccionesSeleccionadas.size}`}
+            key={`${coloreadoActivo}-${seccionActiva}-${territorioId}-${tipoEleccion}-${anio}-${modoColoreado}-${mostrarCobertura}-${Object.keys(prioridadPorSeccion).length}-${seccionesCubiertas.size}-${modoSectorizacion}-${seccionesSeleccionadas.size}-${capaPulso}-${seccionesActivas7d.size}`}
             data={seccionesFiltradas}
             style={estiloSeccion}
             onEachFeature={alPasarMouse}
@@ -449,6 +514,32 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
                 {c.partido_competencia && <>Partido: {c.partido_competencia.toUpperCase()}<br /></>}
                 {c.promovido_nombre && <>👤 {c.promovido_nombre}<br /></>}
                 <em style={{ fontSize: 10, color: '#888' }}>Toca el punto para cambiar su estado</em>
+              </div>
+            </Popup>
+          </Marker>
+        ))}
+
+        {/* Incidencias activas con GPS — urgencia por color */}
+        {capaIncidencias && incidencias.map((inc) => (
+          <Marker key={inc.id} position={[inc.lat, inc.lng]} icon={iconoIncidencia(inc.urgencia)}>
+            <Popup>
+              <div style={{ fontSize: 12 }}>
+                <strong>{inc.urgencia === 'urgente' ? '🚨' : '⚠️'} {inc.tipo.replace('_', ' ')}</strong><br />
+                {inc.descripcion}<br />
+                <em style={{ fontSize: 10, color: '#888' }}>{inc.reportado_por_nombre}</em>
+              </div>
+            </Popup>
+          </Marker>
+        ))}
+
+        {/* Lista de cacería geolocalizada — Base confirmados sin votar (Día D) */}
+        {capaCaceria && caceriaConPosicion.map((p) => (
+          <Marker key={p.id} position={[p._lat, p._lng]} icon={iconoCaceria}>
+            <Popup>
+              <div style={{ fontSize: 12 }}>
+                <strong>🎯 {p.nombre}</strong><br />
+                Sección {p.seccion_numero}{p.telefono && ` · ${p.telefono}`}<br />
+                <em style={{ fontSize: 10, color: '#888' }}>Confirmado, aún no ha votado</em>
               </div>
             </Popup>
           </Marker>
@@ -552,6 +643,18 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
           <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
             <input type="checkbox" checked={capaActivos} onChange={e => setCapaActivos(e.target.checked)} />
             📺 Activos ({activos.length}: bardas, espectaculares...)
+          </label>
+          <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+            <input type="checkbox" checked={capaIncidencias} onChange={e => setCapaIncidencias(e.target.checked)} />
+            🚨 Incidencias activas ({incidencias.length})
+          </label>
+          <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+            <input type="checkbox" checked={capaCaceria} onChange={e => setCapaCaceria(e.target.checked)} />
+            🎯 Lista de cacería (Día D)
+          </label>
+          <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer border-t border-slate-800 pt-2">
+            <input type="checkbox" checked={capaPulso} onChange={e => setCapaPulso(e.target.checked)} />
+            💓 Pulso de actividad (últimos 7 días)
           </label>
           <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer border-t border-slate-800 pt-2">
             <input type="checkbox" checked={mostrarCobertura} onChange={e => setMostrarCobertura(e.target.checked)} />
