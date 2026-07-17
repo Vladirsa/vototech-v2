@@ -31,7 +31,19 @@ export default function AdminPlataforma() {
       sessionStorage.setItem('vt_admin_key', clave);
       setError('');
     } catch (e) {
-      setError('Clave incorrecta o error de conexión');
+      // Mostrar el error REAL en vez de un mensaje genérico — así se
+      // puede distinguir "clave incorrecta" (403) de "no conecta con
+      // el servidor" (sin respuesta) o "el servidor no tiene la clave
+      // configurada" (500).
+      if (e.response?.status === 403) {
+        setError('❌ La clave que escribiste no coincide con SUPER_ADMIN_KEY en el servidor.');
+      } else if (e.response?.status === 500) {
+        setError('⚠️ El servidor no tiene configurada SUPER_ADMIN_KEY todavía (revisa las variables de entorno en Render).');
+      } else if (!e.response) {
+        setError(`⚠️ No se pudo conectar con el servidor (${API_URL}). Verifica que el backend esté encendido.`);
+      } else {
+        setError(`⚠️ Error inesperado: ${e.response?.data?.error || e.message}`);
+      }
       setAutenticado(false);
     }
   };
