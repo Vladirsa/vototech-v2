@@ -1,4 +1,9 @@
 import 'dotenv/config';
+import 'express-async-errors'; // ⚠️ CRÍTICO: sin esto, un error en cualquier
+// ruta "async" (casi todas) se escapa del manejo de errores de Express y
+// puede tumbar el proceso completo del servidor — como pasó al borrar una
+// campaña con datos relacionados. Esto lo arregla para TODAS las rutas
+// de una vez, no una por una.
 import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
@@ -108,6 +113,14 @@ app.get('/api/salud', (req, res) => {
 app.use((err, req, res, next) => {
   console.error('Error no manejado:', err);
   res.status(500).json({ ok: false, error: 'Error interno del servidor' });
+});
+
+// Última red de seguridad: si algo se escapa incluso de Express (por
+// ejemplo, dentro de un manejador de Socket.io), se registra el error
+// pero el servidor NO se cae — mejor una función que falla una vez
+// que toda la plataforma caída para todos los candidatos.
+process.on('unhandledRejection', (razon) => {
+  console.error('⚠️ Promesa rechazada sin manejar (el servidor sigue corriendo):', razon);
 });
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-key-cambiar-en-produccion';

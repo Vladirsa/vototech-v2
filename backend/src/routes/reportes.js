@@ -125,6 +125,35 @@ router.get('/estadisticas', async (req, res) => {
       [campanaId]
     );
 
+    // 📊 COMPARACIÓN 2024 → PROYECCIÓN 2027: toma el resultado histórico
+    // real y le suma/resta lo que tus promovidos actuales representan,
+    // para estimar hacia dónde va cada partido si la tendencia se sostiene.
+    const CONVERSION = 0.65;
+    const promosPorPartidoClasif = await query(
+      `SELECT partido, clasificacion, COUNT(*) as total FROM promovidos
+       WHERE campana_id=$1 AND partido IS NOT NULL GROUP BY partido, clasificacion`,
+      [campanaId]
+    );
+    const gananciaPorPartido = {}; // votos estimados que cada partido suma por promovidos "base" propios
+    promosPorPartidoClasif.rows.forEach((r) => {
+      if (r.clasificacion === 'base') {
+        gananciaPorPartido[r.partido] = (gananciaPorPartido[r.partido] || 0) + parseInt(r.total) * CONVERSION;
+      }
+    });
+    // Los persuadibles capturados por TU partido cuentan como ganancia tuya
+    const persuadiblesPropios = promosPorPartidoClasif.rows
+      .filter((r) => r.clasificacion === 'persuadible' && r.partido === campana.partido)
+      .reduce((s, r) => s + parseInt(r.total), 0);
+
+    const proyeccion2027 = {};
+    Object.entries(votosPorPartido).forEach(([p, v]) => { proyeccion2027[p] = v; });
+    Object.entries(gananciaPorPartido).forEach(([p, ganancia]) => {
+      proyeccion2027[p] = (proyeccion2027[p] || 0) + ganancia;
+    });
+    if (campana.partido) {
+      proyeccion2027[campana.partido] = (proyeccion2027[campana.partido] || 0) + persuadiblesPropios * CONVERSION;
+    }
+
     res.json({
       ok: true,
       data: {
@@ -137,6 +166,7 @@ router.get('/estadisticas', async (req, res) => {
         distribucion_competitividad: distribucion,
         promovidos_por_partido: Object.fromEntries(promosPartidoRes.rows.map((r) => [r.partido, parseInt(r.total)])),
         partido_campana: campana.partido,
+        proyeccion_2027: proyeccion2027,
       },
     });
   } catch (e) {

@@ -75,6 +75,19 @@ export default function AdminPlataforma() {
   const aprobar = async (id) => { await axios.patch(`${API_URL}/admin/campanas/${id}/aprobar`, {}, { headers }); cargar(); };
   const rechazar = async (id) => { await axios.patch(`${API_URL}/admin/campanas/${id}/rechazar`, {}, { headers }); cargar(); };
 
+  const renovar = async (id, meses) => {
+    await axios.patch(`${API_URL}/admin/campanas/${id}/renovar`, { meses }, { headers });
+    cargar();
+  };
+
+  const borrarCampana = async (id, nombre) => {
+    if (!confirm(`¿Borrar la campaña de "${nombre}" POR COMPLETO? Se pierden todos sus promovidos, estructura, todo. Esto NO se puede deshacer.`)) return;
+    if (!confirm('Confírmalo una vez más — esto es permanente. ¿Seguro?')) return;
+    const { data } = await axios.delete(`${API_URL}/admin/campanas/${id}`, { headers });
+    alert(data.mensaje);
+    cargar();
+  };
+
   const continuarComo = async (id) => {
     const { data } = await axios.post(`${API_URL}/admin/campanas/${id}/continuar`, {}, { headers });
     iniciarSesion(data.data.token, { nombre: data.data.nombre, rol: 'candidato' }, data.data.subdominio);
@@ -180,14 +193,24 @@ export default function AdminPlataforma() {
         <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 space-y-2">
           <h2 className="text-sm font-bold text-white">📋 Campañas registradas</h2>
           <div className="space-y-2">
-            {campanas.map((c) => (
+            {campanas.map((c) => {
+              const vencida = !c.es_demo && c.fecha_vencimiento && new Date(c.fecha_vencimiento) < new Date();
+              const diasParaVencer = c.fecha_vencimiento ? Math.ceil((new Date(c.fecha_vencimiento) - new Date()) / 86400000) : null;
+              return (
               <div key={c.id} className="bg-slate-800/50 rounded-lg px-3 py-2.5 space-y-1.5">
                 <div className="flex items-center justify-between">
                   <div>
                     <div className="text-sm font-bold text-white">{c.nombre_candidato} {c.es_demo && <span className="text-purple-400">(demo)</span>}</div>
                     <div className="text-[10px] text-slate-500">{c.subdominio}.vototech.mx · {c.tipo_eleccion} · {c.total_usuarios} usuarios</div>
                   </div>
-                  <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${ESTADO_COLOR[c.estado_aprobacion]}`}>{c.estado_aprobacion}</span>
+                  <div className="flex flex-col items-end gap-1">
+                    <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${ESTADO_COLOR[c.estado_aprobacion]}`}>{c.estado_aprobacion}</span>
+                    {!c.es_demo && c.fecha_vencimiento && (
+                      <span className={`text-[9px] font-bold ${vencida ? 'text-red-400' : diasParaVencer <= 5 ? 'text-amber-400' : 'text-emerald-400'}`}>
+                        {vencida ? `💳 Vencida hace ${Math.abs(diasParaVencer)}d` : `💳 Vence en ${diasParaVencer}d`}
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <div className="flex items-center justify-between">
                   <div className="text-[9px] text-slate-500">
@@ -202,11 +225,21 @@ export default function AdminPlataforma() {
                         <button onClick={() => rechazar(c.id)} className="text-[10px] font-bold text-red-400 px-2 py-1">✕ Rechazar</button>
                       </>
                     )}
+                    {c.estado_aprobacion === 'aprobada' && !c.es_demo && (
+                      <select onChange={(e) => { if (e.target.value) { renovar(c.id, parseInt(e.target.value)); e.target.value = ''; } }} defaultValue=""
+                        className="text-[10px] bg-slate-700 text-emerald-300 font-bold rounded px-1.5 py-1 border-0">
+                        <option value="" disabled>💳 Renovar...</option>
+                        <option value="1">+1 mes</option>
+                        <option value="3">+3 meses</option>
+                        <option value="12">+12 meses</option>
+                      </select>
+                    )}
                     <button onClick={() => continuarComo(c.id)} className="text-[10px] font-bold text-indigo-400 px-2 py-1">▶️ Continuar</button>
+                    <button onClick={() => borrarCampana(c.id, c.nombre_candidato)} className="text-[10px] font-bold text-red-500 px-1">🗑️</button>
                   </div>
                 </div>
               </div>
-            ))}
+            );})}
           </div>
         </div>
       </div>

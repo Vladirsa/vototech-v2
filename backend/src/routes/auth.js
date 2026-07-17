@@ -115,7 +115,8 @@ router.post('/login', async (req, res) => {
   try {
     const resultado = await query(
       `SELECT u.id, u.nombre, u.email, u.password_hash, u.rol, u.activo,
-              c.id as campana_id, c.activa as campana_activa, c.estado_aprobacion
+              c.id as campana_id, c.activa as campana_activa, c.estado_aprobacion,
+              c.fecha_vencimiento, c.es_demo
        FROM usuarios u
        JOIN campanas c ON c.id = u.campana_id
        WHERE c.subdominio = $1 AND u.email = $2`,
@@ -139,6 +140,12 @@ router.post('/login', async (req, res) => {
     }
     if (usuario.estado_aprobacion === 'rechazada' || !usuario.campana_activa) {
       return res.status(403).json({ ok: false, error: 'Esta campaña no está activa. Contacta a VotoTech para más información.' });
+    }
+
+    // La demo nunca vence (para presentaciones); las campañas reales sí,
+    // si no han renovado su mensualidad.
+    if (!usuario.es_demo && usuario.fecha_vencimiento && new Date(usuario.fecha_vencimiento) < new Date()) {
+      return res.status(403).json({ ok: false, error: '💳 Tu suscripción venció. Contacta a VotoTech para renovar tu servicio.' });
     }
 
     const passwordOk = await bcrypt.compare(password, usuario.password_hash);

@@ -48,8 +48,13 @@ router.get('/campanas', async (req, res) => {
  * manualmente, le des luz verde aquí.
  */
 router.patch('/campanas/:id/aprobar', async (req, res) => {
+  // Al aprobar, se activa Y se le da 1 mes de gracia automático desde
+  // hoy — el candidato ya puede usar el sistema mientras se coordina
+  // el primer pago formal.
   const resultado = await query(
-    `UPDATE campanas SET estado_aprobacion='aprobada', activa=true WHERE id=$1 RETURNING *`,
+    `UPDATE campanas SET estado_aprobacion='aprobada', activa=true,
+       fecha_activacion=now(), fecha_vencimiento=now() + interval '1 month'
+     WHERE id=$1 RETURNING *`,
     [req.params.id]
   );
   res.json({ ok: true, data: resultado.rows[0] });
@@ -124,6 +129,46 @@ router.post('/campanas/:id/continuar', async (req, res) => {
 router.delete('/codigos-acceso/:id', async (req, res) => {
   await query('DELETE FROM codigos_acceso_campana WHERE id=$1', [req.params.id]);
   res.json({ ok: true });
+});
+
+/**
+ * PATCH /api/admin/campanas/:id/renovar
+ * Extiende el vencimiento — se usa cada vez que el candidato paga
+ * su mensualidad. body: { meses: 1 } (o 3, 12, lo que hayan pagado)
+ */
+router.patch('/campanas/:id/renovar', async (req, res) => {
+  const meses = parseInt(req.body.meses) || 1;
+  if (meses < 1 || meses > 24) return res.status(400).json({ ok: false, error: 'Meses inválido' });
+
+  // Si ya venció, la renovación cuenta desde HOY (no desde la fecha
+  // vieja de vencimiento) — así no se "acumulan" meses fantasma de
+  // cuando estuvo suspendida.
+  const resultado = await query(
+    `UPDATE campanas SET
+       fecha_vencimiento = GREATEST(COALESCE(fecha_vencimiento, now()), now()) + ($1 || ' months')::interval,
+       activa = true
+     WHERE id=$2 RETURNING *`,
+    [meses, req.params.id]
+  );
+  if (!resultado.rows[0]) return res.status(404).json({ ok: false, error: 'No encontrada' });
+  res.json({ ok: true, data: resultado.rows[0] });
+});
+
+/**
+ * DELETE /api/admin/campanas/:id
+ * Borra la campaña por completo — usuarios, promovidos, todo (el
+ * CASCADE en las tablas se encarga). No hay reversa, así que el
+ * frontend debe confirmar dos veces antes de llamar esto.
+ */
+router.delete('/campanas/:id', async (req, res) => {
+  try {
+    const resultado = await query('DELETE FROM campanas WHERE id=$1 RETURNING nombre_candidato', [req.params.id]);
+    if (!resultado.rows[0]) return res.status(404).json({ ok: false, error: 'No encontrada' });
+    res.json({ ok: true, mensaje: `Campaña de ${resultado.rows[0].nombre_candidato} eliminada por completo` });
+  } catch (e) {
+    console.error('Error borrando campaña:', e);
+    res.status(500).json({ ok: false, error: 'No se pudo borrar la campaña. Puede tener datos relacionados que lo impiden.' });
+  }
 });
 
 export default router;

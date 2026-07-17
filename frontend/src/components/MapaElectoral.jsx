@@ -73,6 +73,15 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
   const [capaLocalidades, setCapaLocalidades] = useState(true);
   const [capaCalor, setCapaCalor] = useState(false);
   const [buscarTexto, setBuscarTexto] = useState('');
+  const [vueloDestino, setVueloDestino] = useState(null);
+
+  const buscarSeccion = (valor) => {
+    setBuscarTexto(valor);
+    const numero = parseInt(valor);
+    if (!numero || !centroidesSeccion[numero]) return;
+    setSeccionActiva(numero);
+    setVueloDestino({ centro: centroidesSeccion[numero], zoom: 16, key: Date.now() });
+  };
   const [panelPos, setPanelPos] = useState({ x: 16, y: 16 });
   const arrastrando = useRef(false);
 
@@ -339,6 +348,14 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
     api.get('/zonas').then(r => setZonasAsignadas(r.data.data));
   };
 
+  // Lookup rápido: sección -> quién ya la tiene asignada (para mostrarlo
+  // ANTES de seleccionar, no después — antes esto no se veía en ningún lado)
+  const seccionAsignadaA = useMemo(() => {
+    const mapa = {};
+    zonasAsignadas.forEach((z) => { mapa[z.seccion_numero] = z.usuario_nombre; });
+    return mapa;
+  }, [zonasAsignadas]);
+
   const ESTADO_CASA_COLOR = {
     sin_visitar: '#64748b', visitado: '#3b82f6', promovido: '#10b981', competencia: '#ef4444', no_toco: '#f59e0b',
   };
@@ -422,9 +439,13 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
     // seccional asignado — para detectar huecos de un vistazo
     const sinCobertura = mostrarCobertura && !seccionesCubiertas.has(num);
     const seleccionadaParaZona = modoSectorizacion && seccionesSeleccionadas.has(num);
+    const yaAsignada = modoSectorizacion && seccionAsignadaA[num];
 
     if (seleccionadaParaZona) {
       return { fillColor: '#a855f7', fillOpacity: 0.6, color: '#c084fc', weight: 3, opacity: 1 };
+    }
+    if (yaAsignada) {
+      return { fillColor: '#0ea5e9', fillOpacity: 0.25, color: '#38bdf8', weight: 1.5, opacity: 0.8 };
     }
 
     return {
@@ -448,8 +469,15 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
       },
       click: () => alClickSeccion(feature.properties.seccion),
     });
-    // Etiqueta permanente con el número de sección (SORPRESA: se ve solo con buen zoom, evita saturar)
-    capa.bindTooltip(String(feature.properties.seccion).padStart(3, '0'), {
+    // Etiqueta: número de sección normalmente, o "quién ya la tiene" si
+    // estamos en modo Sectorización — antes esto era invisible hasta
+    // después de asignar, ahora se ve ANTES de seleccionar.
+    const numero = feature.properties.seccion;
+    const asignadaA = seccionAsignadaA[numero];
+    const textoTooltip = modoSectorizacion
+      ? (asignadaA ? `Sección ${String(numero).padStart(3, '0')} — ya es de ${asignadaA}` : `Sección ${String(numero).padStart(3, '0')} — sin asignar`)
+      : String(numero).padStart(3, '0');
+    capa.bindTooltip(textoTooltip, {
       permanent: false, direction: 'center', className: 'etiqueta-seccion',
     });
   };
@@ -496,7 +524,7 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
 
         {seccionesFiltradas && (
           <GeoJSON
-            key={`${coloreadoActivo}-${seccionActiva}-${territorioId}-${tipoEleccion}-${anio}-${modoColoreado}-${mostrarCobertura}-${Object.keys(prioridadPorSeccion).length}-${seccionesCubiertas.size}-${modoSectorizacion}-${seccionesSeleccionadas.size}-${capaPulso}-${seccionesActivas7d.size}`}
+            key={`${coloreadoActivo}-${seccionActiva}-${territorioId}-${tipoEleccion}-${anio}-${modoColoreado}-${mostrarCobertura}-${Object.keys(prioridadPorSeccion).length}-${seccionesCubiertas.size}-${modoSectorizacion}-${seccionesSeleccionadas.size}-${capaPulso}-${seccionesActivas7d.size}-${zonasAsignadas.length}`}
             data={seccionesFiltradas}
             style={estiloSeccion}
             onEachFeature={alPasarMouse}
@@ -540,9 +568,15 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
         {capaAgenda && eventosAgenda.map((e) => (
           <Marker key={e.id} position={[e.lat, e.lng]} icon={iconoEvento(e.tipo)}>
             <Popup>
-              <div style={{ fontSize: 12 }}>
+              <div style={{ fontSize: 12, minWidth: 160 }}>
                 <strong>{ICONO_EVENTO[e.tipo]} {e.titulo}</strong><br />
-                {new Date(e.fecha_inicio).toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' })}
+                📅 {new Date(e.fecha_inicio).toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' })}<br />
+                {e.lugar && <>📍 {e.lugar}<br /></>}
+                {e.seccion_numero && <>🗳️ Sección {e.seccion_numero}<br /></>}
+                {e.descripcion && <span style={{ color: '#888' }}>{e.descripcion}<br /></span>}
+                <span style={{ fontSize: 10, color: e.realizado ? '#10b981' : '#f59e0b', fontWeight: 'bold' }}>
+                  {e.realizado ? '✅ Ya realizado' : '⏳ Pendiente'}
+                </span>
               </div>
             </Popup>
           </Marker>
@@ -609,6 +643,7 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
         ))}
 
         <CapaCalor puntos={promovidosConPosicion.map(p => ({ lat: p._lat, lng: p._lng }))} activa={capaCalor} />
+        {vueloDestino && <VueloCamara key={vueloDestino.key} centro={vueloDestino.centro} zoom={vueloDestino.zoom} />}
       </MapContainer>
 
       {/* ── PANEL DE COLOREADO — AHORA SÍ REALMENTE MOVIBLE ── */}
@@ -747,7 +782,7 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
 
       {/* 📋 FICHA TÉCNICA DE LA SECCIÓN — aparece al tocar una sección en el mapa */}
       {seccionActiva && (
-        <div className="absolute bottom-4 left-4 right-4 md:right-auto z-[1000] md:w-80 bg-slate-900/95 backdrop-blur border border-slate-700 rounded-2xl p-4 max-h-[60vh] overflow-y-auto">
+        <div className="absolute bottom-4 right-4 left-4 md:left-auto z-[1000] md:w-80 bg-slate-900/95 backdrop-blur border border-slate-700 rounded-2xl p-4 max-h-[60vh] overflow-y-auto">
           <div className="flex items-center justify-between mb-2">
             <span className="font-black text-white text-sm">📋 Sección {String(seccionActiva).padStart(3, '0')}</span>
             <button onClick={() => setSeccionActiva(null)} className="text-slate-500 hover:text-white text-sm">✕</button>
@@ -812,6 +847,31 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
                 ) : null}
               </div>
 
+              {/* 🗣️ CONTEXTO HUMANO — para que el candidato llegue empático, no
+                  solo con datos duros. Esto es lo que hace la diferencia entre
+                  "pedir el voto" y "entender a la gente". */}
+              {(Object.keys(fichaTecnica.necesidades_declaradas || {}).length > 0 || fichaTecnica.situaciones_graves?.length > 0) && (
+                <div className="bg-amber-500/5 border border-amber-500/20 rounded-lg p-2.5 space-y-2">
+                  <div className="text-[10px] font-bold text-amber-300 uppercase">🗣️ Antes de venir a esta sección</div>
+                  {Object.keys(fichaTecnica.necesidades_declaradas || {}).length > 0 && (
+                    <div className="flex flex-wrap gap-1">
+                      {Object.entries(fichaTecnica.necesidades_declaradas).sort((a, b) => b[1] - a[1]).map(([n, c]) => (
+                        <span key={n} className="text-[9px] bg-slate-800 text-slate-300 px-2 py-0.5 rounded-full">{n} ({c})</span>
+                      ))}
+                    </div>
+                  )}
+                  {fichaTecnica.situaciones_graves?.length > 0 && (
+                    <div className="space-y-1">
+                      {fichaTecnica.situaciones_graves.map((s, i) => (
+                        <div key={i} className="text-[10px] text-slate-300 bg-slate-800/60 rounded p-1.5">
+                          <strong className="text-amber-400">{s.nombre}:</strong> {s.situacion_grave}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* ── ACCIONES RÁPIDAS — conectan directo con otros módulos ── */}
               <div className="grid grid-cols-2 gap-2 pt-1">
                 <button onClick={() => navigate(`/promovidos?seccion=${seccionActiva}`)}
@@ -836,15 +896,18 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
         </div>
       )}
 
-      {/* Buscador de localidades — esquina superior izquierda */}
+      {/* Buscador de sección — esquina superior izquierda */}
       <div className="absolute top-4 left-4 z-[1000] w-64 space-y-2">
         <input
-          type="text"
-          placeholder="🔍 Buscar comunidad..."
+          type="number"
+          placeholder="🔍 Buscar sección (ej: 12)..."
           value={buscarTexto}
-          onChange={e => setBuscarTexto(e.target.value)}
+          onChange={e => buscarSeccion(e.target.value)}
           className="w-full px-4 py-2.5 rounded-xl bg-slate-900/95 backdrop-blur border border-slate-700 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
         />
+        {buscarTexto && !centroidesSeccion[parseInt(buscarTexto)] && (
+          <div className="text-[10px] text-amber-400 px-1">Esa sección no está en tu territorio</div>
+        )}
         {territorioTipo === 'municipio' && (
           <button onClick={abrirResumenMunicipio}
             className="w-full px-4 py-2.5 rounded-xl bg-indigo-600/90 backdrop-blur text-sm text-white font-bold shadow-lg">
@@ -862,6 +925,10 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
         <div className="absolute bottom-4 left-4 right-4 md:right-auto z-[1500] md:w-72 bg-slate-900/95 backdrop-blur border border-purple-700/40 rounded-2xl p-4 space-y-2.5">
           <div className="text-sm font-bold text-white">✂️ Modo Sectorización</div>
           <p className="text-[10px] text-slate-400">Toca varias secciones en el mapa para seleccionarlas, luego elige a quién se las asignas.</p>
+          <div className="flex items-center gap-3 text-[9px] text-slate-400">
+            <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-sky-500/60 border border-sky-400" /> Ya asignada</span>
+            <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-purple-500" /> Seleccionada</span>
+          </div>
           <div className="text-xs text-purple-300 font-bold">{seccionesSeleccionadas.size} secciones seleccionadas</div>
           {seccionesSeleccionadas.size > 0 && (
             <select onChange={(e) => e.target.value && asignarZona(e.target.value)} defaultValue=""

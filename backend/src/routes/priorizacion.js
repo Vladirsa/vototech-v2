@@ -261,6 +261,26 @@ router.get('/seccion/:numero', async (req, res) => {
     const promos = { base: 0, persuadible: 0, adversario: 0 };
     promosRes.rows.forEach((r) => { promos[r.clasificacion] = parseInt(r.total); });
 
+    // 🗣️ Contexto humano para el candidato antes de visitar la sección:
+    // qué necesidades declara la gente (encuesta rápida) y si hay algo
+    // grave que deba saber para ser empático, no solo llegar a pedir el voto.
+    const encuestaRes = await query(
+      `SELECT encuesta FROM promovidos WHERE campana_id=$1 AND seccion_id=$2 AND encuesta IS NOT NULL`,
+      [campanaId, seccion.id]
+    );
+    const conteoNecesidades = {};
+    encuestaRes.rows.forEach((r) => {
+      const necesidad = r.encuesta?.necesidad_principal;
+      if (necesidad) conteoNecesidades[necesidad] = (conteoNecesidades[necesidad] || 0) + 1;
+    });
+
+    const situacionesRes = await query(
+      `SELECT nombre, situacion_grave, creado_en FROM promovidos
+       WHERE campana_id=$1 AND seccion_id=$2 AND situacion_grave IS NOT NULL AND situacion_grave != ''
+       ORDER BY creado_en DESC LIMIT 10`,
+      [campanaId, seccion.id]
+    );
+
     // Cálculo de déficit — misma fórmula que el Motor de Priorización general
     const CONVERSION = 0.65;
     const votosPartido = votos[campana.partido] || 0;
@@ -291,6 +311,8 @@ router.get('/seccion/:numero', async (req, res) => {
         deficit_votos: Math.round(deficit),
         promovidos_necesarios: promovidosNecesarios,
         ritmo_diario: diasRestantes ? +(promovidosNecesarios / diasRestantes).toFixed(1) : null,
+        necesidades_declaradas: conteoNecesidades,
+        situaciones_graves: situacionesRes.rows,
       },
     });
   } catch (e) {

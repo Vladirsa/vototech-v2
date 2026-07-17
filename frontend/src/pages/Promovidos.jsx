@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import api, { descargarArchivo } from '../lib/api';
 import BuscadorCalle from '../components/BuscadorCalle';
+import Papa from 'papaparse';
 import AsistenteIA from '../components/AsistenteIA';
 
 const CLASIFICACION_ESTILO = {
@@ -14,6 +15,7 @@ function ModalAgregar({ onCerrar, onGuardado, seccionInicial }) {
   const [form, setForm] = useState({
     nombre: '', telefono: '', seccion_numero: seccionInicial || '', partido: '', calle: '', lat: null, lng: null,
     comprometido: false, temperatura: 'tibio', consentimiento: false,
+    necesidad_principal: '', situacion_grave: '',
   });
   const [error, setError] = useState('');
   const [guardando, setGuardando] = useState(false);
@@ -27,6 +29,7 @@ function ModalAgregar({ onCerrar, onGuardado, seccionInicial }) {
       await api.post('/promovidos', {
         ...form,
         seccion_numero: form.seccion_numero ? parseInt(form.seccion_numero) : undefined,
+        encuesta: form.necesidad_principal ? { necesidad_principal: form.necesidad_principal } : undefined,
       });
       onGuardado();
     } catch (err) {
@@ -71,6 +74,27 @@ function ModalAgregar({ onCerrar, onGuardado, seccionInicial }) {
           <input type="checkbox" checked={form.comprometido} onChange={(e) => actualizar('comprometido', e.target.checked)} />
           Está comprometido a votar por nosotros
         </label>
+
+        {/* 🗣️ Encuesta rápida — para que el candidato llegue informado
+            y empático a cada sección, no solo a pedir el voto */}
+        <div className="bg-indigo-500/5 border border-indigo-500/20 rounded-lg p-2.5 space-y-2">
+          <div className="text-[10px] font-bold text-indigo-300 uppercase">🗣️ Encuesta rápida (opcional)</div>
+          <select value={form.necesidad_principal} onChange={(e) => actualizar('necesidad_principal', e.target.value)}
+            className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs">
+            <option value="">¿Cuál es su necesidad principal?</option>
+            <option value="agua">💧 Agua</option>
+            <option value="seguridad">🚨 Seguridad</option>
+            <option value="empleo">💼 Empleo</option>
+            <option value="salud">🏥 Salud</option>
+            <option value="educacion">📚 Educación</option>
+            <option value="vialidad">🛣️ Calles/Vialidad</option>
+            <option value="otro">📌 Otro</option>
+          </select>
+          <textarea placeholder="¿Algo grave que el candidato deba saber antes de venir? (ej: enfermedad en la familia, conflicto reciente, denuncia pendiente...)"
+            value={form.situacion_grave} onChange={(e) => actualizar('situacion_grave', e.target.value)}
+            className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs min-h-14" />
+        </div>
+
         <label className="flex items-start gap-2 text-xs text-slate-300 bg-slate-800/50 p-2 rounded-lg">
           <input type="checkbox" checked={form.consentimiento} onChange={(e) => actualizar('consentimiento', e.target.checked)} className="mt-0.5" />
           <span>Cuento con el consentimiento de esta persona para registrar sus datos, conforme a la LFPDPPP *</span>
@@ -224,6 +248,118 @@ function ModalDetalle({ promovidoId, onCerrar, onActualizado }) {
   );
 }
 
+function ModalImportar({ onCerrar, onImportado }) {
+  const [archivo, setArchivo] = useState(null);
+  const [encabezados, setEncabezados] = useState([]);
+  const [filas, setFilas] = useState([]);
+  const [mapeo, setMapeo] = useState({ nombre: '', telefono: '', seccion_numero: '', partido: '' });
+  const [declaroConsentimiento, setDeclaroConsentimiento] = useState(false);
+  const [importando, setImportando] = useState(false);
+  const [resultado, setResultado] = useState(null);
+
+  const leerArchivo = (file) => {
+    setArchivo(file);
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: (res) => {
+        setEncabezados(res.meta.fields || []);
+        setFilas(res.data);
+        // Adivinar el mapeo automático por nombres de columna comunes
+        const adivinar = (opciones) => res.meta.fields?.find((f) => opciones.some((o) => f.toLowerCase().includes(o))) || '';
+        setMapeo({
+          nombre: adivinar(['nombre']),
+          telefono: adivinar(['telefono', 'tel', 'celular']),
+          seccion_numero: adivinar(['seccion', 'secc']),
+          partido: adivinar(['partido']),
+        });
+      },
+    });
+  };
+
+  const importar = async () => {
+    setImportando(true);
+    const filasMapeadas = filas.map((f) => ({
+      nombre: f[mapeo.nombre]?.trim(),
+      telefono: mapeo.telefono ? f[mapeo.telefono]?.trim() : undefined,
+      seccion_numero: mapeo.seccion_numero && f[mapeo.seccion_numero] ? parseInt(f[mapeo.seccion_numero]) : undefined,
+      partido: mapeo.partido ? f[mapeo.partido]?.trim().toLowerCase() : undefined,
+    })).filter((f) => f.nombre);
+
+    try {
+      const { data } = await api.post('/promovidos/importar', { filas: filasMapeadas, declaro_consentimiento: declaroConsentimiento });
+      setResultado(data);
+      onImportado();
+    } catch (e) {
+      setResultado({ error: e.response?.data?.error || 'Error al importar' });
+    }
+    setImportando(false);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/70 flex items-end md:items-center justify-center z-50">
+      <div className="bg-slate-900 border border-slate-700 rounded-t-2xl md:rounded-2xl w-full max-w-lg p-5 space-y-3 max-h-[90vh] overflow-y-auto">
+        <h2 className="text-lg font-black text-white">📤 Importar tu base de datos</h2>
+        <p className="text-[10px] text-slate-500">
+          Sube un Excel o CSV que TÚ ya tengas de contactos previos (no es el padrón oficial, es tu propia información).
+        </p>
+
+        {!archivo && (
+          <div>
+            <input type="file" accept=".csv,.xlsx,.xls" onChange={(e) => leerArchivo(e.target.files[0])}
+              className="w-full text-xs text-slate-400 file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:bg-indigo-600 file:text-white file:text-xs file:font-bold" />
+            <p className="text-[9px] text-slate-600 mt-2">Formato CSV recomendado (exporta tu Excel como CSV desde Excel/Google Sheets)</p>
+          </div>
+        )}
+
+        {archivo && !resultado && (
+          <>
+            <div className="text-xs text-emerald-400">✅ {filas.length} filas detectadas en {archivo.name}</div>
+            <div className="space-y-2">
+              <div className="text-[10px] font-bold text-slate-400 uppercase">Indica qué columna es cada dato</div>
+              {[['nombre', 'Nombre *'], ['telefono', 'Teléfono'], ['seccion_numero', 'Sección'], ['partido', 'Partido']].map(([campo, label]) => (
+                <div key={campo} className="flex items-center gap-2">
+                  <span className="text-xs text-slate-300 w-24">{label}</span>
+                  <select value={mapeo[campo]} onChange={(e) => setMapeo({ ...mapeo, [campo]: e.target.value })}
+                    className="flex-1 px-2 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs">
+                    <option value="">No importar esta columna</option>
+                    {encabezados.map((h) => <option key={h} value={h}>{h}</option>)}
+                  </select>
+                </div>
+              ))}
+            </div>
+
+            <label className="flex items-start gap-2 text-xs text-slate-300 bg-slate-800/50 p-2 rounded-lg">
+              <input type="checkbox" checked={declaroConsentimiento} onChange={(e) => setDeclaroConsentimiento(e.target.checked)} className="mt-0.5" />
+              <span>Declaro que estos contactos son míos y que ya contaba con su consentimiento para tener sus datos, conforme a la LFPDPPP *</span>
+            </label>
+
+            <div className="flex gap-2">
+              <button onClick={onCerrar} className="flex-1 py-2.5 rounded-lg bg-slate-800 text-slate-300 text-sm font-bold">Cancelar</button>
+              <button onClick={importar} disabled={!mapeo.nombre || !declaroConsentimiento || importando}
+                className="flex-[2] py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-bold disabled:opacity-40">
+                {importando ? '⏳ Importando...' : `Importar ${filas.length} contactos`}
+              </button>
+            </div>
+          </>
+        )}
+
+        {resultado && !resultado.error && (
+          <div className="space-y-3">
+            <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-3 text-sm text-emerald-300">
+              ✅ {resultado.importados} importados · {resultado.duplicados} ya existían (se omitieron) · {resultado.errores} con error
+            </div>
+            <button onClick={onCerrar} className="w-full py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-bold">Cerrar</button>
+          </div>
+        )}
+        {resultado?.error && (
+          <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 text-sm text-red-300">⚠️ {resultado.error}</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function Promovidos() {
   const [params] = useSearchParams();
   const seccionFiltro = params.get('seccion') ? parseInt(params.get('seccion')) : null;
@@ -235,6 +371,7 @@ export default function Promovidos() {
   const [busqueda, setBusqueda] = useState('');
   const [filtroTemperatura, setFiltroTemperatura] = useState('todas');
   const [detalleId, setDetalleId] = useState(null);
+  const [mostrarImportar, setMostrarImportar] = useState(false);
 
   const cargar = () => {
     setCargando(true);
@@ -269,6 +406,10 @@ export default function Promovidos() {
             <button onClick={() => descargarArchivo('/exportar/promovidos', 'promovidos.xlsx')}
               className="px-3 py-2.5 rounded-xl bg-emerald-700/50 text-emerald-300 text-sm font-bold" title="Descargar Excel">
               📥 Excel
+            </button>
+            <button onClick={() => setMostrarImportar(true)}
+              className="px-3 py-2.5 rounded-xl bg-purple-700/50 text-purple-300 text-sm font-bold" title="Importar tu base propia">
+              📤 Importar
             </button>
             <button onClick={() => setMostrarModal(true)} className="px-4 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-bold">
               + Agregar
@@ -353,6 +494,7 @@ export default function Promovidos() {
 
       {mostrarModal && <ModalAgregar seccionInicial={seccionFiltro} onCerrar={() => setMostrarModal(false)} onGuardado={() => { setMostrarModal(false); cargar(); }} />}
       {detalleId && <ModalDetalle promovidoId={detalleId} onCerrar={() => setDetalleId(null)} onActualizado={cargar} />}
+      {mostrarImportar && <ModalImportar onCerrar={() => { setMostrarImportar(false); cargar(); }} onImportado={cargar} />}
     </div>
   );
 }

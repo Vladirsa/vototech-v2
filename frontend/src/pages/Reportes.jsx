@@ -138,24 +138,56 @@ export default function Reportes() {
             </div>
 
             {estadisticas.anio_historico ? (
-              <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
-                <h3 className="text-xs font-bold text-slate-400 uppercase mb-3">Resultados acumulados {estadisticas.anio_historico} (todo tu territorio)</h3>
-                <div className="space-y-2">
-                  {Object.entries(estadisticas.votos_por_partido).sort((a, b) => b[1] - a[1]).map(([p, v]) => (
-                    <div key={p}>
-                      <div className="flex justify-between text-xs mb-1">
-                        <span className={`font-bold ${p === estadisticas.partido_campana ? 'text-indigo-300' : 'text-slate-300'}`}>
-                          {p === estadisticas.partido_campana && '⭐ '}{p.toUpperCase()}
-                        </span>
-                        <span className="text-slate-400">{v.toLocaleString()} ({Math.round(v / estadisticas.total_votos_historico * 100)}%)</span>
+              <>
+                <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+                  <h3 className="text-xs font-bold text-slate-400 uppercase mb-3">Resultados acumulados {estadisticas.anio_historico} (todo tu territorio)</h3>
+                  <div className="space-y-2">
+                    {Object.entries(estadisticas.votos_por_partido).sort((a, b) => b[1] - a[1]).map(([p, v]) => (
+                      <div key={p}>
+                        <div className="flex justify-between text-xs mb-1">
+                          <span className={`font-bold ${p === estadisticas.partido_campana ? 'text-indigo-300' : 'text-slate-300'}`}>
+                            {p === estadisticas.partido_campana && '⭐ '}{p.toUpperCase()}
+                          </span>
+                          <span className="text-slate-400">{v.toLocaleString()} ({Math.round(v / estadisticas.total_votos_historico * 100)}%)</span>
+                        </div>
+                        <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
+                          <div className="h-full rounded-full" style={{ width: `${v / estadisticas.total_votos_historico * 100}%`, background: PARTIDOS_COLOR[p] || '#64748b' }} />
+                        </div>
                       </div>
-                      <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
-                        <div className="h-full rounded-full" style={{ width: `${v / estadisticas.total_votos_historico * 100}%`, background: PARTIDOS_COLOR[p] || '#64748b' }} />
-                      </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
-              </div>
+
+                {/* 📊 COMPARACIÓN 2024 → PROYECCIÓN 2027 */}
+                <div className="bg-gradient-to-br from-indigo-950/60 to-purple-950/40 border border-indigo-800/30 rounded-xl p-4">
+                  <h3 className="text-xs font-bold text-indigo-300 uppercase mb-1">📊 Comparación: {estadisticas.anio_historico} → Proyección 2027</h3>
+                  <p className="text-[10px] text-slate-500 mb-3">Resultado real de {estadisticas.anio_historico} + lo que aportan tus promovidos actuales (Base confirmada, con 65% de conversión a voto)</p>
+                  <div className="space-y-3">
+                    {Object.entries(estadisticas.votos_por_partido).sort((a, b) => b[1] - a[1]).map(([p]) => {
+                      const votos2024 = estadisticas.votos_por_partido[p] || 0;
+                      const votos2027 = estadisticas.proyeccion_2027[p] || votos2024;
+                      const cambio = votos2027 - votos2024;
+                      const totalProyectado = Object.values(estadisticas.proyeccion_2027).reduce((a, b) => a + b, 0);
+                      return (
+                        <div key={p}>
+                          <div className="flex justify-between text-xs mb-1">
+                            <span className={`font-bold ${p === estadisticas.partido_campana ? 'text-indigo-300' : 'text-slate-300'}`}>{p.toUpperCase()}</span>
+                            <span className="text-slate-400">
+                              {Math.round(votos2024).toLocaleString()} → <strong className="text-white">{Math.round(votos2027).toLocaleString()}</strong>
+                              {cambio > 0.5 && <span className="text-emerald-400"> (+{Math.round(cambio)})</span>}
+                            </span>
+                          </div>
+                          <div className="h-2.5 bg-slate-800 rounded-full overflow-hidden relative">
+                            <div className="h-full rounded-full opacity-40" style={{ width: `${votos2024 / totalProyectado * 100}%`, background: PARTIDOS_COLOR[p] || '#64748b' }} />
+                            <div className="h-full rounded-full absolute top-0" style={{ width: `${votos2027 / totalProyectado * 100}%`, background: PARTIDOS_COLOR[p] || '#64748b', opacity: 0.3, borderRight: '2px solid white' }} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <p className="text-[9px] text-slate-600 mt-3">⚠️ Es una proyección orientativa basada en tu avance actual, no un resultado garantizado — sirve para ver tendencia, no para confiarse.</p>
+                </div>
+              </>
             ) : (
               <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 text-xs text-amber-300">
                 ⚠️ Sin datos históricos cargados para este tipo de elección

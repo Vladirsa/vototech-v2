@@ -124,6 +124,7 @@ const esquemaPromovido = z.object({
   lat: z.number().optional(),
   lng: z.number().optional(),
   encuesta: z.record(z.any()).optional(),
+  situacion_grave: z.string().max(500).optional(),
   consentimiento: z.boolean(),
 });
 
@@ -193,13 +194,13 @@ router.post('/', async (req, res) => {
     const resultado = await query(
       `INSERT INTO promovidos
         (campana_id, nombre, telefono, curp, seccion_id, calle, partido, comprometido,
-         temperatura, lat, lng, encuesta, registrado_por, consentimiento)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+         temperatura, lat, lng, encuesta, situacion_grave, registrado_por, consentimiento)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
        RETURNING *`,
       [req.usuario.campana_id, d.nombre, d.telefono || null, d.curp || null, seccionId,
        d.calle || null, d.partido || null, d.comprometido, d.temperatura,
        d.lat || null, d.lng || null, d.encuesta ? JSON.stringify(d.encuesta) : null,
-       req.usuario.sub, d.consentimiento]
+       d.situacion_grave || null, req.usuario.sub, d.consentimiento]
     );
 
     res.status(201).json({ ok: true, data: resultado.rows[0] });
@@ -337,6 +338,70 @@ router.patch('/:id', async (req, res) => {
   );
   if (!resultado.rows[0]) return res.status(404).json({ ok: false, error: 'No encontrado' });
   res.json({ ok: true, data: resultado.rows[0] });
+});
+
+const esquemaFilaImportar = z.object({
+  nombre: z.string().min(2).max(200),
+  telefono: z.string().max(20).optional(),
+  seccion_numero: z.number().int().optional(),
+  partido: z.string().max(20).optional(),
+  comprometido: z.boolean().optional(),
+});
+
+/**
+ * POST /api/promovidos/importar
+ * Importación masiva de una base de datos QUE EL CANDIDATO YA TIENE
+ * (su propio Excel/CSV de contactos previos) — distinto por completo
+ * al padrón electoral oficial, que nunca se importa a esta plataforma.
+ * El candidato declara aquí que esos contactos son suyos y que ya
+ * contaba con su consentimiento al recopilarlos.
+ */
+router.post('/importar', async (req, res) => {
+  const { filas, declaro_consentimiento } = req.body;
+  if (!declaro_consentimiento) {
+    return res.status(400).json({ ok: false, error: 'Debes confirmar que ya contabas con el consentimiento de estos contactos' });
+  }
+  if (!Array.isArray(filas) || filas.length === 0 || filas.length > 5000) {
+    return res.status(400).json({ ok: false, error: 'Se requiere una lista de 1 a 5000 registros' });
+  }
+
+  let importados = 0, duplicados = 0, errores = 0;
+  for (const fila of filas) {
+    const parseado = esquemaFilaImportar.safeParse(fila);
+    if (!parseado.success) { errores++; continue; }
+    const d = parseado.data;
+
+    try {
+      // Misma lógica de duplicados que el registro individual — no
+      // crear dos veces a la misma persona si ya existía.
+      let duplicado = null;
+      if (d.telefono) {
+        const existente = await query(
+          `SELECT id FROM promovidos WHERE campana_id=$1 AND lower(nombre)=lower($2) AND telefono=$3`,
+          [req.usuario.campana_id, d.nombre, d.telefono]
+        );
+        duplicado = existente.rows[0];
+      }
+      if (duplicado) { duplicados++; continue; }
+
+      let seccionId = null;
+      if (d.seccion_numero) {
+        const s = await query('SELECT id FROM secciones WHERE estado_id=29 AND numero=$1', [d.seccion_numero]);
+        seccionId = s.rows[0]?.id || null;
+      }
+
+      await query(
+        `INSERT INTO promovidos (campana_id, nombre, telefono, seccion_id, partido, comprometido, temperatura, registrado_por, consentimiento)
+         VALUES ($1,$2,$3,$4,$5,$6,'tibio',$7,true)`,
+        [req.usuario.campana_id, d.nombre, d.telefono || null, seccionId, d.partido || null, d.comprometido || false, req.usuario.sub]
+      );
+      importados++;
+    } catch (e) {
+      errores++;
+    }
+  }
+
+  res.json({ ok: true, importados, duplicados, errores, total: filas.length });
 });
 
 export default router;
