@@ -1,6 +1,10 @@
 import axios from 'axios';
 
-const api = axios.create({ baseURL: '/api' });
+// En desarrollo local usa el proxy de Vite (/api -> localhost:4000).
+// En producción (Vercel), usa la URL real del backend en Render,
+// configurada como variable de entorno VITE_API_URL.
+const baseURL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : '/api';
+const api = axios.create({ baseURL });
 
 // Interceptor: agrega el token JWT automáticamente a CADA petición,
 // sin tener que acordarnos de hacerlo manualmente en cada componente

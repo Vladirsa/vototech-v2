@@ -3,6 +3,7 @@ import { MapContainer, TileLayer, GeoJSON, Marker, Popup, LayersControl, useMap 
 import L from 'leaflet';
 import 'leaflet.heat';
 import axios from 'axios';
+import api from '../lib/api';
 
 // Colores por clasificación estratégica (Base/Persuadible/Adversario) —
 // mismo lenguaje visual que ya usamos en Dashboard y Promovidos.
@@ -74,16 +75,16 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
   const arrastrando = useRef(false);
 
   useEffect(() => {
-    axios.get('/api/geo/secciones/29').then(r => setGeoSecciones(r.data.data));
-    axios.get('/api/geo/localidades/29').then(r => setLocalidades(r.data.data));
-    axios.get('/api/promovidos', { headers: { Authorization: `Bearer ${localStorage.getItem('vototech_token')}` } })
+    api.get('/geo/secciones/29').then(r => setGeoSecciones(r.data.data));
+    api.get('/geo/localidades/29').then(r => setLocalidades(r.data.data));
+    api.get('/promovidos')
       .then(r => setPromovidos(r.data.data.filter(p => p.lat && p.lng)))
       .catch(() => setPromovidos([]));
   }, []);
 
   // Cargar resultados reales cada vez que cambia el tipo de elección/año elegido
   useEffect(() => {
-    axios.get(`/api/resultados/${tipoEleccion}/${anio}`)
+    api.get(`/resultados/${tipoEleccion}/${anio}`)
       .then(r => setResultados(r.data.data))
       .catch(() => setResultados({}));
   }, [tipoEleccion, anio]);
@@ -92,7 +93,7 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
   // pero ahora con datos reales y sin depender de un archivo de 6MB completo)
   useEffect(() => {
     if (!seccionActiva) { setManzanas(null); return; }
-    axios.get(`/api/geo/manzanas/${seccionActiva}`).then(r => setManzanas(r.data.data));
+    api.get(`/geo/manzanas/${seccionActiva}`).then(r => setManzanas(r.data.data));
   }, [seccionActiva]);
 
   // ── CASAS SIMULADAS (control casa por casa dentro de una manzana) ──
@@ -101,8 +102,7 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
 
   useEffect(() => {
     if (!seccionActiva || !manzanaActiva) { setCasas([]); return; }
-    const token = localStorage.getItem('vototech_token');
-    axios.get(`/api/casas/${seccionActiva}/${manzanaActiva}`, { headers: { Authorization: `Bearer ${token}` } })
+    api.get(`/casas/${seccionActiva}/${manzanaActiva}`)
       .then(r => setCasas(r.data.data))
       .catch(() => setCasas([]));
   }, [seccionActiva, manzanaActiva]);
@@ -117,11 +117,10 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
   const cicloEstado = async (casa) => {
     const orden = ['sin_visitar', 'visitado', 'promovido', 'competencia', 'no_toco'];
     const siguiente = orden[(orden.indexOf(casa.estado) + 1) % orden.length];
-    const token = localStorage.getItem('vototech_token');
     const body = siguiente === 'competencia'
       ? { estado: siguiente, partido_competencia: prompt('¿De qué partido es esta casa? (ej: pan, pri, morena)') || 'otro' }
       : { estado: siguiente };
-    const { data } = await axios.patch(`/api/casas/${casa.id}`, body, { headers: { Authorization: `Bearer ${token}` } });
+    const { data } = await api.patch(`/casas/${casa.id}`, body);
     setCasas((prev) => prev.map((c) => (c.id === casa.id ? data.data : c)));
   };
 

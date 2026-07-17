@@ -84,10 +84,17 @@ export default function Login() {
             {cargando ? '⏳ Entrando...' : '⚡ Iniciar sesión'}
           </button>
 
-          <div className="text-center pt-2">
-            <Link to="/registro-invitacion" className="text-xs text-indigo-400 hover:text-indigo-300">
-              ¿Tienes un código de invitación de promotor? →
-            </Link>
+          <div className="text-center pt-2 space-y-1.5">
+            <div>
+              <Link to="/registro-invitacion" className="text-xs text-indigo-400 hover:text-indigo-300">
+                ¿Tienes un código de invitación de promotor? →
+              </Link>
+            </div>
+            <div>
+              <Link to="/registro" className="text-xs text-slate-500 hover:text-slate-300">
+                ¿Primera vez? Registra tu campaña →
+              </Link>
+            </div>
           </div>
         </form>
 

@@ -13,7 +13,8 @@ export function useSocket(eventos = {}) {
     const token = localStorage.getItem('vototech_token');
     if (!token) return;
 
-    const socket = io('/', { auth: { token }, path: '/socket.io' });
+    const urlBackend = import.meta.env.VITE_API_URL || '/';
+    const socket = io(urlBackend, { auth: { token }, path: '/socket.io' });
     socketRef.current = socket;
 
     Object.entries(eventos).forEach(([evento, manejador]) => {
