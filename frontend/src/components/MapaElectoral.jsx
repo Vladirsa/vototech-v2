@@ -95,6 +95,42 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
     axios.get(`/api/geo/manzanas/${seccionActiva}`).then(r => setManzanas(r.data.data));
   }, [seccionActiva]);
 
+  // ── CASAS SIMULADAS (control casa por casa dentro de una manzana) ──
+  const [manzanaActiva, setManzanaActiva] = useState(null);
+  const [casas, setCasas] = useState([]);
+
+  useEffect(() => {
+    if (!seccionActiva || !manzanaActiva) { setCasas([]); return; }
+    const token = localStorage.getItem('vototech_token');
+    axios.get(`/api/casas/${seccionActiva}/${manzanaActiva}`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => setCasas(r.data.data))
+      .catch(() => setCasas([]));
+  }, [seccionActiva, manzanaActiva]);
+
+  const ESTADO_CASA_COLOR = {
+    sin_visitar: '#64748b', visitado: '#3b82f6', promovido: '#10b981', competencia: '#ef4444', no_toco: '#f59e0b',
+  };
+  const ESTADO_CASA_LABEL = {
+    sin_visitar: 'Sin visitar', visitado: 'Visitada', promovido: '✅ Promovido', competencia: '🚩 Competencia', no_toco: 'No tocó',
+  };
+
+  const cicloEstado = async (casa) => {
+    const orden = ['sin_visitar', 'visitado', 'promovido', 'competencia', 'no_toco'];
+    const siguiente = orden[(orden.indexOf(casa.estado) + 1) % orden.length];
+    const token = localStorage.getItem('vototech_token');
+    const body = siguiente === 'competencia'
+      ? { estado: siguiente, partido_competencia: prompt('¿De qué partido es esta casa? (ej: pan, pri, morena)') || 'otro' }
+      : { estado: siguiente };
+    const { data } = await axios.patch(`/api/casas/${casa.id}`, body, { headers: { Authorization: `Bearer ${token}` } });
+    setCasas((prev) => prev.map((c) => (c.id === casa.id ? data.data : c)));
+  };
+
+  const iconoCasa = (estado) => new L.DivIcon({
+    className: '',
+    html: `<div style="width:10px;height:10px;background:${ESTADO_CASA_COLOR[estado]};border:1.5px solid white;box-shadow:0 1px 3px rgba(0,0,0,.6);border-radius:2px"></div>`,
+    iconSize: [10, 10],
+  });
+
   // ── PANEL DE COLOREADO REALMENTE MOVIBLE (arrastrar con el mouse/dedo) ──
   const iniciarArrastre = (e) => {
     arrastrando.current = { startX: e.clientX - panelPos.x, startY: e.clientY - panelPos.y };
@@ -217,14 +253,38 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
           />
         )}
 
-        {/* Manzanas reales — solo de la sección seleccionada, carga bajo demanda */}
+        {/* Manzanas reales — solo de la sección seleccionada, carga bajo demanda.
+            Clic en una manzana = activarla para ver/marcar sus casas simuladas. */}
         {manzanas && manzanas.features.length > 0 && (
           <GeoJSON
             key={`manzanas-${seccionActiva}`}
             data={manzanas}
-            style={{ color: '#a78bfa', weight: 1, fillColor: '#a78bfa', fillOpacity: 0.08 }}
+            style={(feat) => ({
+              color: feat.properties.manzana === manzanaActiva ? '#fbbf24' : '#a78bfa',
+              weight: feat.properties.manzana === manzanaActiva ? 2.5 : 1,
+              fillColor: '#a78bfa', fillOpacity: feat.properties.manzana === manzanaActiva ? 0.03 : 0.1,
+            })}
+            onEachFeature={(feat, capa) => {
+              capa.on({ click: () => setManzanaActiva(feat.properties.manzana) });
+              capa.bindTooltip(`Manzana ${feat.properties.manzana} — toca para ver casas`, { direction: 'center' });
+            }}
           />
         )}
+
+        {/* Casas simuladas de la manzana activa — clic para ir cambiando su estado */}
+        {casas.map((c) => (
+          <Marker key={c.id} position={[c.lat, c.lng]} icon={iconoCasa(c.estado)}
+            eventHandlers={{ click: () => cicloEstado(c) }}>
+            <Popup>
+              <div style={{ fontSize: 12 }}>
+                <strong>{ESTADO_CASA_LABEL[c.estado]}</strong><br />
+                {c.partido_competencia && <>Partido: {c.partido_competencia.toUpperCase()}<br /></>}
+                {c.promovido_nombre && <>👤 {c.promovido_nombre}<br /></>}
+                <em style={{ fontSize: 10, color: '#888' }}>Toca el punto para cambiar su estado</em>
+              </div>
+            </Popup>
+          </Marker>
+        ))}
 
         {capaLocalidades && localidadesFiltradas.map((loc, i) => (
           <Marker key={i} position={[loc.lat, loc.lng]} icon={iconoLocalidad(loc.cabecera)}>
@@ -302,6 +362,23 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
           </div>
         )}
       </div>
+
+      {/* Leyenda de casas simuladas — solo visible con una manzana activa */}
+      {manzanaActiva && (
+        <div className="absolute top-4 right-4 z-[1000] bg-slate-900/95 backdrop-blur border border-slate-700 rounded-xl p-3 text-xs">
+          <div className="flex items-center justify-between mb-2">
+            <span className="font-bold text-white">🏠 Manzana {manzanaActiva}</span>
+            <button onClick={() => setManzanaActiva(null)} className="text-slate-500 text-xs">✕</button>
+          </div>
+          {Object.entries(ESTADO_CASA_LABEL).map(([k, label]) => (
+            <div key={k} className="flex items-center gap-1.5 text-slate-300 mb-1">
+              <span className="w-2.5 h-2.5 rounded-sm" style={{ background: ESTADO_CASA_COLOR[k] }} />
+              {label}
+            </div>
+          ))}
+          <div className="text-[9px] text-slate-500 mt-1">Toca un punto para cambiar su estado</div>
+        </div>
+      )}
 
       {/* Buscador de localidades — esquina superior izquierda */}
       <div className="absolute top-4 left-4 z-[1000] w-64">

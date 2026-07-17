@@ -22,6 +22,7 @@ import incidenciasRoutes from './routes/incidencias.js';
 import finanzasRoutes from './routes/finanzas.js';
 import iaRoutes from './routes/ia.js';
 import whatsappRoutes from './routes/whatsapp.js';
+import casasRoutes from './routes/casas.js';
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -82,6 +83,7 @@ app.use('/api/incidencias', incidenciasRoutes);
 app.use('/api/finanzas', finanzasRoutes);
 app.use('/api/ia', iaRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
+app.use('/api/casas', casasRoutes);
 
 app.get('/api/salud', (req, res) => {
   res.json({ ok: true, servicio: 'VotoTech Backend', hora: new Date().toISOString() });

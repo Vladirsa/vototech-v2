@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import api from '../lib/api';
+import BuscadorCalle from '../components/BuscadorCalle';
 import AsistenteIA from '../components/AsistenteIA';
 
 const CLASIFICACION_ESTILO = {
@@ -11,7 +12,7 @@ const CLASIFICACION_ESTILO = {
 
 function ModalAgregar({ onCerrar, onGuardado }) {
   const [form, setForm] = useState({
-    nombre: '', telefono: '', seccion_numero: '', partido: '',
+    nombre: '', telefono: '', seccion_numero: '', partido: '', calle: '', lat: null, lng: null,
     comprometido: false, temperatura: 'tibio', consentimiento: false,
   });
   const [error, setError] = useState('');
@@ -46,6 +47,10 @@ function ModalAgregar({ onCerrar, onGuardado }) {
           className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
         <input placeholder="Sección electoral" type="number" value={form.seccion_numero} onChange={(e) => actualizar('seccion_numero', e.target.value)}
           className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+        <BuscadorCalle
+          valor={form.calle}
+          onSeleccion={(datos) => setForm((f) => ({ ...f, calle: datos.calle, lat: datos.lat, lng: datos.lng }))}
+        />
 
         <select value={form.partido} onChange={(e) => actualizar('partido', e.target.value)}
           className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
