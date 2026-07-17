@@ -216,4 +216,86 @@ router.get('/hoy', async (req, res) => {
   }
 });
 
+/**
+ * GET /api/priorizacion/seccion/:numero
+ * Ficha técnica completa de UNA sección: padrón, resultados históricos
+ * reales, promovidos actuales por clasificación, y qué falta para
+ * ganarla — todo lo que el equipo necesita ver al tocar una sección
+ * en el mapa.
+ */
+router.get('/seccion/:numero', async (req, res) => {
+  const campanaId = req.usuario.campana_id;
+  const numero = parseInt(req.params.numero);
+
+  try {
+    const campanaRes = await query('SELECT partido, tipo_eleccion, fecha_eleccion FROM campanas WHERE id=$1', [campanaId]);
+    const campana = campanaRes.rows[0];
+
+    const seccionRes = await query(
+      `SELECT s.id, s.numero, s.lista_nominal, s.distrito_federal, s.distrito_local, m.nombre as municipio
+       FROM secciones s JOIN municipios m ON m.id=s.municipio_id
+       WHERE s.estado_id=29 AND s.numero=$1`,
+      [numero]
+    );
+    if (!seccionRes.rows[0]) return res.status(404).json({ ok: false, error: 'Sección no encontrada' });
+    const seccion = seccionRes.rows[0];
+
+    // Resultados históricos reales (año más reciente disponible)
+    const anioRes = await query('SELECT MAX(anio) as anio FROM resultados_historicos WHERE tipo_eleccion=$1', [campana.tipo_eleccion]);
+    const anio = anioRes.rows[0]?.anio;
+    let votos = {}, totalVotos = 0, ganador = null;
+    if (anio) {
+      const historico = await query(
+        `SELECT partido, votos FROM resultados_historicos WHERE seccion_id=$1 AND tipo_eleccion=$2 AND anio=$3 ORDER BY votos DESC`,
+        [seccion.id, campana.tipo_eleccion, anio]
+      );
+      historico.rows.forEach((r) => { votos[r.partido] = r.votos; totalVotos += r.votos; });
+      ganador = historico.rows[0]?.partido || null;
+    }
+
+    // Promovidos actuales de esta sección, por clasificación
+    const promosRes = await query(
+      `SELECT clasificacion, COUNT(*) as total FROM promovidos WHERE campana_id=$1 AND seccion_id=$2 GROUP BY clasificacion`,
+      [campanaId, seccion.id]
+    );
+    const promos = { base: 0, persuadible: 0, adversario: 0 };
+    promosRes.rows.forEach((r) => { promos[r.clasificacion] = parseInt(r.total); });
+
+    // Cálculo de déficit — misma fórmula que el Motor de Priorización general
+    const CONVERSION = 0.65;
+    const votosPartido = votos[campana.partido] || 0;
+    const votosConPromovidos = votosPartido + (promos.base + promos.persuadible) * CONVERSION;
+    const votosNecesarios = totalVotos > 0 ? Math.floor(totalVotos / 2) + 1 : 0;
+    const deficit = Math.max(0, votosNecesarios - votosConPromovidos);
+    const promovidosNecesarios = Math.ceil(deficit / CONVERSION);
+
+    const diasRestantes = campana.fecha_eleccion
+      ? Math.max(1, Math.ceil((new Date(campana.fecha_eleccion) - new Date()) / 86400000))
+      : null;
+
+    res.json({
+      ok: true,
+      data: {
+        seccion: seccion.numero,
+        municipio: seccion.municipio,
+        lista_nominal: seccion.lista_nominal,
+        distrito_federal: seccion.distrito_federal,
+        distrito_local: seccion.distrito_local,
+        anio_historico: anio,
+        votos_historicos: votos,
+        total_votos_historico: totalVotos,
+        ganador_historico: ganador,
+        promovidos: promos,
+        total_promovidos: promos.base + promos.persuadible + promos.adversario,
+        deficit_votos: Math.round(deficit),
+        promovidos_necesarios: promovidosNecesarios,
+        ritmo_diario: diasRestantes ? +(promovidosNecesarios / diasRestantes).toFixed(1) : null,
+      },
+    });
+  } catch (e) {
+    console.error('Error en ficha técnica de sección:', e);
+    res.status(500).json({ ok: false, error: 'Error al cargar la ficha técnica' });
+  }
+});
+
 export default router;

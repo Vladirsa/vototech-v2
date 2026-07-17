@@ -74,11 +74,41 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
   const [panelPos, setPanelPos] = useState({ x: 16, y: 16 });
   const arrastrando = useRef(false);
 
+  // Centroide aproximado de cada sección (promedio de sus puntos) — se
+  // usa como posición de respaldo para promovidos que no tienen lat/lng
+  // propias (la mayoría, si no se usó el buscador de calles al registrarlos)
+  const centroidesSeccion = useMemo(() => {
+    if (!geoSecciones) return {};
+    const mapa = {};
+    geoSecciones.features.forEach((f) => {
+      const anillo = f.geometry.coordinates[0];
+      let sumaLat = 0, sumaLng = 0;
+      anillo.forEach(([lng, lat]) => { sumaLat += lat; sumaLng += lng; });
+      mapa[f.properties.seccion] = [sumaLat / anillo.length, sumaLng / anillo.length];
+    });
+    return mapa;
+  }, [geoSecciones]);
+
+  // Promovidos con posición resuelta: su propia lat/lng si la tiene,
+  // o si no, el centroide de su sección con un pequeño desplazamiento
+  // aleatorio (para que no queden todos apilados en el mismo punto exacto)
+  const promovidosConPosicion = useMemo(() => {
+    return promovidos
+      .map((p) => {
+        if (p.lat && p.lng) return { ...p, _lat: p.lat, _lng: p.lng };
+        const centro = centroidesSeccion[p.seccion_numero];
+        if (!centro) return null;
+        const jitter = () => (Math.random() - 0.5) * 0.004; // ~200m de dispersión visual
+        return { ...p, _lat: centro[0] + jitter(), _lng: centro[1] + jitter() };
+      })
+      .filter(Boolean);
+  }, [promovidos, centroidesSeccion]);
+
   useEffect(() => {
     api.get('/geo/secciones/29').then(r => setGeoSecciones(r.data.data));
     api.get('/geo/localidades/29').then(r => setLocalidades(r.data.data));
     api.get('/promovidos')
-      .then(r => setPromovidos(r.data.data.filter(p => p.lat && p.lng)))
+      .then(r => setPromovidos(r.data.data))
       .catch(() => setPromovidos([]));
   }, []);
 
@@ -89,16 +119,24 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
       .catch(() => setResultados({}));
   }, [tipoEleccion, anio]);
 
-  // Cargar manzanas SOLO de la sección activa (carga perezosa, igual que la v1
-  // pero ahora con datos reales y sin depender de un archivo de 6MB completo)
-  useEffect(() => {
-    if (!seccionActiva) { setManzanas(null); return; }
-    api.get(`/geo/manzanas/${seccionActiva}`).then(r => setManzanas(r.data.data));
-  }, [seccionActiva]);
-
   // ── CASAS SIMULADAS (control casa por casa dentro de una manzana) ──
   const [manzanaActiva, setManzanaActiva] = useState(null);
   const [casas, setCasas] = useState([]);
+  const [cargandoManzanas, setCargandoManzanas] = useState(false);
+
+  useEffect(() => {
+    // Limpiar INMEDIATAMENTE al cambiar de sección — antes este estado
+    // se quedaba con las manzanas de la sección anterior mientras
+    // llegaba la respuesta nueva, dando la impresión de un error.
+    setManzanas(null);
+    setManzanaActiva(null);
+    setCasas([]);
+    if (!seccionActiva) return;
+    setCargandoManzanas(true);
+    api.get(`/geo/manzanas/${seccionActiva}`)
+      .then(r => setManzanas(r.data.data))
+      .finally(() => setCargandoManzanas(false));
+  }, [seccionActiva]);
 
   useEffect(() => {
     if (!seccionActiva || !manzanaActiva) { setCasas([]); return; }
@@ -106,6 +144,20 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
       .then(r => setCasas(r.data.data))
       .catch(() => setCasas([]));
   }, [seccionActiva, manzanaActiva]);
+
+  // ── FICHA TÉCNICA DE SECCIÓN (padrón, históricos, promovidos, déficit) ──
+  const [fichaTecnica, setFichaTecnica] = useState(null);
+  const [cargandoFicha, setCargandoFicha] = useState(false);
+
+  useEffect(() => {
+    if (!seccionActiva) { setFichaTecnica(null); return; }
+    setCargandoFicha(true);
+    setFichaTecnica(null);
+    api.get(`/priorizacion/seccion/${seccionActiva}`)
+      .then(r => setFichaTecnica(r.data.data))
+      .catch(() => setFichaTecnica(null))
+      .finally(() => setCargandoFicha(false));
+  }, [seccionActiva]);
 
   const ESTADO_CASA_COLOR = {
     sin_visitar: '#64748b', visitado: '#3b82f6', promovido: '#10b981', competencia: '#ef4444', no_toco: '#f59e0b',
@@ -223,13 +275,13 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
 
         {/* SORPRESA 1: selector de tipo de mapa (satelital, oscuro, calles) — la v1 no tenía NINGÚN mapa base real */}
         <LayersControl position="topright">
-          <LayersControl.BaseLayer checked name="🌙 Oscuro (recomendado de noche)">
+          <LayersControl.BaseLayer name="🌙 Oscuro (recomendado de noche)">
             <TileLayer
               url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
               attribution='&copy; OpenStreetMap &copy; CARTO'
             />
           </LayersControl.BaseLayer>
-          <LayersControl.BaseLayer name="🗺️ Calles">
+          <LayersControl.BaseLayer checked name="🗺️ Calles (con nombres)">
             <TileLayer
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
               attribution='&copy; OpenStreetMap'
@@ -295,17 +347,18 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
         ))}
 
         {/* Promovidos reales — coloreados por clasificación estratégica */}
-        {capaPromovidos && !capaCalor && promovidos.map((p) => (
-          <Marker key={p.id} position={[p.lat, p.lng]} icon={iconoPromovido(p.clasificacion)}>
+        {capaPromovidos && !capaCalor && promovidosConPosicion.map((p) => (
+          <Marker key={p.id} position={[p._lat, p._lng]} icon={iconoPromovido(p.clasificacion)}>
             <Popup>
               <strong>{p.nombre}</strong><br />
               {p.clasificacion === 'base' ? '✅ Base' : p.clasificacion === 'persuadible' ? '🎯 Persuadible' : '⛔ Adversario'}<br />
               {p.partido && `Partido: ${p.partido.toUpperCase()}`}
+              {!p.lat && <><br /><em style={{ fontSize: 10, color: '#888' }}>Posición aproximada (sin dirección exacta registrada)</em></>}
             </Popup>
           </Marker>
         ))}
 
-        <CapaCalor puntos={promovidos} activa={capaCalor} />
+        <CapaCalor puntos={promovidosConPosicion.map(p => ({ lat: p._lat, lng: p._lng }))} activa={capaCalor} />
       </MapContainer>
 
       {/* ── PANEL DE COLOREADO — AHORA SÍ REALMENTE MOVIBLE ── */}
@@ -362,6 +415,13 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
         )}
       </div>
 
+      {/* Indicador de carga de manzanas — antes no había, daba la impresión de que no pasaba nada */}
+      {seccionActiva && cargandoManzanas && (
+        <div className="absolute top-4 right-4 z-[1000] bg-slate-900/95 backdrop-blur border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-300">
+          ⏳ Cargando manzanas de la sección...
+        </div>
+      )}
+
       {/* Leyenda de casas simuladas — solo visible con una manzana activa */}
       {manzanaActiva && (
         <div className="absolute top-4 right-4 z-[1000] bg-slate-900/95 backdrop-blur border border-slate-700 rounded-xl p-3 text-xs">
@@ -376,6 +436,65 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
             </div>
           ))}
           <div className="text-[9px] text-slate-500 mt-1">Toca un punto para cambiar su estado</div>
+        </div>
+      )}
+
+      {/* 📋 FICHA TÉCNICA DE LA SECCIÓN — aparece al tocar una sección en el mapa */}
+      {seccionActiva && (
+        <div className="absolute bottom-4 left-4 right-4 md:right-auto z-[1000] md:w-80 bg-slate-900/95 backdrop-blur border border-slate-700 rounded-2xl p-4 max-h-[60vh] overflow-y-auto">
+          <div className="flex items-center justify-between mb-2">
+            <span className="font-black text-white text-sm">📋 Sección {String(seccionActiva).padStart(3, '0')}</span>
+            <button onClick={() => setSeccionActiva(null)} className="text-slate-500 hover:text-white text-sm">✕</button>
+          </div>
+
+          {cargandoFicha && <div className="text-xs text-slate-500 py-4 text-center">⏳ Cargando datos reales...</div>}
+
+          {!cargandoFicha && fichaTecnica && (
+            <div className="space-y-3 text-xs">
+              <div className="text-slate-400">{fichaTecnica.municipio} · Distrito Local {fichaTecnica.distrito_local} · Distrito Federal {fichaTecnica.distrito_federal}</div>
+
+              <div className="bg-slate-800/60 rounded-lg p-2.5">
+                <div className="text-[10px] text-slate-500 uppercase font-bold mb-1">Padrón electoral</div>
+                <div className="text-lg font-black text-white">{fichaTecnica.lista_nominal?.toLocaleString() || 'N/D'}</div>
+              </div>
+
+              {fichaTecnica.anio_historico ? (
+                <div className="bg-slate-800/60 rounded-lg p-2.5">
+                  <div className="text-[10px] text-slate-500 uppercase font-bold mb-1.5">Resultados históricos {fichaTecnica.anio_historico}</div>
+                  <div className="space-y-1">
+                    {Object.entries(fichaTecnica.votos_historicos).sort((a, b) => b[1] - a[1]).map(([p, v]) => (
+                      <div key={p} className="flex items-center justify-between">
+                        <span className={`font-bold ${p === fichaTecnica.ganador_historico ? 'text-amber-400' : 'text-slate-400'}`}>
+                          {p === fichaTecnica.ganador_historico && '👑 '}{p.toUpperCase()}
+                        </span>
+                        <span className="text-white">{v.toLocaleString()} ({fichaTecnica.total_votos_historico ? Math.round(v / fichaTecnica.total_votos_historico * 100) : 0}%)</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="text-[10px] text-amber-400 bg-amber-500/10 rounded-lg p-2">⚠️ Sin datos históricos cargados para este tipo de elección</div>
+              )}
+
+              <div className="bg-slate-800/60 rounded-lg p-2.5">
+                <div className="text-[10px] text-slate-500 uppercase font-bold mb-1.5">Tu avance en esta sección</div>
+                <div className="grid grid-cols-3 gap-2 text-center mb-2">
+                  <div><div className="text-emerald-400 font-black">{fichaTecnica.promovidos.base}</div><div className="text-[9px] text-slate-500">Base</div></div>
+                  <div><div className="text-amber-400 font-black">{fichaTecnica.promovidos.persuadible}</div><div className="text-[9px] text-slate-500">Persuad.</div></div>
+                  <div><div className="text-slate-400 font-black">{fichaTecnica.promovidos.adversario}</div><div className="text-[9px] text-slate-500">Advers.</div></div>
+                </div>
+                {fichaTecnica.deficit_votos > 0 ? (
+                  <div className="text-[10px] text-slate-300 border-t border-slate-700 pt-2">
+                    Faltan <strong className="text-white">{fichaTecnica.deficit_votos.toLocaleString()}</strong> votos para ganar ·
+                    necesitas <strong className="text-white">{fichaTecnica.promovidos_necesarios.toLocaleString()}</strong> promovidos más
+                    {fichaTecnica.ritmo_diario && <> (<strong className="text-amber-400">{fichaTecnica.ritmo_diario}/día</strong>)</>}
+                  </div>
+                ) : fichaTecnica.total_votos_historico > 0 ? (
+                  <div className="text-[10px] text-emerald-400 border-t border-slate-700 pt-2">✅ Meta cubierta con tus promovidos actuales</div>
+                ) : null}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
