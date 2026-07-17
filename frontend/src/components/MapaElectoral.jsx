@@ -159,6 +159,66 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
       .finally(() => setCargandoFicha(false));
   }, [seccionActiva]);
 
+  // ── RESUMEN DE MUNICIPIO (ficha técnica completa del territorio) ──
+  const [mostrarResumenMunicipio, setMostrarResumenMunicipio] = useState(false);
+  const [resumenMunicipio, setResumenMunicipio] = useState(null);
+  const [cargandoResumen, setCargandoResumen] = useState(false);
+
+  const abrirResumenMunicipio = () => {
+    if (territorioTipo !== 'municipio' || !territorioId) return;
+    setMostrarResumenMunicipio(true);
+    setCargandoResumen(true);
+    api.get(`/priorizacion/municipio/${territorioId}`)
+      .then(r => setResumenMunicipio(r.data.data))
+      .catch(() => setResumenMunicipio(null))
+      .finally(() => setCargandoResumen(false));
+  };
+
+  // ── FILTRO DE PROMOVIDOS POR PARTIDO ──
+  const [filtroPartido, setFiltroPartido] = useState('todos');
+  const promovidosFiltrados = useMemo(() => {
+    if (filtroPartido === 'todos') return promovidosConPosicion;
+    return promovidosConPosicion.filter((p) => p.partido === filtroPartido);
+  }, [promovidosConPosicion, filtroPartido]);
+
+  // ── COLOREADO ESTRATÉGICO — trae el Motor de Priorización directo al
+  // mapa, para ver de un vistazo dónde pelear sin ir a otra pantalla ──
+  const [modoColoreado, setModoColoreado] = useState('partido'); // 'partido' | 'prioridad'
+  const [prioridadPorSeccion, setPrioridadPorSeccion] = useState({});
+
+  useEffect(() => {
+    if (modoColoreado !== 'prioridad') return;
+    api.get('/priorizacion').then(r => {
+      const mapa = {};
+      r.data.data.forEach((f) => { mapa[f.seccion] = f; });
+      setPrioridadPorSeccion(mapa);
+    }).catch(() => setPrioridadPorSeccion({}));
+  }, [modoColoreado]);
+
+  const COLOR_PRIORIDAD = {
+    critica: '#dc2626', recuperable: '#f97316', disputa: '#eab308', consolidar: '#10b981', perdida: '#475569',
+  };
+  const LABEL_PRIORIDAD = {
+    critica: '🔴 Crítica', recuperable: '🟠 Recuperable', disputa: '🟡 Disputa', consolidar: '🟢 Consolidar', perdida: '⚫ Sin esperanza',
+  };
+
+  // ── COBERTURA DE ESTRUCTURA — qué secciones tienen coordinador
+  // seccional asignado y cuáles están descubiertas ──
+  const [mostrarCobertura, setMostrarCobertura] = useState(false);
+  const [seccionesCubiertas, setSeccionesCubiertas] = useState(new Set());
+
+  useEffect(() => {
+    if (!mostrarCobertura) return;
+    api.get('/estructura').then(r => {
+      const cubiertas = new Set(
+        r.data.data
+          .filter((u) => u.rol === 'coord_seccional' && u.territorio_id)
+          .map((u) => u.territorio_id)
+      );
+      setSeccionesCubiertas(cubiertas);
+    }).catch(() => setSeccionesCubiertas(new Set()));
+  }, [mostrarCobertura]);
+
   const ESTADO_CASA_COLOR = {
     sin_visitar: '#64748b', visitado: '#3b82f6', promovido: '#10b981', competencia: '#ef4444', no_toco: '#f59e0b',
   };
@@ -224,17 +284,25 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
     let colorRelleno = '#3730a3';   // color por defecto (índigo neutral, no rojo/guinda)
     let opacidad = 0.35;
 
-    if (coloreadoActivo && resultado?.ganador) {
+    if (coloreadoActivo && modoColoreado === 'prioridad') {
+      const prio = prioridadPorSeccion[num];
+      if (prio) { colorRelleno = COLOR_PRIORIDAD[prio.prioridad] || colorRelleno; opacidad = 0.55; }
+    } else if (coloreadoActivo && resultado?.ganador) {
       colorRelleno = PARTIDOS[resultado.ganador]?.color || colorRelleno;
       opacidad = 0.55;
     }
 
+    // Cobertura de estructura: borde punteado rojo si NO tiene coordinador
+    // seccional asignado — para detectar huecos de un vistazo
+    const sinCobertura = mostrarCobertura && !seccionesCubiertas.has(num);
+
     return {
       fillColor: colorRelleno,
       fillOpacity: opacidad,
-      color: esSeleccionada ? '#fbbf24' : '#ffffff',
-      weight: esSeleccionada ? 3 : 1,
-      opacity: esSeleccionada ? 1 : 0.4,
+      color: esSeleccionada ? '#fbbf24' : sinCobertura ? '#ef4444' : '#ffffff',
+      weight: esSeleccionada ? 3 : sinCobertura ? 2 : 1,
+      opacity: esSeleccionada ? 1 : sinCobertura ? 0.9 : 0.4,
+      dashArray: sinCobertura && !esSeleccionada ? '4,3' : null,
     };
   };
 
@@ -297,7 +365,7 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
 
         {seccionesFiltradas && (
           <GeoJSON
-            key={`${coloreadoActivo}-${seccionActiva}-${territorioId}-${tipoEleccion}-${anio}`}
+            key={`${coloreadoActivo}-${seccionActiva}-${territorioId}-${tipoEleccion}-${anio}-${modoColoreado}-${mostrarCobertura}-${Object.keys(prioridadPorSeccion).length}-${seccionesCubiertas.size}`}
             data={seccionesFiltradas}
             style={estiloSeccion}
             onEachFeature={alPasarMouse}
@@ -347,7 +415,7 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
         ))}
 
         {/* Promovidos reales — coloreados por clasificación estratégica */}
-        {capaPromovidos && !capaCalor && promovidosConPosicion.map((p) => (
+        {capaPromovidos && !capaCalor && promovidosFiltrados.map((p) => (
           <Marker key={p.id} position={[p._lat, p._lng]} icon={iconoPromovido(p.clasificacion)}>
             <Popup>
               <strong>{p.nombre}</strong><br />
@@ -373,7 +441,7 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
           <div className="flex items-center gap-2">
             <span className="text-lg">🎨</span>
             <div>
-              <div className="text-sm font-bold text-white">Coloreado por partido</div>
+              <div className="text-sm font-bold text-white">Coloreado del mapa</div>
               <div className="text-[10px] text-indigo-400">⠿ Arrastra para mover</div>
             </div>
           </div>
@@ -385,6 +453,19 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
           </button>
         </div>
 
+        {coloreadoActivo && (
+          <div className="flex gap-1 p-3 pb-0">
+            <button onClick={() => setModoColoreado('partido')}
+              className={`flex-1 py-1.5 rounded-lg text-[10px] font-bold ${modoColoreado === 'partido' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
+              🏛️ Por partido
+            </button>
+            <button onClick={() => setModoColoreado('prioridad')}
+              className={`flex-1 py-1.5 rounded-lg text-[10px] font-bold ${modoColoreado === 'prioridad' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
+              🎯 Por prioridad
+            </button>
+          </div>
+        )}
+
         <div className="p-3 space-y-2">
           <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
             <input type="checkbox" checked={capaLocalidades} onChange={e => setCapaLocalidades(e.target.checked)} />
@@ -392,15 +473,27 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
           </label>
           <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
             <input type="checkbox" checked={capaPromovidos} onChange={e => setCapaPromovidos(e.target.checked)} />
-            🤝 Promovidos ({promovidos.length})
+            🤝 Promovidos ({promovidosFiltrados.length})
           </label>
+          {capaPromovidos && (
+            <select value={filtroPartido} onChange={(e) => setFiltroPartido(e.target.value)}
+              className="w-full px-2 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-[10px]">
+              <option value="todos">Todos los partidos</option>
+              {Object.keys(PARTIDOS).map((p) => <option key={p} value={p}>Solo {p.toUpperCase()}</option>)}
+              <option value="independiente">Solo independientes</option>
+            </select>
+          )}
           <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
             <input type="checkbox" checked={capaCalor} onChange={e => setCapaCalor(e.target.checked)} />
             🔥 Mapa de calor (densidad de promovidos)
           </label>
+          <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer border-t border-slate-800 pt-2">
+            <input type="checkbox" checked={mostrarCobertura} onChange={e => setMostrarCobertura(e.target.checked)} />
+            🗂️ Cobertura de estructura (borde rojo = sin coordinador)
+          </label>
         </div>
 
-        {coloreadoActivo && (
+        {coloreadoActivo && modoColoreado === 'partido' && (
           <div className="grid grid-cols-2 gap-1.5 p-3 pt-0">
             {Object.entries(PARTIDOS).map(([id, p]) => (
               <div key={id} className="flex items-center gap-1.5 text-[10px] text-slate-300 font-semibold">
@@ -409,6 +502,17 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
                   style={{ background: `linear-gradient(135deg, ${p.color}, ${p.color2})` }}
                 />
                 {p.nombre}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {coloreadoActivo && modoColoreado === 'prioridad' && (
+          <div className="p-3 pt-0 space-y-1.5">
+            {Object.entries(LABEL_PRIORIDAD).map(([k, label]) => (
+              <div key={k} className="flex items-center gap-1.5 text-[10px] text-slate-300 font-semibold">
+                <span className="w-4 h-4 rounded-full flex-shrink-0 shadow" style={{ background: COLOR_PRIORIDAD[k] }} />
+                {label}
               </div>
             ))}
           </div>
@@ -499,7 +603,7 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
       )}
 
       {/* Buscador de localidades — esquina superior izquierda */}
-      <div className="absolute top-4 left-4 z-[1000] w-64">
+      <div className="absolute top-4 left-4 z-[1000] w-64 space-y-2">
         <input
           type="text"
           placeholder="🔍 Buscar comunidad..."
@@ -507,7 +611,93 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
           onChange={e => setBuscarTexto(e.target.value)}
           className="w-full px-4 py-2.5 rounded-xl bg-slate-900/95 backdrop-blur border border-slate-700 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
         />
+        {territorioTipo === 'municipio' && (
+          <button onClick={abrirResumenMunicipio}
+            className="w-full px-4 py-2.5 rounded-xl bg-indigo-600/90 backdrop-blur text-sm text-white font-bold shadow-lg">
+            📊 Ficha técnica del municipio
+          </button>
+        )}
       </div>
+
+      {/* 📊 RESUMEN COMPLETO DE MUNICIPIO — modal grande con todo el detalle */}
+      {mostrarResumenMunicipio && (
+        <div className="fixed inset-0 bg-black/70 z-[2500] flex items-center justify-center p-4" onClick={() => setMostrarResumenMunicipio(false)}>
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md max-h-[85vh] overflow-y-auto p-5" onClick={(e) => e.stopPropagation()}>
+            {cargandoResumen && <div className="text-center text-slate-500 py-10">⏳ Calculando ficha técnica...</div>}
+
+            {!cargandoResumen && resumenMunicipio && (
+              <div className="space-y-4">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <h2 className="text-xl font-black text-white">{resumenMunicipio.municipio}</h2>
+                    <p className="text-xs text-slate-500">{resumenMunicipio.total_secciones} secciones electorales</p>
+                  </div>
+                  <button onClick={() => setMostrarResumenMunicipio(false)} className="text-slate-500 hover:text-white">✕</button>
+                </div>
+
+                {resumenMunicipio.gobierna_actualmente && (
+                  <div className="inline-block px-3 py-1.5 rounded-full text-xs font-bold" style={{ background: `${PARTIDOS[resumenMunicipio.gobierna_actualmente]?.color}22`, color: PARTIDOS[resumenMunicipio.gobierna_actualmente]?.color }}>
+                    👑 Gobierna: {resumenMunicipio.gobierna_actualmente.toUpperCase()}
+                  </div>
+                )}
+
+                <div>
+                  <div className="text-[10px] font-bold text-slate-500 uppercase mb-2">👥 Población electoral</div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="bg-slate-800/60 rounded-lg p-2.5"><div className="text-lg font-black text-white">{resumenMunicipio.poblacion_electoral.lista_nominal?.toLocaleString()}</div><div className="text-[9px] text-slate-500">Lista nominal</div></div>
+                    <div className="bg-slate-800/60 rounded-lg p-2.5"><div className="text-lg font-black text-white">{resumenMunicipio.poblacion_electoral.votos_totales?.toLocaleString()}</div><div className="text-[9px] text-slate-500">Votos totales</div></div>
+                    <div className="bg-slate-800/60 rounded-lg p-2.5"><div className="text-lg font-black text-white">{resumenMunicipio.poblacion_electoral.participacion_pct ?? 'N/D'}%</div><div className="text-[9px] text-slate-500">Participación</div></div>
+                    <div className="bg-slate-800/60 rounded-lg p-2.5"><div className="text-lg font-black text-white">{resumenMunicipio.poblacion_electoral.casillas}</div><div className="text-[9px] text-slate-500">Casillas</div></div>
+                  </div>
+                </div>
+
+                <div>
+                  <div className="text-[10px] font-bold text-slate-500 uppercase mb-2">🚦 Semáforo electoral ({resumenMunicipio.total_secciones} secciones)</div>
+                  <div className="grid grid-cols-3 gap-2 text-center">
+                    <div className="bg-emerald-500/10 rounded-lg p-2"><div className="text-lg font-black text-emerald-400">{resumenMunicipio.semaforo.ganamos}</div><div className="text-[9px] text-slate-400">Ganamos</div></div>
+                    <div className="bg-amber-500/10 rounded-lg p-2"><div className="text-lg font-black text-amber-400">{resumenMunicipio.semaforo.disputa}</div><div className="text-[9px] text-slate-400">Disputa</div></div>
+                    <div className="bg-red-500/10 rounded-lg p-2"><div className="text-lg font-black text-red-400">{resumenMunicipio.semaforo.recuperar}</div><div className="text-[9px] text-slate-400">Recuperar</div></div>
+                  </div>
+                </div>
+
+                {resumenMunicipio.resultados_historicos.anio ? (
+                  <div>
+                    <div className="text-[10px] font-bold text-slate-500 uppercase mb-2">📊 Resultados acumulados ({resumenMunicipio.resultados_historicos.anio})</div>
+                    <div className="space-y-1.5">
+                      {Object.entries(resumenMunicipio.resultados_historicos.votos_por_partido).sort((a, b) => b[1] - a[1]).map(([p, v]) => (
+                        <div key={p}>
+                          <div className="flex justify-between text-xs mb-0.5">
+                            <span className="font-bold text-slate-300">{p.toUpperCase()}</span>
+                            <span className="text-slate-400">{v.toLocaleString()} ({Math.round(v / resumenMunicipio.resultados_historicos.total_votos * 100)}%)</span>
+                          </div>
+                          <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                            <div className="h-full rounded-full" style={{ width: `${v / resumenMunicipio.resultados_historicos.total_votos * 100}%`, background: PARTIDOS[p]?.color || '#64748b' }} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-xs text-amber-400 bg-amber-500/10 rounded-lg p-2">⚠️ Sin datos históricos para este tipo de elección</div>
+                )}
+
+                <div className="border-t border-slate-800 pt-3">
+                  <div className="text-[10px] font-bold text-slate-500 uppercase mb-2">🎯 Tu avance</div>
+                  <div className="grid grid-cols-3 gap-2 text-center mb-2">
+                    <div><div className="text-emerald-400 font-black">{resumenMunicipio.promovidos.base}</div><div className="text-[9px] text-slate-500">Base</div></div>
+                    <div><div className="text-amber-400 font-black">{resumenMunicipio.promovidos.persuadible}</div><div className="text-[9px] text-slate-500">Persuad.</div></div>
+                    <div><div className="text-slate-400 font-black">{resumenMunicipio.promovidos.adversario}</div><div className="text-[9px] text-slate-500">Advers.</div></div>
+                  </div>
+                  <div className="text-xs text-slate-300 text-center">
+                    <strong className="text-white">{resumenMunicipio.total_promovidos}</strong> promovidos ·
+                    <strong className="text-indigo-400"> {resumenMunicipio.penetracion_pct}%</strong> de penetración sobre el padrón
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

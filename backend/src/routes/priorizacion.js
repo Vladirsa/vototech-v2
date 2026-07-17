@@ -298,4 +298,106 @@ router.get('/seccion/:numero', async (req, res) => {
   }
 });
 
+/**
+ * GET /api/priorizacion/municipio/:claveIne
+ * Ficha técnica del MUNICIPIO completo: cuántas secciones tiene,
+ * quién lo gobierna actualmente, población electoral agregada,
+ * semáforo de cuántas secciones se ganan/disputan/hay que recuperar,
+ * y resultados históricos acumulados de todo el municipio.
+ */
+router.get('/municipio/:claveIne', async (req, res) => {
+  const campanaId = req.usuario.campana_id;
+  const claveIne = parseInt(req.params.claveIne);
+
+  try {
+    const campanaRes = await query('SELECT partido, tipo_eleccion FROM campanas WHERE id=$1', [campanaId]);
+    const campana = campanaRes.rows[0];
+
+    const municipioRes = await query('SELECT nombre FROM municipios WHERE estado_id=29 AND clave_ine=$1', [claveIne]);
+    if (!municipioRes.rows[0]) return res.status(404).json({ ok: false, error: 'Municipio no encontrado' });
+
+    const secciones = await query(
+      `SELECT s.id, s.numero, s.lista_nominal FROM secciones s
+       JOIN municipios m ON m.id=s.municipio_id WHERE m.estado_id=29 AND m.clave_ine=$1`,
+      [claveIne]
+    );
+    const seccionIds = secciones.rows.map((s) => s.id);
+    const listaNominalTotal = secciones.rows.reduce((s, r) => s + (r.lista_nominal || 0), 0);
+
+    const anioRes = await query('SELECT MAX(anio) as anio FROM resultados_historicos WHERE tipo_eleccion=$1', [campana.tipo_eleccion]);
+    const anio = anioRes.rows[0]?.anio;
+
+    let votosPorPartido = {}, totalVotos = 0, totalCasillas = 0, ganador = null;
+    let semaforo = { ganamos: 0, disputa: 0, recuperar: 0 };
+
+    if (anio && seccionIds.length > 0) {
+      const historico = await query(
+        `SELECT seccion_id, partido, votos, casillas FROM resultados_historicos
+         WHERE tipo_eleccion=$1 AND anio=$2 AND seccion_id = ANY($3)`,
+        [campana.tipo_eleccion, anio, seccionIds]
+      );
+
+      const porSeccion = {};
+      const casillasVistas = new Set();
+      historico.rows.forEach((r) => {
+        votosPorPartido[r.partido] = (votosPorPartido[r.partido] || 0) + r.votos;
+        totalVotos += r.votos;
+        if (!porSeccion[r.seccion_id]) porSeccion[r.seccion_id] = {};
+        porSeccion[r.seccion_id][r.partido] = r.votos;
+        if (!casillasVistas.has(`${r.seccion_id}`)) { casillasVistas.add(`${r.seccion_id}`); totalCasillas += r.casillas || 0; }
+      });
+
+      ganador = Object.entries(votosPorPartido).sort((a, b) => b[1] - a[1])[0]?.[0] || null;
+
+      // Semáforo: clasificar cada sección según margen del partido de la campaña
+      Object.values(porSeccion).forEach((votos) => {
+        const totalSecc = Object.values(votos).reduce((s, v) => s + v, 0);
+        const votosPartido = votos[campana.partido] || 0;
+        const ordenados = Object.entries(votos).sort((a, b) => b[1] - a[1]);
+        const ganadorSecc = ordenados[0]?.[0];
+        const margen = totalSecc > 0 ? (votosPartido / totalSecc * 100 - 50) : 0;
+
+        if (ganadorSecc === campana.partido) semaforo.ganamos++;
+        else if (Math.abs(margen) <= 10) semaforo.disputa++;
+        else semaforo.recuperar++;
+      });
+    }
+
+    // Promovidos actuales del municipio completo
+    const promosRes = await query(
+      `SELECT clasificacion, COUNT(*) as total FROM promovidos p
+       JOIN secciones s ON s.id = p.seccion_id
+       WHERE p.campana_id=$1 AND s.id = ANY($2) GROUP BY clasificacion`,
+      [campanaId, seccionIds]
+    );
+    const promovidos = { base: 0, persuadible: 0, adversario: 0 };
+    promosRes.rows.forEach((r) => { promovidos[r.clasificacion] = parseInt(r.total); });
+    const totalPromovidos = promovidos.base + promovidos.persuadible + promovidos.adversario;
+
+    res.json({
+      ok: true,
+      data: {
+        municipio: municipioRes.rows[0].nombre,
+        clave_ine: claveIne,
+        total_secciones: secciones.rows.length,
+        gobierna_actualmente: ganador,
+        poblacion_electoral: {
+          lista_nominal: listaNominalTotal,
+          votos_totales: totalVotos,
+          participacion_pct: listaNominalTotal > 0 ? +((totalVotos / listaNominalTotal) * 100).toFixed(1) : null,
+          casillas: totalCasillas,
+        },
+        semaforo,
+        resultados_historicos: { anio, votos_por_partido: votosPorPartido, total_votos: totalVotos },
+        promovidos,
+        total_promovidos: totalPromovidos,
+        penetracion_pct: listaNominalTotal > 0 ? +((totalPromovidos / listaNominalTotal) * 100).toFixed(2) : 0,
+      },
+    });
+  } catch (e) {
+    console.error('Error en ficha técnica de municipio:', e);
+    res.status(500).json({ ok: false, error: 'Error al cargar la ficha técnica del municipio' });
+  }
+});
+
 export default router;

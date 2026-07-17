@@ -17,11 +17,16 @@ const ROL_LABEL = {
 };
 
 function ModalAgregarMiembro({ miembros, onCerrar, onGuardado }) {
-  const [form, setForm] = useState({ nombre: '', email: '', password: '', rol: 'promotor', parent_id: '' });
+  const [form, setForm] = useState({ nombre: '', email: '', password: '', rol: 'promotor', parent_id: '', territorio_id: '' });
   const [error, setError] = useState('');
   const guardar = async () => {
     try {
-      await api.post('/estructura', { ...form, parent_id: form.parent_id || undefined });
+      await api.post('/estructura', {
+        ...form,
+        parent_id: form.parent_id || undefined,
+        territorio_tipo: form.territorio_id ? 'seccion' : undefined,
+        territorio_id: form.territorio_id ? parseInt(form.territorio_id) : undefined,
+      });
       onGuardado();
     } catch (err) { setError(err.response?.data?.error || 'Error al guardar'); }
   };
@@ -40,6 +45,11 @@ function ModalAgregarMiembro({ miembros, onCerrar, onGuardado }) {
           className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
           {Object.entries(ROL_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
         </select>
+        {form.rol === 'coord_seccional' && (
+          <input placeholder="Sección que le asignas (ej: 12)" type="number" value={form.territorio_id}
+            onChange={(e) => setForm({ ...form, territorio_id: e.target.value })}
+            className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+        )}
         <select value={form.parent_id} onChange={(e) => setForm({ ...form, parent_id: e.target.value })}
           className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
           <option value="">Sin coordinador directo</option>
