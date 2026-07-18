@@ -383,6 +383,7 @@ export default function Estructura() {
   const [miembroDetalle, setMiembroDetalle] = useState(null);
   const [vista, setVista] = useState('organigrama');
   const [cargando, setCargando] = useState(true);
+  const [errorCarga, setErrorCarga] = useState('');
   const [busqueda, setBusqueda] = useState('');
   const [vacantes, setVacantes] = useState([]);
   const [alertasRama, setAlertasRama] = useState([]);
@@ -391,12 +392,21 @@ export default function Estructura() {
   const refOrganigrama = useRef(null);
 
   const cargar = () => {
-    Promise.all([api.get('/estructura'), api.get('/estructura/salud')]).then(([m, s]) => {
-      setMiembros(m.data.data); setSalud(s.data.data); setCargando(false);
-    });
-    api.get('/estructura/vacantes/catalogo').then((r) => setVacantes(r.data.data));
-    api.get('/estructura/alertas/rama-dormida').then((r) => setAlertasRama(r.data.data));
-    api.get('/estructura/ranking/coordinadores').then((r) => setRanking(r.data.data));
+    setErrorCarga('');
+    Promise.all([api.get('/estructura'), api.get('/estructura/salud')])
+      .then(([m, s]) => {
+        setMiembros(m.data.data); setSalud(s.data.data); setCargando(false);
+      })
+      .catch((err) => {
+        console.error('Error cargando estructura:', err);
+        setErrorCarga(err.response?.data?.error || err.message || 'Error desconocido al cargar la estructura');
+        setCargando(false);
+      });
+    // Estas 3 son mejoras nuevas — si CUALQUIERA falla, no debe tumbar
+    // el resto de la pantalla (por eso cada una tiene su propio .catch).
+    api.get('/estructura/vacantes/catalogo').then((r) => setVacantes(r.data.data)).catch(() => setVacantes([]));
+    api.get('/estructura/alertas/rama-dormida').then((r) => setAlertasRama(r.data.data)).catch(() => setAlertasRama([]));
+    api.get('/estructura/ranking/coordinadores').then((r) => setRanking(r.data.data)).catch(() => setRanking([]));
   };
   useEffect(cargar, []);
 
@@ -414,6 +424,19 @@ export default function Estructura() {
   const nombreCoincide = (m) => !busqueda || m.nombre.toLowerCase().includes(busqueda.toLowerCase()) || m.puesto?.toLowerCase().includes(busqueda.toLowerCase());
 
   if (cargando) return <div className="min-h-screen bg-slate-950 flex items-center justify-center text-slate-500">⏳ Cargando...</div>;
+
+  if (errorCarga) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6">
+        <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-6 max-w-sm text-center space-y-3">
+          <div className="text-3xl">⚠️</div>
+          <p className="text-sm text-red-300 font-bold">No se pudo cargar la estructura</p>
+          <p className="text-xs text-slate-400">{errorCarga}</p>
+          <button onClick={cargar} className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-xs font-bold">Reintentar</button>
+        </div>
+      </div>
+    );
+  }
 
   const raiz = miembros.filter((m) => !m.parent_id);
 
