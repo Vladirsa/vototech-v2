@@ -436,10 +436,10 @@ export default function Promovidos() {
             className={`px-3 py-1.5 rounded-full text-xs font-bold ${modoSeguimiento && tab === 'lista' ? 'bg-amber-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
             🎯 Seguimiento prioritario
           </button>
-          <button onClick={() => setTab('whatsapp')}
-            className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'whatsapp' ? 'bg-purple-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
-            📲 WhatsApp masivo
-          </button>
+          <Link to="/marketing"
+            className="px-3 py-1.5 rounded-full text-xs font-bold bg-purple-600/80 text-white flex items-center">
+            📢 Enviar por Marketing →
+          </Link>
           <button onClick={() => setTab('analitica')}
             className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'analitica' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
             📊 Analítica
@@ -469,7 +469,6 @@ export default function Promovidos() {
           </div>
         )}
 
-        {tab === 'whatsapp' && <PanelWhatsAppMasivo persuadibles={lista.filter((p) => p.clasificacion === 'persuadible')} />}
 
         {tab === 'lista' && vista === 'tablero' && (
           <TableroPromovidos lista={listaFiltrada} onActualizar={cargar} onVerDetalle={setDetalleId} />

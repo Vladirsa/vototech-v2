@@ -8,6 +8,8 @@ const MODULOS = [
   { ruta: '/promovidos', ic: '🤝', label: 'Promovidos' },
   { ruta: '/reportes', ic: '📊', label: 'Reportes' },
   { ruta: '/marketing', ic: '📢', label: 'Marketing' },
+  { ruta: '/juridico', ic: '⚖️', label: 'Jurídico' },
+  { ruta: '/encuestas', ic: '📋', label: 'Encuestas' },
   { ruta: '/priorizacion', ic: '🎯', label: 'Priorización' },
   { ruta: '/estructura', ic: '🗂️', label: 'Estructura' },
   { ruta: '/agenda', ic: '📅', label: 'Agenda' },

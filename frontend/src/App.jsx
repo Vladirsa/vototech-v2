@@ -14,6 +14,9 @@ import Finanzas from './pages/Finanzas';
 import Activos from './pages/Activos';
 import Reportes from './pages/Reportes';
 import Marketing from './pages/Marketing';
+import Juridico from './pages/Juridico';
+import Encuestas from './pages/Encuestas';
+import EncuestaPublica from './pages/EncuestaPublica';
 import AdminPlataforma from './pages/AdminPlataforma';
 import MapaConCampana from './components/MapaConCampana';
 import RutaProtegida from './components/RutaProtegida';
@@ -24,6 +27,7 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/votar/:id" element={<ConfirmarVoto />} />
+        <Route path="/encuesta/:id" element={<EncuestaPublica />} />
         <Route path="/login" element={<Login />} />
         <Route path="/registro" element={<RegistroCampana />} />
         <Route path="/registro-invitacion" element={<RegistroInvitacion />} />
@@ -40,6 +44,8 @@ export default function App() {
         <Route path="/activos" element={<RutaProtegida><Activos /></RutaProtegida>} />
         <Route path="/reportes" element={<RutaProtegida><Reportes /></RutaProtegida>} />
         <Route path="/marketing" element={<RutaProtegida><Marketing /></RutaProtegida>} />
+        <Route path="/juridico" element={<RutaProtegida><Juridico /></RutaProtegida>} />
+        <Route path="/encuestas" element={<RutaProtegida><Encuestas /></RutaProtegida>} />
         <Route
           path="/mapa"
           element={
