@@ -37,6 +37,7 @@ import zonasRoutes from './routes/zonas.js';
 import dashboardRoutes from './routes/dashboard.js';
 import promovidosAnaliticaRoutes from './routes/promovidos-analitica.js';
 import publicoRoutes from './routes/publico.js';
+import marketingRoutes from './routes/marketing.js';
 import adminRoutes from './routes/admin.js';
 
 const app = express();
@@ -107,6 +108,7 @@ app.use('/api/zonas', zonasRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/promovidos-analitica', promovidosAnaliticaRoutes);
 app.use('/api/publico', publicoRoutes);
+app.use('/api/marketing', marketingRoutes);
 app.use('/api/admin', adminRoutes);
 
 app.get('/api/salud', (req, res) => {
