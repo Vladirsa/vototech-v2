@@ -10,6 +10,7 @@ const PARTIDOS_COLOR = {
 
 export default function Reportes() {
   const [tab, setTab] = useState('diario');
+  const [subTabActividad, setSubTabActividad] = useState('resumen');
   const [fecha, setFecha] = useState(new Date().toISOString().slice(0, 10));
   const [diario, setDiario] = useState([]);
   const [tendencia, setTendencia] = useState([]);
@@ -18,6 +19,9 @@ export default function Reportes() {
   const [regresion, setRegresion] = useState(null);
   const [pruebaRitmo, setPruebaRitmo] = useState(null);
   const [caminoTriunfo, setCaminoTriunfo] = useState(null);
+  const [actividadResumen, setActividadResumen] = useState(null);
+  const [actividadPromotores, setActividadPromotores] = useState([]);
+  const [actividadSecciones, setActividadSecciones] = useState([]);
   const [cargando, setCargando] = useState(true);
 
   useEffect(() => {
@@ -32,6 +36,9 @@ export default function Reportes() {
     api.get('/reportes/regresion-cobertura').then((r) => setRegresion(r.data.data));
     api.get('/reportes/prueba-ritmo').then((r) => setPruebaRitmo(r.data.data));
     api.get('/reportes/camino-triunfo').then((r) => setCaminoTriunfo(r.data.data));
+    api.get('/reportes/actividad-resumen').then((r) => setActividadResumen(r.data.data));
+    api.get('/reportes/actividad-por-promotor').then((r) => setActividadPromotores(r.data.data));
+    api.get('/reportes/actividad-por-seccion').then((r) => setActividadSecciones(r.data.data));
   }, []);
 
   const maxTendencia = Math.max(1, ...tendencia.map((t) => t.promovidos));
@@ -57,6 +64,7 @@ export default function Reportes() {
           <button onClick={() => setTab('tendencia')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'tendencia' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📈 Tendencia</button>
           <button onClick={() => setTab('estadisticas')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'estadisticas' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🗺️ Análisis histórico</button>
           <button onClick={() => setTab('probabilidad')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'probabilidad' ? 'bg-purple-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🎲 Estadística y Probabilidad</button>
+          <button onClick={() => setTab('actividad')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'actividad' ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🎯 Actividad de Campo</button>
         </div>
 
         {tab === 'probabilidad' && probabilidad && (
@@ -367,6 +375,132 @@ export default function Reportes() {
                     </div>
                   ))}
                 </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── 🎯 ACTIVIDAD DE CAMPO — Resumen / Por promotor / Por sección ── */}
+        {tab === 'actividad' && (
+          <div className="space-y-4">
+            <div className="flex gap-2">
+              <button onClick={() => setSubTabActividad('resumen')} className={`px-3 py-1.5 rounded-full text-[11px] font-bold ${subTabActividad === 'resumen' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>Resumen</button>
+              <button onClick={() => setSubTabActividad('promotor')} className={`px-3 py-1.5 rounded-full text-[11px] font-bold ${subTabActividad === 'promotor' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>Por promotor</button>
+              <button onClick={() => setSubTabActividad('seccion')} className={`px-3 py-1.5 rounded-full text-[11px] font-bold ${subTabActividad === 'seccion' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>Por sección</button>
+            </div>
+
+            {subTabActividad === 'resumen' && actividadResumen && (
+              <>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div className="bg-slate-900/60 border border-emerald-800/40 rounded-xl p-3 text-center">
+                    <div className="text-xl font-black text-emerald-400">{actividadResumen.total_reportes}</div>
+                    <div className="text-[9px] text-slate-500">Reportes de campo</div>
+                  </div>
+                  <div className="bg-slate-900/60 border border-blue-800/40 rounded-xl p-3 text-center">
+                    <div className="text-xl font-black text-blue-400">{actividadResumen.personas_contactadas}</div>
+                    <div className="text-[9px] text-slate-500">Personas contactadas</div>
+                  </div>
+                  <div className="bg-slate-900/60 border border-purple-800/40 rounded-xl p-3 text-center">
+                    <div className="text-xl font-black text-purple-400">{actividadResumen.comprometidos} ({actividadResumen.pct_comprometidos}%)</div>
+                    <div className="text-[9px] text-slate-500">Comprometidos a votar</div>
+                  </div>
+                  <div className="bg-slate-900/60 border border-amber-800/40 rounded-xl p-3 text-center">
+                    <div className="text-xl font-black text-amber-400">{actividadResumen.secciones_cubiertas}</div>
+                    <div className="text-[9px] text-slate-500">Secciones cubiertas</div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+                    <h3 className="text-xs font-bold text-slate-400 uppercase mb-2">Actividades por tipo</h3>
+                    {Object.keys(actividadResumen.actividades_por_tipo).length === 0 ? (
+                      <div className="text-[11px] text-slate-500">Sin reportes</div>
+                    ) : Object.entries(actividadResumen.actividades_por_tipo).map(([tipo, n]) => (
+                      <div key={tipo} className="flex justify-between text-xs py-1"><span className="text-slate-300 capitalize">{tipo}</span><span className="text-white font-bold">{n}</span></div>
+                    ))}
+                  </div>
+                  <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+                    <h3 className="text-xs font-bold text-slate-400 uppercase mb-2">Reportes últimos 7 días</h3>
+                    {actividadResumen.ultimos_7_dias.every((d) => d.total === 0) ? (
+                      <div className="text-[11px] text-slate-500">Sin actividad reciente</div>
+                    ) : (
+                      <div className="flex items-end gap-1 h-16">
+                        {actividadResumen.ultimos_7_dias.map((d) => (
+                          <div key={d.fecha} className="flex-1 flex flex-col items-center gap-1">
+                            <div className="w-full bg-emerald-500 rounded-t" style={{ height: `${Math.max(4, (d.total / Math.max(...actividadResumen.ultimos_7_dias.map(x => x.total), 1)) * 100)}%` }} />
+                            <span className="text-[7px] text-slate-600">{new Date(d.fecha).getDate()}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+                  <h3 className="text-xs font-bold text-slate-400 uppercase mb-2">Promotores activos — {actividadResumen.promotores_activos} en total</h3>
+                  {actividadResumen.promotores.length === 0 ? (
+                    <div className="text-[11px] text-slate-500">Sin promotores registrados</div>
+                  ) : actividadResumen.promotores.map((p) => (
+                    <div key={p.id} className="flex justify-between text-xs py-1 border-b border-slate-800 last:border-0">
+                      <span className="text-slate-300">{p.nombre}</span>
+                      <span className="text-emerald-400 font-bold">{p.total_promovidos}</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {subTabActividad === 'promotor' && (
+              <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden">
+                <table className="w-full text-xs">
+                  <thead className="bg-slate-800/60">
+                    <tr>
+                      <th className="text-left px-3 py-2 text-slate-400 font-bold">Promotor</th>
+                      <th className="text-center px-3 py-2 text-slate-400 font-bold">Total</th>
+                      <th className="text-center px-3 py-2 text-slate-400 font-bold">Comprometidos</th>
+                      <th className="text-center px-3 py-2 text-slate-400 font-bold">Últimos 7 días</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {actividadPromotores.length === 0 ? (
+                      <tr><td colSpan={4} className="text-center text-slate-500 py-6">Sin promotores registrados</td></tr>
+                    ) : actividadPromotores.map((p) => (
+                      <tr key={p.id} className="border-t border-slate-800">
+                        <td className="px-3 py-2 text-white font-bold">{p.nombre}{p.puesto && <span className="text-slate-500 font-normal"> · {p.puesto}</span>}</td>
+                        <td className="px-3 py-2 text-center text-slate-300">{p.total_promovidos}</td>
+                        <td className="px-3 py-2 text-center text-purple-400">{p.comprometidos}</td>
+                        <td className="px-3 py-2 text-center text-emerald-400">{p.ultimos_7_dias}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {subTabActividad === 'seccion' && (
+              <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden">
+                <table className="w-full text-xs">
+                  <thead className="bg-slate-800/60">
+                    <tr>
+                      <th className="text-left px-3 py-2 text-slate-400 font-bold">Sección</th>
+                      <th className="text-center px-3 py-2 text-slate-400 font-bold">Promovidos</th>
+                      <th className="text-center px-3 py-2 text-slate-400 font-bold">Comprometidos</th>
+                      <th className="text-center px-3 py-2 text-slate-400 font-bold">Promotores</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {actividadSecciones.length === 0 ? (
+                      <tr><td colSpan={4} className="text-center text-slate-500 py-6">Sin secciones con actividad</td></tr>
+                    ) : actividadSecciones.map((s) => (
+                      <tr key={s.seccion_numero} className="border-t border-slate-800">
+                        <td className="px-3 py-2 text-white font-bold">{String(s.seccion_numero).padStart(3, '0')}</td>
+                        <td className="px-3 py-2 text-center text-slate-300">{s.total_promovidos}</td>
+                        <td className="px-3 py-2 text-center text-purple-400">{s.comprometidos}</td>
+                        <td className="px-3 py-2 text-center text-emerald-400">{s.promotores_activos}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
           </div>

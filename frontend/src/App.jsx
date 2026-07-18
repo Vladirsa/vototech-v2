@@ -16,6 +16,7 @@ import Reportes from './pages/Reportes';
 import Marketing from './pages/Marketing';
 import Juridico from './pages/Juridico';
 import Encuestas from './pages/Encuestas';
+import Chat from './pages/Chat';
 import EncuestaPublica from './pages/EncuestaPublica';
 import AdminPlataforma from './pages/AdminPlataforma';
 import MapaConCampana from './components/MapaConCampana';
@@ -46,6 +47,7 @@ export default function App() {
         <Route path="/marketing" element={<RutaProtegida><Marketing /></RutaProtegida>} />
         <Route path="/juridico" element={<RutaProtegida><Juridico /></RutaProtegida>} />
         <Route path="/encuestas" element={<RutaProtegida><Encuestas /></RutaProtegida>} />
+        <Route path="/chat" element={<RutaProtegida><Chat /></RutaProtegida>} />
         <Route
           path="/mapa"
           element={

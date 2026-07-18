@@ -376,6 +376,59 @@ function NodoOrganigrama({ miembro, hijos, onClick, esRaiz, busqueda }) {
   );
 }
 
+function PanelCodigosMasivos() {
+  const [codigos, setCodigos] = useState([]);
+  const [rol, setRol] = useState('promotor');
+  const [usos, setUsos] = useState(10);
+  const [copiado, setCopiado] = useState(null);
+
+  const cargar = () => api.get('/codigos').then((r) => setCodigos(r.data.data));
+  useEffect(() => { cargar(); }, []);
+
+  const generar = async () => {
+    await api.post('/codigos', { rol_asignado: rol, usos_maximos: usos });
+    cargar();
+  };
+  const copiar = (codigo) => {
+    navigator.clipboard.writeText(codigo);
+    setCopiado(codigo);
+    setTimeout(() => setCopiado(null), 1500);
+  };
+
+  return (
+    <div className="space-y-3">
+      <p className="text-[11px] text-slate-500">Para cuando reparte UN código a varias personas de un jalón (ej. en un mitin) — distinto al código personal de cada quien, que sí queda ligado a su cadena de invitación.</p>
+
+      <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 flex flex-col md:flex-row gap-2">
+        <select value={rol} onChange={(e) => setRol(e.target.value)} className="flex-1 px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
+          <option value="promotor">🤝 Promotor</option>
+          <option value="coord_seccional">📍 Coord. Seccional</option>
+          <option value="coord_municipal">🏘️ Coord. Municipal</option>
+        </select>
+        <input type="number" min={1} value={usos} onChange={(e) => setUsos(+e.target.value)}
+          className="w-24 px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" title="Usos máximos" />
+        <button onClick={generar} className="px-5 py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-bold">Generar</button>
+      </div>
+
+      <div className="space-y-2">
+        {codigos.length === 0 ? (
+          <div className="text-center text-slate-500 text-xs py-6">Sin códigos masivos generados todavía</div>
+        ) : codigos.map((c) => (
+          <div key={c.id} className="rounded-xl border border-slate-800 bg-slate-900/60 p-3 flex items-center justify-between">
+            <div>
+              <div className="font-mono text-base font-black text-indigo-400">{c.codigo}</div>
+              <div className="text-[10px] text-slate-500">{c.rol_asignado} · usado {c.usos_actuales}/{c.usos_maximos} · {c.activo ? '✅ activo' : '❌ inactivo'}</div>
+            </div>
+            <button onClick={() => copiar(c.codigo)} className="px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 text-xs font-bold">
+              {copiado === c.codigo ? '✅ Copiado' : '📋 Copiar'}
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function Estructura() {
   const [miembros, setMiembros] = useState([]);
   const [salud, setSalud] = useState(null);
@@ -501,6 +554,7 @@ export default function Estructura() {
             <button onClick={() => setVista('organigrama')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'organigrama' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🌳 Organigrama</button>
             <button onClick={() => setVista('lista')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'lista' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📋 Lista</button>
             <button onClick={() => setVista('ranking')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'ranking' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🏆 Ranking</button>
+            <button onClick={() => setVista('codigos')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'codigos' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🎟️ Códigos masivos</button>
           </div>
           {vista === 'organigrama' && (
             <div className="flex gap-2 items-center">
@@ -513,7 +567,9 @@ export default function Estructura() {
           )}
         </div>
 
-        {vista === 'organigrama' ? (
+        {vista === 'codigos' ? (
+          <PanelCodigosMasivos />
+        ) : vista === 'organigrama' ? (
           <div ref={refOrganigrama} className="bg-slate-900/40 border border-slate-800 rounded-2xl p-6 overflow-x-auto">
             <div className="flex gap-8 justify-center min-w-max pb-2">
               {raiz.length === 0 ? (

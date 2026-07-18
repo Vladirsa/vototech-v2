@@ -3,16 +3,20 @@ import { Link } from 'react-router-dom';
 import api from '../lib/api';
 
 const ESTILO_PRIORIDAD = {
-  critica:     { bg: 'bg-red-500/10', border: 'border-red-500/40', texto: 'text-red-400', label: '🔴 Crítica' },
-  recuperable: { bg: 'bg-orange-500/10', border: 'border-orange-500/40', texto: 'text-orange-400', label: '🟠 Recuperable' },
-  disputa:     { bg: 'bg-yellow-500/10', border: 'border-yellow-500/40', texto: 'text-yellow-400', label: '🟡 Disputa' },
-  consolidar:  { bg: 'bg-emerald-500/10', border: 'border-emerald-500/40', texto: 'text-emerald-400', label: '🟢 Consolidar' },
-  perdida:     { bg: 'bg-slate-500/10', border: 'border-slate-500/40', texto: 'text-slate-500', label: '⚫ Sin esperanza' },
+  critica:     { bg: 'bg-red-500/10', border: 'border-red-500/40', texto: 'text-red-400', barra: 'bg-red-500', label: '🔴 Crítica' },
+  recuperable: { bg: 'bg-orange-500/10', border: 'border-orange-500/40', texto: 'text-orange-400', barra: 'bg-orange-500', label: '🟠 Recuperable' },
+  disputa:     { bg: 'bg-yellow-500/10', border: 'border-yellow-500/40', texto: 'text-yellow-400', barra: 'bg-yellow-500', label: '🟡 Disputa' },
+  consolidar:  { bg: 'bg-emerald-500/10', border: 'border-emerald-500/40', texto: 'text-emerald-400', barra: 'bg-emerald-500', label: '🟢 Consolidar' },
+  perdida:     { bg: 'bg-slate-500/10', border: 'border-slate-500/40', texto: 'text-slate-500', barra: 'bg-slate-500', label: '⚫ Sin esperanza' },
 };
+
+const CLAVE_RESUMEN = { critica: 'criticas', recuperable: 'recuperables', disputa: 'disputa', consolidar: 'consolidar', perdida: 'perdidas' };
 
 export default function Priorizacion() {
   const [datos, setDatos] = useState(null);
   const [filtro, setFiltro] = useState('todas');
+  const [orden, setOrden] = useState('deficit'); // 'deficit' | 'seccion'
+  const [busqueda, setBusqueda] = useState('');
   const [cargando, setCargando] = useState(true);
 
   useEffect(() => {
@@ -31,7 +35,19 @@ export default function Priorizacion() {
     );
   }
 
-  const filas = filtro === 'todas' ? datos.data : datos.data.filter((f) => f.prioridad === filtro);
+  let filas = filtro === 'todas' ? datos.data : datos.data.filter((f) => f.prioridad === filtro);
+  if (busqueda) filas = filas.filter((f) => String(f.seccion).includes(busqueda));
+  filas = [...filas].sort((a, b) => orden === 'deficit' ? b.deficit_votos - a.deficit_votos : a.seccion - b.seccion);
+  // Para "déficit" queremos primero las MÁS FÁCILES de voltear (déficit chico pero > 0), luego el resto
+  if (orden === 'deficit') {
+    filas = [...filas].sort((a, b) => {
+      const da = a.deficit_votos > 0 ? a.deficit_votos : Infinity;
+      const db = b.deficit_votos > 0 ? b.deficit_votos : Infinity;
+      return da - db;
+    });
+  }
+
+  const totalCubiertos = datos.data.filter((f) => f.deficit_votos <= 0).length;
 
   return (
     <div className="min-h-screen bg-slate-950 p-4 md:p-8">
@@ -46,24 +62,42 @@ export default function Priorizacion() {
           <Link to="/dashboard" className="text-xs text-indigo-400">← Dashboard</Link>
         </div>
 
-        {/* Filtros de prioridad */}
-        <div className="flex flex-wrap gap-2">
-          <button onClick={() => setFiltro('todas')}
-            className={`px-3 py-1.5 rounded-full text-xs font-bold border ${filtro === 'todas' ? 'bg-indigo-600 border-indigo-500 text-white' : 'border-slate-700 text-slate-400'}`}>
-            Todas ({datos.data.length})
-          </button>
+        {/* KPIs resumen — mismo lenguaje visual que el resto del sistema */}
+        <div className="grid grid-cols-3 md:grid-cols-6 gap-2">
+          <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 text-center">
+            <div className="text-lg font-black text-white">{datos.data.length}</div>
+            <div className="text-[9px] text-slate-500">Total secciones</div>
+          </div>
           {Object.entries(ESTILO_PRIORIDAD).map(([key, est]) => (
-            <button key={key} onClick={() => setFiltro(key)}
-              className={`px-3 py-1.5 rounded-full text-xs font-bold border ${filtro === key ? `${est.bg} ${est.border} ${est.texto}` : 'border-slate-700 text-slate-500'}`}>
-              {est.label} ({datos.resumen[key + (key === 'critica' ? 's' : key === 'recuperable' ? 's' : key === 'perdida' ? 's' : '')] ?? datos.data.filter(f=>f.prioridad===key).length})
+            <button key={key} onClick={() => setFiltro(filtro === key ? 'todas' : key)}
+              className={`rounded-xl p-3 text-center border ${filtro === key ? `${est.bg} ${est.border}` : 'border-slate-800 bg-slate-900/60'}`}>
+              <div className={`text-lg font-black ${est.texto}`}>{datos.resumen[CLAVE_RESUMEN[key]]}</div>
+              <div className="text-[9px] text-slate-500">{est.label.replace(/^\S+\s/, '')}</div>
             </button>
           ))}
         </div>
 
+        <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl px-3 py-2 text-[11px] text-emerald-300">
+          ✅ {totalCubiertos} de {datos.data.length} secciones ya tienen su meta de promovidos cubierta
+        </div>
+
+        {/* Controles */}
+        <div className="flex flex-wrap items-center gap-2">
+          <input placeholder="🔍 Buscar sección..." value={busqueda} onChange={(e) => setBusqueda(e.target.value)}
+            className="px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs w-40" />
+          <button onClick={() => setOrden('deficit')} className={`px-3 py-1.5 rounded-full text-[10px] font-bold ${orden === 'deficit' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>Más fáciles primero</button>
+          <button onClick={() => setOrden('seccion')} className={`px-3 py-1.5 rounded-full text-[10px] font-bold ${orden === 'seccion' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>Por número</button>
+          {filtro !== 'todas' && <button onClick={() => setFiltro('todas')} className="text-[10px] text-slate-500 font-bold">✕ Quitar filtro</button>}
+        </div>
+
         {/* Lista de secciones */}
         <div className="space-y-2">
-          {filas.map((f) => {
+          {filas.length === 0 ? (
+            <div className="text-center text-slate-500 text-sm py-10">Sin secciones que coincidan</div>
+          ) : filas.map((f) => {
             const est = ESTILO_PRIORIDAD[f.prioridad];
+            const totalPromos = f.promovidos_base + f.promovidos_persuadibles;
+            const pctAvance = f.promovidos_necesarios > 0 ? Math.min(100, Math.round((totalPromos / f.promovidos_necesarios) * 100)) : 100;
             return (
               <div key={f.seccion} className={`rounded-xl border ${est.border} ${est.bg} p-4`}>
                 <div className="flex items-center justify-between mb-2">
@@ -74,7 +108,7 @@ export default function Priorizacion() {
                   <span className="text-[10px] text-slate-500">Ganó: <strong className="text-slate-300">{f.ganador_historico?.toUpperCase()}</strong> ({f.margen_pct > 0 ? '+' : ''}{f.margen_pct}%)</span>
                 </div>
 
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs mb-3">
                   <div>
                     <div className="text-slate-500">Lista nominal</div>
                     <div className="text-white font-bold">{f.lista_nominal?.toLocaleString()}</div>
@@ -84,8 +118,8 @@ export default function Priorizacion() {
                     <div className="text-white font-bold">{f.deficit_votos > 0 ? f.deficit_votos.toLocaleString() : '✅ Cubierto'}</div>
                   </div>
                   <div>
-                    <div className="text-slate-500">Promovidos (base+persuad.)</div>
-                    <div className="text-white font-bold">{f.promovidos_base + f.promovidos_persuadibles} de {f.promovidos_necesarios}</div>
+                    <div className="text-slate-500">Promovidos</div>
+                    <div className="text-white font-bold">{totalPromos} de {f.promovidos_necesarios}</div>
                   </div>
                   <div>
                     <div className="text-slate-500">Ritmo diario necesario</div>
@@ -93,6 +127,20 @@ export default function Priorizacion() {
                       {f.ritmo_diario_necesario > 0 ? `${f.ritmo_diario_necesario}/día` : '✅ Meta lista'}
                     </div>
                   </div>
+                </div>
+
+                {/* Barra de avance visual — antes solo era un número suelto */}
+                <div className="mb-3">
+                  <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                    <div className={`h-full ${est.barra}`} style={{ width: `${pctAvance}%` }} />
+                  </div>
+                  <div className="text-[9px] text-slate-500 mt-0.5">{pctAvance}% de avance hacia la meta de esta sección</div>
+                </div>
+
+                {/* Accesos directos — conecta con los módulos relacionados */}
+                <div className="flex gap-3">
+                  <Link to={`/promovidos?seccion=${f.seccion}`} className="text-[10px] font-bold text-indigo-400">👁️ Ver promovidos →</Link>
+                  <Link to={`/mapa`} className="text-[10px] font-bold text-indigo-400">🗺️ Ver en el mapa →</Link>
                 </div>
               </div>
             );

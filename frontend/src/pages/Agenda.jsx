@@ -106,6 +106,59 @@ function VistaCalendarioMes({ eventos, mesActual, onCambiarMes, onDiaClick }) {
   );
 }
 
+/** Vista de un solo día con franjas de hora — como Google Calendar,
+ * de las 6am a las 10pm, con cada evento posicionado según su hora
+ * real (no solo listado en orden). */
+function VistaDia({ eventos, diaActual, onCambiarDia, onEditar }) {
+  const HORAS = Array.from({ length: 17 }, (_, i) => i + 6); // 6:00 a 22:00
+  const ALTO_HORA = 56; // px por cada hora
+
+  const eventosDelDia = eventos.filter((e) => new Date(e.fecha_inicio).toDateString() === diaActual.toDateString());
+  const esHoy = diaActual.toDateString() === new Date().toDateString();
+
+  return (
+    <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden">
+      <div className="flex items-center justify-between p-3 border-b border-slate-800">
+        <button onClick={() => onCambiarDia(-1)} className="text-xs font-bold text-slate-400 px-2 py-1">‹ Anterior</button>
+        <div className="text-center">
+          <div className="text-sm font-bold text-white capitalize">{diaActual.toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'long' })}</div>
+          {!esHoy && <button onClick={() => onCambiarDia('hoy')} className="text-[10px] text-indigo-400 font-bold">Ir a hoy</button>}
+        </div>
+        <button onClick={() => onCambiarDia(1)} className="text-xs font-bold text-slate-400 px-2 py-1">Siguiente ›</button>
+      </div>
+
+      <div className="relative overflow-y-auto max-h-[70vh]" style={{ height: HORAS.length * ALTO_HORA }}>
+        {HORAS.map((h, i) => (
+          <div key={h} className="absolute left-0 right-0 border-t border-slate-800/60 flex" style={{ top: i * ALTO_HORA, height: ALTO_HORA }}>
+            <span className="text-[9px] text-slate-600 w-12 flex-shrink-0 -mt-1.5 pl-1">{String(h).padStart(2, '0')}:00</span>
+          </div>
+        ))}
+
+        {eventosDelDia.length === 0 && (
+          <div className="absolute inset-0 flex items-center justify-center pl-12">
+            <span className="text-xs text-slate-600">Sin eventos para este día</span>
+          </div>
+        )}
+
+        {eventosDelDia.map((e) => {
+          const fecha = new Date(e.fecha_inicio);
+          const horaDecimal = fecha.getHours() + fecha.getMinutes() / 60;
+          const top = Math.max(0, (horaDecimal - 6)) * ALTO_HORA;
+          const colorBorde = e.color_alerta === 'rojo' ? 'border-l-red-500 bg-red-500/10' : e.color_alerta === 'amarillo' ? 'border-l-amber-500 bg-amber-500/10' : 'border-l-blue-500 bg-blue-500/10';
+          return (
+            <button key={e.id} onClick={() => onEditar(e.id)}
+              className={`absolute left-14 right-2 rounded-lg border-l-4 ${colorBorde} px-2 py-1 text-left overflow-hidden hover:brightness-125`}
+              style={{ top, minHeight: 44 }}>
+              <div className="text-[11px] font-bold text-white truncate">{TIPO_ICONO[e.tipo]} {e.titulo}</div>
+              <div className="text-[9px] text-slate-400">{fecha.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}{e.lugar && ` · ${e.lugar}`}</div>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function PanelAnuncios() {
   const [anuncios, setAnuncios] = useState([]);
   const [mostrarForm, setMostrarForm] = useState(false);
@@ -162,7 +215,8 @@ export default function Agenda() {
   const [mostrarForm, setMostrarForm] = useState(!!seccionUrl);
   const [editandoId, setEditandoId] = useState(null);
   const [filtroTipo, setFiltroTipo] = useState('todos');
-  const [vista, setVista] = useState('lista'); // 'lista' | 'calendario' | 'anuncios'
+  const [vista, setVista] = useState('lista'); // 'lista' | 'dia' | 'calendario' | 'anuncios'
+  const [diaActual, setDiaActual] = useState(new Date());
   const [mesActual, setMesActual] = useState(new Date());
   const [diaSeleccionado, setDiaSeleccionado] = useState(null);
   const [cargando, setCargando] = useState(true);
@@ -230,7 +284,8 @@ export default function Agenda() {
 
         <div className="flex gap-2">
           <button onClick={() => setVista('lista')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'lista' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📋 Lista</button>
-          <button onClick={() => setVista('calendario')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'calendario' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🗓️ Calendario</button>
+          <button onClick={() => setVista('dia')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'dia' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🕐 Día</button>
+          <button onClick={() => setVista('calendario')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'calendario' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🗓️ Mes</button>
           <button onClick={() => setVista('anuncios')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'anuncios' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📌 Anuncios</button>
         </div>
 
@@ -256,6 +311,10 @@ export default function Agenda() {
 
         {vista === 'anuncios' ? (
           <PanelAnuncios />
+        ) : vista === 'dia' ? (
+          <VistaDia eventos={eventos} diaActual={diaActual}
+            onCambiarDia={(d) => setDiaActual(d === 'hoy' ? new Date() : new Date(diaActual.getTime() + d * 86400000))}
+            onEditar={setEditandoId} />
         ) : vista === 'calendario' ? (
           <>
             <VistaCalendarioMes eventos={eventos} mesActual={mesActual}
