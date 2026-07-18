@@ -14,7 +14,7 @@ import Finanzas from './pages/Finanzas';
 import Activos from './pages/Activos';
 import Reportes from './pages/Reportes';
 import AdminPlataforma from './pages/AdminPlataforma';
-import MapaElectoral from './components/MapaElectoral';
+import MapaConCampana from './components/MapaConCampana';
 import RutaProtegida from './components/RutaProtegida';
 
 export default function App() {
@@ -40,7 +40,7 @@ export default function App() {
           path="/mapa"
           element={
             <RutaProtegida>
-              <MapaElectoral territorioTipo="municipio" territorioId={3} tipoEleccion="ayuntamiento" anio={2024} />
+              <MapaConCampana />
             </RutaProtegida>
           }
         />

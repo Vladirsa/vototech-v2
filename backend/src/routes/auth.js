@@ -2,7 +2,7 @@ import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { query } from '../db/pool.js';
-import { generarToken } from '../middleware/auth.js';
+import { generarToken, requiereAuth } from '../middleware/auth.js';
 
 const router = Router();
 
@@ -16,7 +16,7 @@ const esquemaRegistroCampana = z.object({
   tipo_eleccion: z.enum(['ayuntamiento', 'dip_local', 'dip_federal', 'gobernador', 'pres_comunidad']),
   estado_id: z.number().int(),
   subdominio: z.string().regex(/^[a-z0-9-]{3,63}$/, 'Solo minúsculas, números y guiones'),
-  territorio_tipo: z.enum(['municipio', 'seccion', 'distrito', 'estatal']).optional(),
+  territorio_tipo: z.enum(['municipio', 'seccion', 'distrito_local', 'distrito_federal', 'estatal']).optional(),
   territorio_id: z.number().int().optional(),
   fecha_eleccion: z.string().optional(),
   codigo_acceso: z.string().min(3, 'Se requiere un código de acceso válido'),
@@ -226,6 +226,22 @@ router.post('/registrar-con-codigo', async (req, res) => {
     console.error('Error registrando con código:', e);
     res.status(500).json({ ok: false, error: 'Error interno' });
   }
+});
+
+/**
+ * GET /api/auth/mi-campana
+ * El territorio y tipo de elección REALES de la campaña del usuario
+ * logueado — antes el mapa traía un municipio fijo en el código sin
+ * importar la campaña de quién entrara, esto lo corrige.
+ */
+router.get('/mi-campana', requiereAuth, async (req, res) => {
+  const resultado = await query(
+    `SELECT nombre_candidato, partido, tipo_eleccion, territorio_tipo, territorio_id, fecha_eleccion
+     FROM campanas WHERE id=$1`,
+    [req.usuario.campana_id]
+  );
+  if (!resultado.rows[0]) return res.status(404).json({ ok: false, error: 'Campaña no encontrada' });
+  res.json({ ok: true, data: resultado.rows[0] });
 });
 
 export default router;

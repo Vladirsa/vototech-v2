@@ -22,8 +22,23 @@ export async function crearDemo(opciones = {}) {
   const tipoEleccion = opciones.tipoEleccion || 'ayuntamiento';
   const municipioClaveIne = opciones.municipioClaveIne || 3; // Apizaco por defecto (tiene datos reales)
   const nombreMunicipio = opciones.nombreMunicipio || 'Apizaco';
+  const distritoNumero = opciones.distritoNumero || 1;
 
-  console.log(`🎬 Creando cuenta DEMO (${tipoEleccion} — ${nombreMunicipio})...\n`);
+  // El territorio correcto depende del tipo de elección — antes SIEMPRE
+  // se guardaba como "municipio" sin importar qué se eligiera, y por
+  // eso Diputado Local/Federal no mostraban nada coherente en el mapa.
+  let territorioTipo, territorioId, nombreTerritorio;
+  if (tipoEleccion === 'dip_local') {
+    territorioTipo = 'distrito_local'; territorioId = distritoNumero; nombreTerritorio = `Distrito Local ${distritoNumero}`;
+  } else if (tipoEleccion === 'dip_federal') {
+    territorioTipo = 'distrito_federal'; territorioId = distritoNumero; nombreTerritorio = `Distrito Federal ${distritoNumero}`;
+  } else if (tipoEleccion === 'gobernador') {
+    territorioTipo = 'estatal'; territorioId = null; nombreTerritorio = 'Todo Tlaxcala';
+  } else {
+    territorioTipo = 'municipio'; territorioId = municipioClaveIne; nombreTerritorio = nombreMunicipio;
+  }
+
+  console.log(`🎬 Creando cuenta DEMO (${tipoEleccion} — ${nombreTerritorio})...\n`);
 
   // Borrar demo anterior si existe (para que cada presentación arranque limpia)
   await query('DELETE FROM campanas WHERE subdominio=$1', [DEMO_SUBDOMINIO]);
@@ -34,13 +49,13 @@ export async function crearDemo(opciones = {}) {
   const campana = await query(
     `INSERT INTO campanas (nombre_candidato, eslogan, partido, tipo_eleccion, estado_id, territorio_tipo, territorio_id,
        subdominio, activa, estado_aprobacion, es_demo, fecha_eleccion, tope_gasto_ople)
-     VALUES ('Candidato Demo','Juntos por un mejor futuro','morena',$1,29,'municipio',$2,
-       $3, true, 'aprobada', true, '2027-06-06', 850000)
+     VALUES ('Candidato Demo','Juntos por un mejor futuro','morena',$1,29,$2,$3,
+       $4, true, 'aprobada', true, '2027-06-06', 850000)
      RETURNING id`,
-    [tipoEleccion, municipioClaveIne, DEMO_SUBDOMINIO]
+    [tipoEleccion, territorioTipo, territorioId, DEMO_SUBDOMINIO]
   );
   const campanaId = campana.rows[0].id;
-  console.log(`✅ Campaña demo creada (${tipoEleccion} de ${nombreMunicipio})`);
+  console.log(`✅ Campaña demo creada (${tipoEleccion} — ${nombreTerritorio})`);
 
   // 2. Usuario candidato (cuenta principal de acceso)
   const candidato = await query(
@@ -94,12 +109,22 @@ export async function crearDemo(opciones = {}) {
 
   // 4. Promovidos de ejemplo en secciones reales de Apizaco, con las 3
   // clasificaciones representadas para que se vea el motor funcionando
-  const seccionesApizaco = await query(
-    `SELECT numero FROM secciones s JOIN municipios m ON m.id=s.municipio_id
-     WHERE m.estado_id=29 AND m.clave_ine=$1 ORDER BY numero LIMIT 15`,
-    [municipioClaveIne]
+  let filtroSecciones = 'WHERE s.estado_id=29';
+  const paramsSecciones = [];
+  if (territorioTipo === 'municipio') { filtroSecciones += ' AND m.clave_ine=$1'; paramsSecciones.push(territorioId); }
+  else if (territorioTipo === 'distrito_local') { filtroSecciones += ' AND s.distrito_local=$1'; paramsSecciones.push(territorioId); }
+  else if (territorioTipo === 'distrito_federal') { filtroSecciones += ' AND s.distrito_federal=$1'; paramsSecciones.push(territorioId); }
+  // 'estatal' no agrega filtro — toma cualquier sección del estado
+
+  const seccionesEjemplo = await query(
+    `SELECT s.numero FROM secciones s JOIN municipios m ON m.id=s.municipio_id
+     ${filtroSecciones} ORDER BY s.numero LIMIT 15`,
+    paramsSecciones
   );
-  const secciones = seccionesApizaco.rows.map(r => r.numero);
+  const secciones = seccionesEjemplo.rows.map(r => r.numero);
+  if (secciones.length === 0) {
+    throw new Error(`No se encontraron secciones para ${nombreTerritorio} — verifica que ese distrito/municipio exista en la base de datos`);
+  }
 
   const perfiles = [
     ...Array(8).fill({ partido: 'morena', comprometido: true, temperatura: 'caliente' }),   // -> base

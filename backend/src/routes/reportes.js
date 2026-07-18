@@ -73,6 +73,12 @@ router.get('/estadisticas', async (req, res) => {
     if (campana.territorio_tipo === 'municipio' && campana.territorio_id) {
       filtroTerritorio = 'AND s.municipio_id = (SELECT id FROM municipios WHERE estado_id=29 AND clave_ine=$1)';
       paramsTerr.push(campana.territorio_id);
+    } else if (campana.territorio_tipo === 'distrito_local' && campana.territorio_id) {
+      filtroTerritorio = 'AND s.distrito_local = $1';
+      paramsTerr.push(campana.territorio_id);
+    } else if (campana.territorio_tipo === 'distrito_federal' && campana.territorio_id) {
+      filtroTerritorio = 'AND s.distrito_federal = $1';
+      paramsTerr.push(campana.territorio_id);
     }
 
     const seccionesRes = await query(`SELECT s.id, s.numero, s.lista_nominal FROM secciones s WHERE s.estado_id=29 ${filtroTerritorio}`, paramsTerr);

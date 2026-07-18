@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import api from '../lib/api';
 
@@ -15,11 +15,17 @@ export default function RegistroCampana() {
   const [form, setForm] = useState({
     nombre_candidato: '', email: '', password: '', partido: 'morena',
     tipo_eleccion: '', estado_id: 29, subdominio: '', codigo_acceso: '',
+    territorio_tipo: '', territorio_id: '',
   });
+  const [municipios, setMunicipios] = useState([]);
   const [error, setError] = useState('');
   const [cargando, setCargando] = useState(false);
   const [exito, setExito] = useState(null);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    api.get('/geo/municipios/29').then((r) => setMunicipios(r.data.data));
+  }, []);
 
   const actualizar = (campo, valor) => setForm((f) => ({ ...f, [campo]: valor }));
 
@@ -34,7 +40,10 @@ export default function RegistroCampana() {
     setError('');
     setCargando(true);
     try {
-      const { data } = await api.post('/auth/registrar-campana', form);
+      const { data } = await api.post('/auth/registrar-campana', {
+        ...form,
+        territorio_id: form.territorio_id ? parseInt(form.territorio_id) : undefined,
+      });
       if (data.ok) setExito(data);
     } catch (err) {
       setError(err.response?.data?.error || 'Error al crear la campaña');
@@ -67,7 +76,7 @@ export default function RegistroCampana() {
           <div className="text-4xl mb-2">🗳️</div>
           <h1 className="text-xl font-black text-white">Registra tu Campaña</h1>
           <div className="flex items-center justify-center gap-1.5 mt-3">
-            {[1, 2, 3].map((n) => (
+            {[1, 2, 3, 4].map((n) => (
               <div key={n} className={`h-1.5 w-10 rounded-full transition ${n <= paso ? 'bg-indigo-500' : 'bg-slate-800'}`} />
             ))}
           </div>
@@ -123,7 +132,13 @@ export default function RegistroCampana() {
               <label className="block text-xs font-semibold text-slate-400 mb-1">¿Para qué cargo compites?</label>
               <div className="space-y-2">
                 {TIPOS_ELECCION.map((t) => (
-                  <button key={t.id} onClick={() => actualizar('tipo_eleccion', t.id)}
+                  <button key={t.id} onClick={() => {
+                    actualizar('tipo_eleccion', t.id);
+                    const tt = t.id === 'dip_local' ? 'distrito_local' : t.id === 'dip_federal' ? 'distrito_federal'
+                      : t.id === 'gobernador' ? 'estatal' : 'municipio';
+                    actualizar('territorio_tipo', tt);
+                    actualizar('territorio_id', '');
+                  }}
                     className={`w-full text-left px-4 py-3 rounded-xl border transition ${
                       form.tipo_eleccion === t.id ? 'bg-indigo-500/20 border-indigo-500' : 'bg-slate-800/50 border-slate-700'
                     }`}>
@@ -142,6 +157,41 @@ export default function RegistroCampana() {
 
           {paso === 3 && (
             <div className="space-y-4">
+              <label className="block text-xs font-semibold text-slate-400 mb-1">
+                {form.territorio_tipo === 'estatal' ? 'Tu territorio' : form.territorio_tipo === 'municipio' ? '¿Cuál es tu municipio?' : '¿Cuál es tu distrito?'}
+              </label>
+
+              {form.territorio_tipo === 'estatal' ? (
+                <div className="px-4 py-3 rounded-xl bg-slate-800/50 border border-slate-700 text-slate-300 text-sm">
+                  🗺️ Todo el estado de Tlaxcala — no necesitas elegir nada más aquí.
+                </div>
+              ) : form.territorio_tipo === 'municipio' ? (
+                <select value={form.territorio_id} onChange={(e) => actualizar('territorio_id', e.target.value)}
+                  className="w-full px-4 py-2.5 rounded-xl bg-slate-800/80 border border-slate-700 text-white text-sm">
+                  <option value="">Selecciona tu municipio...</option>
+                  {municipios.map((m) => <option key={m.clave_ine} value={m.clave_ine}>{m.nombre}</option>)}
+                </select>
+              ) : (
+                <select value={form.territorio_id} onChange={(e) => actualizar('territorio_id', e.target.value)}
+                  className="w-full px-4 py-2.5 rounded-xl bg-slate-800/80 border border-slate-700 text-white text-sm">
+                  <option value="">Selecciona tu distrito...</option>
+                  {Array.from({ length: form.territorio_tipo === 'distrito_federal' ? 3 : 19 }, (_, i) => i + 1).map((n) => (
+                    <option key={n} value={n}>{form.territorio_tipo === 'distrito_federal' ? 'Distrito Federal' : 'Distrito Local'} {n}</option>
+                  ))}
+                </select>
+              )}
+              <p className="text-[10px] text-slate-500">Esto define qué secciones y datos verás en tu mapa — se puede ajustar después si hace falta.</p>
+
+              <div className="flex gap-2 pt-2">
+                <button onClick={() => setPaso(2)} className="flex-1 py-3 rounded-xl bg-slate-800 text-slate-300 font-bold text-sm">← Atrás</button>
+                <button onClick={() => setPaso(4)} disabled={form.territorio_tipo !== 'estatal' && !form.territorio_id}
+                  className="flex-[2] py-3 rounded-xl bg-indigo-600 text-white font-bold text-sm disabled:opacity-40">Siguiente →</button>
+              </div>
+            </div>
+          )}
+
+          {paso === 4 && (
+            <div className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-400 mb-1.5">Tu subdominio (dirección web)</label>
                 <div className="flex items-center rounded-xl bg-slate-800/80 border border-slate-700 overflow-hidden">
@@ -153,7 +203,7 @@ export default function RegistroCampana() {
                 <p className="text-[10px] text-slate-500 mt-1.5">Podrás conectar tu propio dominio después</p>
               </div>
               <div className="flex gap-2 pt-2">
-                <button onClick={() => setPaso(2)} className="flex-1 py-3 rounded-xl bg-slate-800 text-slate-300 font-bold text-sm">← Atrás</button>
+                <button onClick={() => setPaso(3)} className="flex-1 py-3 rounded-xl bg-slate-800 text-slate-300 font-bold text-sm">← Atrás</button>
                 <button onClick={enviar} disabled={cargando || form.subdominio.length < 3}
                   className="flex-[2] py-3 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-bold text-sm disabled:opacity-40">
                   {cargando ? '⏳ Creando...' : '🚀 Crear mi campaña'}

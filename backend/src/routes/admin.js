@@ -87,11 +87,12 @@ router.get('/municipios', async (req, res) => {
  */
 router.post('/crear-demo', async (req, res) => {
   try {
-    const { tipoEleccion, municipioClaveIne, nombreMunicipio } = req.body;
+    const { tipoEleccion, municipioClaveIne, nombreMunicipio, distritoNumero } = req.body;
     const credenciales = await crearDemo({
       tipoEleccion: tipoEleccion || undefined,
       municipioClaveIne: municipioClaveIne ? parseInt(municipioClaveIne) : undefined,
       nombreMunicipio: nombreMunicipio || undefined,
+      distritoNumero: distritoNumero ? parseInt(distritoNumero) : undefined,
     });
     res.json({ ok: true, data: credenciales, mensaje: 'Cuenta demo creada correctamente' });
   } catch (e) {

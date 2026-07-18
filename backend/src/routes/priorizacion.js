@@ -47,6 +47,12 @@ router.get('/', async (req, res) => {
     if (campana.territorio_tipo === 'municipio' && campana.territorio_id) {
       filtroTerritorio = 'AND s.municipio_id = (SELECT id FROM municipios WHERE estado_id=29 AND clave_ine=$2)';
       params.push(campana.territorio_id);
+    } else if (campana.territorio_tipo === 'distrito_local' && campana.territorio_id) {
+      filtroTerritorio = 'AND s.distrito_local = $2';
+      params.push(campana.territorio_id);
+    } else if (campana.territorio_tipo === 'distrito_federal' && campana.territorio_id) {
+      filtroTerritorio = 'AND s.distrito_federal = $2';
+      params.push(campana.territorio_id);
     } else if (campana.territorio_tipo === 'seccion' && campana.territorio_id) {
       filtroTerritorio = 'AND s.numero = $2';
       params.push(campana.territorio_id);

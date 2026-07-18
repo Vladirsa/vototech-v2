@@ -400,6 +400,8 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
     const filtradas = geoSecciones.features.filter(f => {
       if (territorioTipo === 'municipio') return f.properties.municipio === territorioId;
       if (territorioTipo === 'seccion') return f.properties.seccion === territorioId;
+      if (territorioTipo === 'distrito_local') return f.properties.distrito_local === territorioId;
+      if (territorioTipo === 'distrito_federal') return f.properties.distrito_federal === territorioId;
       return true;
     });
     return { ...geoSecciones, features: filtradas };
@@ -407,6 +409,12 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
 
   const localidadesFiltradas = useMemo(() => {
     if (!territorioTipo || territorioTipo === 'estatal') return localidades;
+    if (territorioTipo === 'distrito_local' || territorioTipo === 'distrito_federal') {
+      // Las localidades no traen distrito directo — se filtran por las
+      // secciones que sí quedaron dentro del distrito ya filtrado arriba.
+      const seccionesValidas = new Set((seccionesFiltradas?.features || []).map(f => f.properties.seccion));
+      return localidades.filter(l => seccionesValidas.has(l.seccion));
+    }
     return localidades.filter(l =>
       territorioTipo === 'municipio' ? l.municipio === territorioId : l.seccion === territorioId
     );

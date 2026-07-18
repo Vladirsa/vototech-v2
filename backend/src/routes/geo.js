@@ -2,6 +2,7 @@ import { Router } from 'express';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { query } from '../db/pool.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const router = Router();
@@ -43,6 +44,19 @@ router.get('/secciones/:estadoId', (req, res) => {
     console.error('Error sirviendo GeoJSON:', e);
     res.status(500).json({ ok: false, error: 'No se pudo cargar el mapa' });
   }
+});
+
+/**
+ * GET /api/geo/municipios/:estadoId
+ * Público (sin autenticación) — se necesita ANTES de que el candidato
+ * tenga cuenta, para que elija su territorio real al registrarse.
+ */
+router.get('/municipios/:estadoId', async (req, res) => {
+  const resultado = await query(
+    'SELECT clave_ine, nombre FROM municipios WHERE estado_id=$1 ORDER BY nombre',
+    [req.params.estadoId]
+  );
+  res.json({ ok: true, data: resultado.rows });
 });
 
 router.get('/localidades/:estadoId', (req, res) => {

@@ -98,6 +98,10 @@ export default function AdminPlataforma() {
   const [mensajeDemo, setMensajeDemo] = useState('');
   const [tipoEleccionDemo, setTipoEleccionDemo] = useState('ayuntamiento');
   const [municipioDemo, setMunicipioDemo] = useState(3);
+  const [distritoDemo, setDistritoDemo] = useState(1);
+
+  const esDistrito = tipoEleccionDemo === 'dip_local' || tipoEleccionDemo === 'dip_federal';
+  const esEstatal = tipoEleccionDemo === 'gobernador';
 
   const crearDemo = async () => {
     setCreandoDemo(true);
@@ -105,9 +109,12 @@ export default function AdminPlataforma() {
     try {
       const nombreMun = municipios.find((m) => m.clave_ine === parseInt(municipioDemo))?.nombre || '';
       const { data } = await axios.post(`${API_URL}/admin/crear-demo`, {
-        tipoEleccion: tipoEleccionDemo, municipioClaveIne: municipioDemo, nombreMunicipio: nombreMun,
+        tipoEleccion: tipoEleccionDemo,
+        municipioClaveIne: esDistrito || esEstatal ? undefined : municipioDemo,
+        nombreMunicipio: nombreMun,
+        distritoNumero: esDistrito ? distritoDemo : undefined,
       }, { headers });
-      setMensajeDemo(`✅ Demo creada (${nombreMun}) — Correo: ${data.data.email} · Contraseña: ${data.data.password}`);
+      setMensajeDemo(`✅ Demo creada — Correo: ${data.data.email} · Contraseña: ${data.data.password}`);
       cargar();
     } catch (e) {
       setMensajeDemo('⚠️ Error al crear la demo: ' + (e.response?.data?.error || e.message));
@@ -152,11 +159,25 @@ export default function AdminPlataforma() {
               className="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs">
               {TIPOS_ELECCION.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
             </select>
-            <select value={municipioDemo} onChange={(e) => setMunicipioDemo(e.target.value)}
-              className="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs">
-              {municipios.map((m) => <option key={m.clave_ine} value={m.clave_ine}>{m.nombre}</option>)}
-            </select>
+            {esDistrito ? (
+              <select value={distritoDemo} onChange={(e) => setDistritoDemo(parseInt(e.target.value))}
+                className="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs">
+                {Array.from({ length: tipoEleccionDemo === 'dip_federal' ? 3 : 19 }, (_, i) => i + 1).map((n) => (
+                  <option key={n} value={n}>{tipoEleccionDemo === 'dip_federal' ? 'Distrito Federal' : 'Distrito Local'} {n}</option>
+                ))}
+              </select>
+            ) : esEstatal ? (
+              <div className="px-3 py-2 rounded-lg bg-slate-800/50 border border-slate-700 text-slate-400 text-xs flex items-center">🗺️ Todo Tlaxcala</div>
+            ) : (
+              <select value={municipioDemo} onChange={(e) => setMunicipioDemo(e.target.value)}
+                className="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs">
+                {municipios.map((m) => <option key={m.clave_ine} value={m.clave_ine}>{m.nombre}</option>)}
+              </select>
+            )}
           </div>
+          {esDistrito && (
+            <p className="text-[9px] text-slate-500">Tlaxcala tiene 19 distritos locales y 3 federales — Apizaco (con datos reales) está en Distrito Local 4 / Federal 1</p>
+          )}
           {tipoEleccionDemo !== 'ayuntamiento' && tipoEleccionDemo !== 'pres_comunidad' && (
             <p className="text-[9px] text-amber-400">⚠️ Solo hay resultados históricos reales cargados para Ayuntamiento y Pdte. de Comunidad — con otros tipos, el mapa no mostrará colores de partido, pero el resto del sistema funciona igual.</p>
           )}

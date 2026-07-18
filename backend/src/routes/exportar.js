@@ -158,4 +158,44 @@ router.get('/estructura', requiereRol(...ROLES_EXPORT), async (req, res) => {
   res.end();
 });
 
+/**
+ * GET /api/exportar/incidencias
+ * Excel de incidencias con formato para reportar al OPLE — incluye
+ * si ya fue notificada formalmente o no.
+ */
+router.get('/incidencias', requiereRol(...ROLES_EXPORT), async (req, res) => {
+  const datos = await query(
+    `SELECT i.tipo, i.urgencia, i.descripcion, s.numero as seccion, i.casilla,
+            i.testigos, CASE WHEN i.notificado_ople THEN 'Sí' ELSE 'No' END as notificado_ople,
+            i.estado, u.nombre as reportado_por, i.creado_en
+     FROM incidencias i
+     LEFT JOIN secciones s ON s.id = i.seccion_id
+     JOIN usuarios u ON u.id = i.reportado_por
+     WHERE i.campana_id = $1 ORDER BY i.creado_en DESC`,
+    [req.usuario.campana_id]
+  );
+
+  const libro = new ExcelJS.Workbook();
+  const hoja = libro.addWorksheet('Incidencias');
+  hoja.columns = [
+    { header: 'Tipo', key: 'tipo', width: 18 },
+    { header: 'Urgencia', key: 'urgencia', width: 10 },
+    { header: 'Descripción', key: 'descripcion', width: 45 },
+    { header: 'Sección', key: 'seccion', width: 9 },
+    { header: 'Casilla', key: 'casilla', width: 10 },
+    { header: 'Testigos', key: 'testigos', width: 25 },
+    { header: 'Notificado OPLE', key: 'notificado_ople', width: 14 },
+    { header: 'Estado', key: 'estado', width: 12 },
+    { header: 'Reportó', key: 'reportado_por', width: 22 },
+    { header: 'Fecha', key: 'creado_en', width: 18 },
+  ];
+  datos.rows.forEach((f) => hoja.addRow(f));
+  estiloEncabezado(hoja);
+
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename=incidencias_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  await libro.xlsx.write(res);
+  res.end();
+});
+
 export default router;
