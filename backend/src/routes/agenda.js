@@ -123,4 +123,30 @@ router.patch('/:id/completar', async (req, res) => {
   res.json({ ok: true, data: resultado.rows[0] });
 });
 
+// ── TABLERO DE ANUNCIOS INTERNOS — avisos fijos del equipo, no eventos ──
+router.get('/anuncios/lista', async (req, res) => {
+  const resultado = await query(
+    `SELECT a.*, u.nombre as creado_por_nombre FROM anuncios a
+     JOIN usuarios u ON u.id = a.creado_por
+     WHERE a.campana_id=$1 ORDER BY a.importante DESC, a.creado_en DESC`,
+    [req.usuario.campana_id]
+  );
+  res.json({ ok: true, data: resultado.rows });
+});
+
+router.post('/anuncios/lista', async (req, res) => {
+  const { titulo, mensaje, importante } = req.body;
+  if (!titulo || !mensaje) return res.status(400).json({ ok: false, error: 'Falta título o mensaje' });
+  const resultado = await query(
+    `INSERT INTO anuncios (campana_id, titulo, mensaje, importante, creado_por) VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+    [req.usuario.campana_id, titulo, mensaje, !!importante, req.usuario.sub]
+  );
+  res.status(201).json({ ok: true, data: resultado.rows[0] });
+});
+
+router.delete('/anuncios/lista/:id', async (req, res) => {
+  await query('DELETE FROM anuncios WHERE id=$1 AND campana_id=$2', [req.params.id, req.usuario.campana_id]);
+  res.json({ ok: true });
+});
+
 export default router;
