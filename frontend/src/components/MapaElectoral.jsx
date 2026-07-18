@@ -315,6 +315,46 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
     iconSize: [12, 12],
   });
 
+  // ── CONFIRMADOS (verde) — complemento de la cacería (rojo): los que
+  // YA marcaron que votaron, para ver de un vistazo qué zonas van bien ──
+  const [confirmados, setConfirmados] = useState([]);
+  const [capaConfirmados, setCapaConfirmados] = useState(false);
+
+  useEffect(() => {
+    if (!capaConfirmados) return;
+    api.get('/dia-eleccion/confirmados').then(r => setConfirmados(r.data.data)).catch(() => setConfirmados([]));
+  }, [capaConfirmados]);
+
+  const confirmadosConPosicion = useMemo(() => {
+    return confirmados.map((p) => {
+      const centro = centroidesSeccion[p.seccion_numero];
+      if (!centro) return null;
+      const jitter = () => (Math.random() - 0.5) * 0.003;
+      return { ...p, _lat: centro[0] + jitter(), _lng: centro[1] + jitter() };
+    }).filter(Boolean);
+  }, [confirmados, centroidesSeccion]);
+
+  const iconoConfirmado = new L.DivIcon({
+    className: '',
+    html: `<div style="width:12px;height:12px;background:#22c55e;border:2px solid white;border-radius:50%;box-shadow:0 0 0 4px rgba(34,197,94,.3)"></div>`,
+    iconSize: [12, 12],
+  });
+
+  // ── UBICACIÓN DE CASILLAS — registrada por el equipo (no viene del
+  // INE automáticamente), para ver cobertura real de representantes ──
+  const [casillas, setCasillas] = useState([]);
+  const [capaCasillas, setCapaCasillas] = useState(false);
+
+  useEffect(() => {
+    api.get('/dia-eleccion/casillas').then(r => setCasillas(r.data.data.filter(c => c.lat && c.lng))).catch(() => setCasillas([]));
+  }, []);
+
+  const iconoCasilla = (conRepresentante) => new L.DivIcon({
+    className: '',
+    html: `<div style="font-size:18px;filter:drop-shadow(0 1px 3px rgba(0,0,0,.7))">${conRepresentante ? '🗳️' : '❗'}</div>`,
+    iconSize: [22, 22],
+  });
+
   // ── ACTIVIDAD RECIENTE ("pulso") — secciones con/sin contactos en 7 días ──
   const [capaPulso, setCapaPulso] = useState(false);
   const [seccionesActivas7d, setSeccionesActivas7d] = useState(new Set());
@@ -366,6 +406,7 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
     { id: 'utilitario', ic: '👕', label: 'Material (playeras, etc)' },
     { id: 'evento', ic: '📅', label: 'Evento/Reunión' },
     { id: 'promovido', ic: '🤝', label: 'Promovido' },
+    { id: 'casilla', ic: '🗳️', label: 'Ubicación de casilla' },
   ];
 
   const iniciarColocacion = (tipo) => {
@@ -396,6 +437,12 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
           lat: puntoNuevo.lat, lng: puntoNuevo.lng,
         });
         api.get('/agenda').then(r => setEventosAgenda(r.data.data.filter(e => e.lat && e.lng)));
+      } else if (tipoColocando === 'casilla') {
+        await api.post('/dia-eleccion/casillas', {
+          seccion_numero: parseInt(formPunto.seccion_numero), numero: formPunto.numero_casilla || 'B',
+          direccion: formPunto.direccion || '', lat: puntoNuevo.lat, lng: puntoNuevo.lng,
+        });
+        api.get('/dia-eleccion/casillas').then(r => setCasillas(r.data.data.filter(c => c.lat && c.lng)));
       } else if (tipoColocando === 'promovido') {
         await api.post('/promovidos', {
           nombre: formPunto.nombre, telefono: formPunto.telefono,
@@ -716,6 +763,34 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
           </Marker>
         ))}
 
+        {/* Confirmados (verde) — ya votaron */}
+        {capaConfirmados && confirmadosConPosicion.map((p) => (
+          <Marker key={p.id} position={[p._lat, p._lng]} icon={iconoConfirmado}>
+            <Popup>
+              <div style={{ fontSize: 12 }}>
+                <strong>✅ {p.nombre}</strong><br />
+                Sección {p.seccion_numero}<br />
+                <em style={{ fontSize: 10, color: '#888' }}>Ya votó{p.hora_voto && ` · ${new Date(p.hora_voto).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}`}</em>
+              </div>
+            </Popup>
+          </Marker>
+        ))}
+
+        {/* Ubicación de casillas registradas */}
+        {capaCasillas && casillas.map((c) => (
+          <Marker key={c.id} position={[c.lat, c.lng]} icon={iconoCasilla(!!c.representante_id)}>
+            <Popup>
+              <div style={{ fontSize: 12 }}>
+                <strong>🗳️ Sección {c.seccion_numero} · Casilla {c.numero}</strong><br />
+                {c.direccion && <>📍 {c.direccion}<br /></>}
+                {c.representante_nombre
+                  ? <>👤 {c.representante_nombre} {c.confirmado_asistencia ? '✅ Confirmado' : '⏳ Sin confirmar'}</>
+                  : <span style={{ color: '#dc2626' }}>❗ Sin representante asignado</span>}
+              </div>
+            </Popup>
+          </Marker>
+        ))}
+
         {/* Activos de campaña (bardas, espectaculares, mantas, representantes) */}
         {capaActivos && activos.map((a) => (
           <Marker key={a.id} position={[a.lat, a.lng]} icon={iconoActivo(a.tipo)}>
@@ -851,6 +926,14 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
           <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
             <input type="checkbox" checked={capaCaceria} onChange={e => setCapaCaceria(e.target.checked)} />
             🎯 Lista de cacería (Día D)
+          </label>
+          <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+            <input type="checkbox" checked={capaConfirmados} onChange={e => setCapaConfirmados(e.target.checked)} />
+            ✅ Ya votaron (Día D)
+          </label>
+          <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+            <input type="checkbox" checked={capaCasillas} onChange={e => setCapaCasillas(e.target.checked)} />
+            🗳️ Ubicación de casillas ({casillas.length})
           </label>
           <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer border-t border-slate-800 pt-2">
             <input type="checkbox" checked={capaPulso} onChange={e => setCapaPulso(e.target.checked)} />
@@ -1125,6 +1208,8 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
                   <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={capaAgenda} onChange={e => setCapaAgenda(e.target.checked)} /> 📅 Agenda ({eventosAgenda.length})</label>
                   <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={capaIncidencias} onChange={e => setCapaIncidencias(e.target.checked)} /> 🚨 Incidencias ({incidencias.length})</label>
                   <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={capaCaceria} onChange={e => setCapaCaceria(e.target.checked)} /> 🎯 Cacería (Día D)</label>
+                  <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={capaConfirmados} onChange={e => setCapaConfirmados(e.target.checked)} /> ✅ Ya votaron (Día D)</label>
+                  <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={capaCasillas} onChange={e => setCapaCasillas(e.target.checked)} /> 🗳️ Ubicación de casillas</label>
                   <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={capaPulso} onChange={e => setCapaPulso(e.target.checked)} /> 💓 Pulso de actividad</label>
                   <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={mostrarCobertura} onChange={e => setMostrarCobertura(e.target.checked)} /> 🗂️ Cobertura de estructura</label>
                 </div>
@@ -1213,6 +1298,17 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
                 <input placeholder="Nombre completo" value={formPunto.nombre || ''} onChange={(e) => setFormPunto({ ...formPunto, nombre: e.target.value })}
                   className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
                 <input placeholder="Teléfono" value={formPunto.telefono || ''} onChange={(e) => setFormPunto({ ...formPunto, telefono: e.target.value })}
+                  className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+              </>
+            )}
+
+            {tipoColocando === 'casilla' && (
+              <>
+                <input placeholder="Número de sección" type="number" value={formPunto.seccion_numero || ''} onChange={(e) => setFormPunto({ ...formPunto, seccion_numero: e.target.value })}
+                  className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+                <input placeholder="Número de casilla (ej: B, C1)" value={formPunto.numero_casilla || ''} onChange={(e) => setFormPunto({ ...formPunto, numero_casilla: e.target.value })}
+                  className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+                <input placeholder="Dirección/referencia" value={formPunto.direccion || ''} onChange={(e) => setFormPunto({ ...formPunto, direccion: e.target.value })}
                   className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
               </>
             )}

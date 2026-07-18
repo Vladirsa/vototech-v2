@@ -12,12 +12,14 @@
   "dependencies": {
     "@tailwindcss/vite": "^4.3.2",
     "axios": "^1.18.1",
+    "html2canvas": "^1.4.1",
     "leaflet": "^1.9.4",
     "leaflet.heat": "^0.2.0",
     "papaparse": "^5.5.4",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "react-leaflet": "^5.0.0",
+    "react-qr-code": "^2.2.0",
     "react-router-dom": "^7.18.1",
     "socket.io-client": "^4.8.3",
     "zustand": "^5.0.14"

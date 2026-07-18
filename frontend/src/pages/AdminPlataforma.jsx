@@ -10,6 +10,7 @@ const TIPOS_ELECCION = [
   { id: 'pres_comunidad', label: '🏠 Presidente de Comunidad' },
   { id: 'dip_local', label: '⚖️ Diputado Local' },
   { id: 'dip_federal', label: '🏢 Diputado Federal' },
+  { id: 'senador', label: '🏦 Senador' },
   { id: 'gobernador', label: '🎖️ Gobernador' },
 ];
 
@@ -101,7 +102,7 @@ export default function AdminPlataforma() {
   const [distritoDemo, setDistritoDemo] = useState(1);
 
   const esDistrito = tipoEleccionDemo === 'dip_local' || tipoEleccionDemo === 'dip_federal';
-  const esEstatal = tipoEleccionDemo === 'gobernador';
+  const esEstatal = tipoEleccionDemo === 'gobernador' || tipoEleccionDemo === 'senador';
 
   const crearDemo = async () => {
     setCreandoDemo(true);

@@ -7,6 +7,7 @@ const TIPOS_ELECCION = [
   { id: 'pres_comunidad', label: '🏠 Presidente de Comunidad', desc: 'Una localidad/sección' },
   { id: 'dip_local', label: '⚖️ Diputado Local', desc: 'Un distrito local' },
   { id: 'dip_federal', label: '🏢 Diputado Federal', desc: 'Un distrito federal' },
+  { id: 'senador', label: '🏦 Senador', desc: 'Todo el estado (fórmula de mayoría)' },
   { id: 'gobernador', label: '🎖️ Gobernador', desc: 'Todo el estado' },
 ];
 
@@ -135,7 +136,7 @@ export default function RegistroCampana() {
                   <button key={t.id} onClick={() => {
                     actualizar('tipo_eleccion', t.id);
                     const tt = t.id === 'dip_local' ? 'distrito_local' : t.id === 'dip_federal' ? 'distrito_federal'
-                      : t.id === 'gobernador' ? 'estatal' : 'municipio';
+                      : (t.id === 'gobernador' || t.id === 'senador') ? 'estatal' : 'municipio';
                     actualizar('territorio_tipo', tt);
                     actualizar('territorio_id', '');
                   }}

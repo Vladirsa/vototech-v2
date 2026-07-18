@@ -16,11 +16,13 @@ import Reportes from './pages/Reportes';
 import AdminPlataforma from './pages/AdminPlataforma';
 import MapaConCampana from './components/MapaConCampana';
 import RutaProtegida from './components/RutaProtegida';
+import ConfirmarVoto from './pages/ConfirmarVoto';
 
 export default function App() {
   return (
     <BrowserRouter>
       <Routes>
+        <Route path="/votar/:id" element={<ConfirmarVoto />} />
         <Route path="/login" element={<Login />} />
         <Route path="/registro" element={<RegistroCampana />} />
         <Route path="/registro-invitacion" element={<RegistroInvitacion />} />
