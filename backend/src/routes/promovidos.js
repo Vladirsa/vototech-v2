@@ -404,4 +404,24 @@ router.post('/importar', async (req, res) => {
   res.json({ ok: true, importados, duplicados, errores, total: filas.length });
 });
 
+/**
+ * PATCH /api/promovidos/:id/clasificacion
+ * Cambio manual de clasificación (al arrastrar una tarjeta en el
+ * tablero) — queda marcado como ajuste manual para que el
+ * disparador automático ya no lo recalcule después.
+ */
+router.patch('/:id/clasificacion', async (req, res) => {
+  const { clasificacion } = req.body;
+  if (!['base', 'persuadible', 'adversario'].includes(clasificacion)) {
+    return res.status(400).json({ ok: false, error: 'Clasificación inválida' });
+  }
+  const resultado = await query(
+    `UPDATE promovidos SET clasificacion=$1, clasificacion_manual=true
+     WHERE id=$2 AND campana_id=$3 RETURNING id, nombre, clasificacion`,
+    [clasificacion, req.params.id, req.usuario.campana_id]
+  );
+  if (!resultado.rows[0]) return res.status(404).json({ ok: false, error: 'No encontrado' });
+  res.json({ ok: true, data: resultado.rows[0] });
+});
+
 export default router;
