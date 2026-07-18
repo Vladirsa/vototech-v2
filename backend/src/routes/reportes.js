@@ -623,4 +623,95 @@ function aproximarCDFNormalEstandar(x) {
   return 1 - prob;
 }
 
+/**
+ * GET /api/reportes/actividad-resumen
+ * KPIs generales de actividad de campo — la "foto de hoy" del
+ * esfuerzo de todo el equipo.
+ */
+router.get('/actividad-resumen', async (req, res) => {
+  const campanaId = req.usuario.campana_id;
+
+  const promosRes = await query(
+    `SELECT p.comprometido, p.creado_en, p.registrado_por, s.numero as seccion_numero
+     FROM promovidos p LEFT JOIN secciones s ON s.id=p.seccion_id
+     WHERE p.campana_id=$1`,
+    [campanaId]
+  );
+  const totalReportes = promosRes.rows.length;
+  const contactados = totalReportes; // cada promovido registrado = una persona contactada
+  const comprometidos = promosRes.rows.filter((p) => p.comprometido).length;
+  const seccionesUnicas = new Set(promosRes.rows.filter((p) => p.seccion_numero).map((p) => p.seccion_numero));
+
+  // Actividad por tipo — usando clasificación como proxy de "tipo de contacto"
+  const clasRes = await query(`SELECT clasificacion, COUNT(*) as total FROM promovidos WHERE campana_id=$1 GROUP BY clasificacion`, [campanaId]);
+
+  // Últimos 7 días
+  const ultimos7 = [];
+  for (let i = 6; i >= 0; i--) {
+    const fecha = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
+    const total = promosRes.rows.filter((p) => p.creado_en?.toISOString().slice(0, 10) === fecha).length;
+    ultimos7.push({ fecha, total });
+  }
+
+  const promotoresRes = await query(
+    `SELECT u.id, u.nombre, COUNT(p.id) as total_promovidos, MAX(p.creado_en) as ultima_actividad
+     FROM usuarios u LEFT JOIN promovidos p ON p.registrado_por = u.id AND p.campana_id=$1
+     WHERE u.campana_id=$1 AND u.rol='promotor' AND u.activo != false
+     GROUP BY u.id, u.nombre HAVING COUNT(p.id) > 0 ORDER BY total_promovidos DESC`,
+    [campanaId]
+  );
+
+  res.json({
+    ok: true,
+    data: {
+      total_reportes: totalReportes,
+      personas_contactadas: contactados,
+      comprometidos,
+      pct_comprometidos: totalReportes > 0 ? +((comprometidos / totalReportes) * 100).toFixed(1) : 0,
+      secciones_cubiertas: seccionesUnicas.size,
+      actividades_por_tipo: Object.fromEntries(clasRes.rows.map((r) => [r.clasificacion, parseInt(r.total)])),
+      ultimos_7_dias: ultimos7,
+      promotores_activos: promotoresRes.rows.length,
+      promotores: promotoresRes.rows.slice(0, 10),
+    },
+  });
+});
+
+/**
+ * GET /api/reportes/actividad-por-promotor
+ * Desglose individual — quién ha hecho qué.
+ */
+router.get('/actividad-por-promotor', async (req, res) => {
+  const resultado = await query(
+    `SELECT u.id, u.nombre, u.puesto,
+            COUNT(p.id) as total_promovidos,
+            COUNT(p.id) FILTER (WHERE p.comprometido) as comprometidos,
+            COUNT(p.id) FILTER (WHERE p.creado_en > now() - interval '7 days') as ultimos_7_dias,
+            MAX(p.creado_en) as ultima_actividad
+     FROM usuarios u LEFT JOIN promovidos p ON p.registrado_por = u.id AND p.campana_id=$1
+     WHERE u.campana_id=$1 AND u.rol='promotor'
+     GROUP BY u.id, u.nombre, u.puesto ORDER BY total_promovidos DESC`,
+    [req.usuario.campana_id]
+  );
+  res.json({ ok: true, data: resultado.rows });
+});
+
+/**
+ * GET /api/reportes/actividad-por-seccion
+ * Desglose territorial — dónde se está trabajando y dónde no.
+ */
+router.get('/actividad-por-seccion', async (req, res) => {
+  const resultado = await query(
+    `SELECT s.numero as seccion_numero,
+            COUNT(p.id) as total_promovidos,
+            COUNT(p.id) FILTER (WHERE p.comprometido) as comprometidos,
+            COUNT(DISTINCT p.registrado_por) as promotores_activos
+     FROM promovidos p JOIN secciones s ON s.id = p.seccion_id
+     WHERE p.campana_id=$1
+     GROUP BY s.numero ORDER BY total_promovidos DESC`,
+    [req.usuario.campana_id]
+  );
+  res.json({ ok: true, data: resultado.rows });
+});
+
 export default router;

@@ -40,6 +40,7 @@ import publicoRoutes from './routes/publico.js';
 import marketingRoutes from './routes/marketing.js';
 import encuestasRoutes from './routes/encuestas.js';
 import juridicoRoutes from './routes/juridico.js';
+import chatRoutes from './routes/chat.js';
 import adminRoutes from './routes/admin.js';
 
 const app = express();
@@ -113,6 +114,7 @@ app.use('/api/publico', publicoRoutes);
 app.use('/api/marketing', marketingRoutes);
 app.use('/api/encuestas', encuestasRoutes);
 app.use('/api/juridico', juridicoRoutes);
+app.use('/api/chat', chatRoutes);
 app.use('/api/admin', adminRoutes);
 
 app.get('/api/salud', (req, res) => {
