@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import api, { descargarArchivo } from '../lib/api';
 import BuscadorCalle from '../components/BuscadorCalle';
 import Papa from 'papaparse';
+import AnaliticaPromovidos from '../components/AnaliticaPromovidos';
 import AsistenteIA from '../components/AsistenteIA';
 
 const CLASIFICACION_ESTILO = {
@@ -437,7 +438,13 @@ export default function Promovidos() {
             className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'whatsapp' ? 'bg-purple-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
             📲 WhatsApp masivo
           </button>
+          <button onClick={() => setTab('analitica')}
+            className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'analitica' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
+            📊 Analítica
+          </button>
         </div>
+
+        {tab === 'analitica' && <AnaliticaPromovidos />}
 
         {tab === 'lista' && (
           <div className="flex gap-2">

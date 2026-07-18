@@ -71,8 +71,28 @@ function CapturaClicMapa({ activo, onClick }) {
   return null;
 }
 
+/** Guarda la instancia del mapa en una ref externa, para poder
+ * consultar su centro actual (ej. al soltar un pin nuevo). */
+function CapturarRefMapa({ mapRef }) {
+  const map = useMap();
+  useEffect(() => { mapRef.current = map; }, [map, mapRef]);
+  return null;
+}
+
 export default function MapaElectoral({ campanaId, territorioTipo, territorioId, tipoEleccion = 'ayuntamiento', anio = 2024 }) {
   const navigate = useNavigate();
+
+  // Detecta si es pantalla de celular — en mobile se usa un menú
+  // consolidado en vez de tener 8 paneles flotando sueltos, que ahí
+  // sí se amontonan y se encima todo.
+  const [esMobile, setEsMobile] = useState(window.innerWidth < 1024);
+  useEffect(() => {
+    const alRedimensionar = () => setEsMobile(window.innerWidth < 1024);
+    window.addEventListener('resize', alRedimensionar);
+    return () => window.removeEventListener('resize', alRedimensionar);
+  }, []);
+  const [menuMobileAbierto, setMenuMobileAbierto] = useState(false);
+  const mapRef = useRef(null);
   const [geoSecciones, setGeoSecciones] = useState(null);
   const [localidades, setLocalidades] = useState([]);
   const [resultados, setResultados] = useState({});
@@ -93,7 +113,7 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
     setSeccionActiva(numero);
     setVueloDestino({ centro: centroidesSeccion[numero], zoom: 16, key: Date.now() });
   };
-  const [panelPos, setPanelPos] = useState({ x: 16, y: 16 });
+  const [panelPos, setPanelPos] = useState({ x: 16, y: 190 });
   const arrastrando = useRef(false);
 
   // Centroide aproximado de cada sección (promedio de sus puntos) — se
@@ -335,6 +355,7 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
   const [menuAgregarAbierto, setMenuAgregarAbierto] = useState(false);
   const [tipoColocando, setTipoColocando] = useState(null);
   const [puntoNuevo, setPuntoNuevo] = useState(null);
+  const [posicionConfirmada, setPosicionConfirmada] = useState(false);
   const [formPunto, setFormPunto] = useState({});
 
   const TIPOS_PUNTO = [
@@ -351,11 +372,17 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
     setTipoColocando(tipo);
     setMenuAgregarAbierto(false);
     setFormPunto({});
+    // El pin arranca en el centro de lo que se está viendo ahora mismo
+    // en el mapa — de ahí se arrastra a su lugar exacto, como en Google
+    // Maps, en vez de tener que adivinar con un solo toque.
+    const centro = mapRef.current?.getCenter();
+    setPuntoNuevo(centro ? { lat: centro.lat, lng: centro.lng } : { lat: 19.32, lng: -98.24 });
   };
 
   const cancelarColocacion = () => {
     setTipoColocando(null);
     setPuntoNuevo(null);
+    setPosicionConfirmada(false);
     setFormPunto({});
   };
 
@@ -725,17 +752,33 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
 
         <CapaCalor puntos={promovidosConPosicion.map(p => ({ lat: p._lat, lng: p._lng }))} activa={capaCalor} />
         {vueloDestino && <VueloCamara key={vueloDestino.key} centro={vueloDestino.centro} zoom={vueloDestino.zoom} />}
-        <CapturaClicMapa activo={!!tipoColocando && !puntoNuevo} onClick={(lat, lng) => setPuntoNuevo({ lat, lng })} />
+        <CapturarRefMapa mapRef={mapRef} />
+        <CapturaClicMapa activo={!!tipoColocando} onClick={(lat, lng) => setPuntoNuevo({ lat, lng })} />
 
-        {/* Vista previa del punto que se está por guardar */}
+        {/* Pin del punto nuevo — ARRASTRABLE, como en Google Maps: se
+            suelta y se va moviendo con el dedo hasta el lugar exacto
+            (una calle, una esquina) antes de confirmar los datos. */}
         {puntoNuevo && (
-          <Marker position={[puntoNuevo.lat, puntoNuevo.lng]} icon={new L.DivIcon({
-            className: '', html: `<div style="font-size:24px">📍</div>`, iconSize: [28, 28],
-          })} />
+          <Marker
+            position={[puntoNuevo.lat, puntoNuevo.lng]}
+            draggable={true}
+            eventHandlers={{
+              dragend: (e) => {
+                const { lat, lng } = e.target.getLatLng();
+                setPuntoNuevo({ lat, lng });
+              },
+            }}
+            icon={new L.DivIcon({
+              className: '',
+              html: `<div style="font-size:30px;filter:drop-shadow(0 3px 4px rgba(0,0,0,.6));cursor:grab">📍</div>`,
+              iconSize: [34, 34], iconAnchor: [17, 34],
+            })}
+          />
         )}
       </MapContainer>
 
-      {/* ── PANEL DE COLOREADO — AHORA SÍ REALMENTE MOVIBLE ── */}
+      {/* ── PANEL DE COLOREADO — solo en escritorio, en móvil vive dentro del menú ── */}
+      {!esMobile && (
       <div
         className="absolute bg-slate-900/95 backdrop-blur border border-indigo-500/30 rounded-2xl shadow-2xl w-64 select-none z-[1000]"
         style={{ left: panelPos.x, top: panelPos.y }}
@@ -844,6 +887,7 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
           </div>
         )}
       </div>
+      )}
 
       {/* Indicador de carga de manzanas — antes no había, daba la impresión de que no pasaba nada */}
       {seccionActiva && cargandoManzanas && (
@@ -883,9 +927,13 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
             <div className="space-y-3 text-xs">
               <div className="text-slate-400">{fichaTecnica.municipio} · Distrito Local {fichaTecnica.distrito_local} · Distrito Federal {fichaTecnica.distrito_federal}</div>
 
-              <div className="bg-slate-800/60 rounded-lg p-2.5">
-                <div className="text-[10px] text-slate-500 uppercase font-bold mb-1">Padrón electoral</div>
-                <div className="text-lg font-black text-white">{fichaTecnica.lista_nominal?.toLocaleString() || 'N/D'}</div>
+              <div>
+                <div className="text-[10px] font-bold text-slate-500 uppercase mb-2">👥 Padrón electoral</div>
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="bg-slate-800/60 rounded-lg p-2.5 text-center"><div className="text-base font-black text-white">{fichaTecnica.lista_nominal?.toLocaleString() || 'N/D'}</div><div className="text-[8px] text-slate-500">Lista nominal</div></div>
+                  <div className="bg-slate-800/60 rounded-lg p-2.5 text-center"><div className="text-base font-black text-white">{fichaTecnica.casillas || 'N/D'}</div><div className="text-[8px] text-slate-500">Casillas</div></div>
+                  <div className="bg-slate-800/60 rounded-lg p-2.5 text-center"><div className="text-base font-black text-indigo-400">{fichaTecnica.participacion_pct != null ? `${fichaTecnica.participacion_pct}%` : 'N/D'}</div><div className="text-[8px] text-slate-500">Participación</div></div>
+                </div>
               </div>
 
               {fichaTecnica.anio_historico ? (
@@ -985,7 +1033,8 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
         </div>
       )}
 
-      {/* Buscador de sección — esquina superior izquierda */}
+      {/* Buscador de sección — solo escritorio */}
+      {!esMobile && (
       <div className="absolute top-4 left-4 z-[1000] w-64 space-y-2">
         <input
           type="number"
@@ -1002,13 +1051,87 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
           ✂️ {modoSectorizacion ? 'Salir de Sectorización' : 'Modo Sectorización'}
         </button>
       </div>
+      )}
 
-      {/* 📊 Ficha técnica del municipio — esquina inferior izquierda, como se pidió */}
-      {territorioTipo === 'municipio' && !modoSectorizacion && (
+      {/* Ficha técnica de municipio — solo escritorio, en móvil vive en el menú */}
+      {!esMobile && territorioTipo === 'municipio' && !modoSectorizacion && (
         <button onClick={abrirResumenMunicipio}
           className="absolute bottom-4 left-4 z-[1000] px-4 py-2.5 rounded-xl bg-indigo-600/90 backdrop-blur text-sm text-white font-bold shadow-lg">
           📊 Ficha técnica del municipio
         </button>
+      )}
+
+      {/* ☰ MENÚ MÓVIL — consolida todos los controles de arriba en un
+          solo botón, para no amontonar paneles sueltos en pantalla chica */}
+      {esMobile && (
+        <>
+          <button onClick={() => setMenuMobileAbierto(true)}
+            className="absolute top-4 left-4 z-[1000] w-12 h-12 rounded-full bg-slate-900/95 backdrop-blur border border-slate-700 text-white text-xl shadow-lg flex items-center justify-center">
+            ☰
+          </button>
+
+          {menuMobileAbierto && (
+            <div className="absolute inset-0 z-[3000] bg-black/70 flex items-end" onClick={() => setMenuMobileAbierto(false)}>
+              <div className="bg-slate-900 border-t border-slate-700 rounded-t-2xl w-full max-h-[80vh] overflow-y-auto p-4 space-y-4" onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-black text-white">🗺️ Controles del mapa</span>
+                  <button onClick={() => setMenuMobileAbierto(false)} className="text-slate-400 text-xl">✕</button>
+                </div>
+
+                <input
+                  type="number"
+                  placeholder="🔍 Buscar sección (ej: 12)..."
+                  value={buscarTexto}
+                  onChange={e => buscarSeccion(e.target.value)}
+                  className="w-full px-4 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-sm text-white placeholder-slate-500"
+                />
+
+                {territorioTipo === 'municipio' && (
+                  <button onClick={() => { abrirResumenMunicipio(); setMenuMobileAbierto(false); }}
+                    className="w-full px-4 py-2.5 rounded-xl bg-indigo-600 text-sm text-white font-bold">
+                    📊 Ficha técnica del municipio
+                  </button>
+                )}
+
+                <button onClick={() => { setModoSectorizacion(v => !v); setSeccionesSeleccionadas(new Set()); setMenuMobileAbierto(false); }}
+                  className={`w-full px-4 py-2.5 rounded-xl text-sm font-bold ${modoSectorizacion ? 'bg-purple-600 text-white' : 'bg-slate-800 text-slate-300'}`}>
+                  ✂️ {modoSectorizacion ? 'Salir de Sectorización' : 'Modo Sectorización'}
+                </button>
+
+                <div className="border-t border-slate-800 pt-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-bold text-white">🎨 Coloreado del mapa</span>
+                    <button onClick={() => setColoreadoActivo(v => !v)}
+                      className={`w-10 h-5 rounded-full transition-colors ${coloreadoActivo ? 'bg-indigo-500' : 'bg-slate-700'}`}>
+                      <div className={`w-4 h-4 bg-white rounded-full transition-transform ${coloreadoActivo ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                    </button>
+                  </div>
+                  {coloreadoActivo && (
+                    <div className="flex gap-1.5">
+                      <button onClick={() => setModoColoreado('partido')}
+                        className={`flex-1 py-2 rounded-lg text-xs font-bold ${modoColoreado === 'partido' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🏛️ Partido</button>
+                      <button onClick={() => setModoColoreado('prioridad')}
+                        className={`flex-1 py-2 rounded-lg text-xs font-bold ${modoColoreado === 'prioridad' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🎯 Prioridad</button>
+                    </div>
+                  )}
+                </div>
+
+                <div className="border-t border-slate-800 pt-3 space-y-2.5">
+                  <span className="text-xs font-bold text-white block mb-1">📍 Capas visibles</span>
+                  <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={capaLocalidades} onChange={e => setCapaLocalidades(e.target.checked)} /> 🏘️ Comunidades/Localidades</label>
+                  <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={capaPromovidos} onChange={e => setCapaPromovidos(e.target.checked)} /> 🤝 Promovidos ({promovidosFiltrados.length})</label>
+                  <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={capaCalor} onChange={e => setCapaCalor(e.target.checked)} /> 🔥 Mapa de calor</label>
+                  <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={capaActivos} onChange={e => setCapaActivos(e.target.checked)} /> 📺 Activos ({activos.length})</label>
+                  <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={capaAgenda} onChange={e => setCapaAgenda(e.target.checked)} /> 📅 Agenda ({eventosAgenda.length})</label>
+                  <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={capaIncidencias} onChange={e => setCapaIncidencias(e.target.checked)} /> 🚨 Incidencias ({incidencias.length})</label>
+                  <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={capaCaceria} onChange={e => setCapaCaceria(e.target.checked)} /> 🎯 Cacería (Día D)</label>
+                  <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={capaPulso} onChange={e => setCapaPulso(e.target.checked)} /> 💓 Pulso de actividad</label>
+                  <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={mostrarCobertura} onChange={e => setMostrarCobertura(e.target.checked)} /> 🗂️ Cobertura de estructura</label>
+                </div>
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       {/* Panel de control de sectorización — aparece solo en ese modo */}
@@ -1055,9 +1178,10 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
             {menuAgregarAbierto ? '✕' : '➕'}
           </button>
         </div>
-      ) : !puntoNuevo ? (
+      ) : !posicionConfirmada ? (
         <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-[1600] bg-indigo-600 text-white rounded-2xl px-5 py-3 shadow-2xl flex items-center gap-3">
-          <span className="text-sm font-bold">👆 Toca el mapa donde va: {TIPOS_PUNTO.find(t => t.id === tipoColocando)?.label}</span>
+          <span className="text-sm font-bold">✋ Arrastra el pin 📍 hasta la calle o esquina exacta</span>
+          <button onClick={() => setPosicionConfirmada(true)} className="text-xs bg-emerald-500 hover:bg-emerald-400 px-3 py-1.5 rounded-lg font-bold">✅ Confirmar aquí</button>
           <button onClick={cancelarColocacion} className="text-xs bg-indigo-800 px-2 py-1 rounded-lg font-bold">Cancelar</button>
         </div>
       ) : (

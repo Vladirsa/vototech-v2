@@ -249,14 +249,15 @@ router.get('/seccion/:numero', async (req, res) => {
     // Resultados históricos reales (año más reciente disponible)
     const anioRes = await query('SELECT MAX(anio) as anio FROM resultados_historicos WHERE tipo_eleccion=$1', [campana.tipo_eleccion]);
     const anio = anioRes.rows[0]?.anio;
-    let votos = {}, totalVotos = 0, ganador = null;
+    let votos = {}, totalVotos = 0, ganador = null, casillasSeccion = 0;
     if (anio) {
       const historico = await query(
-        `SELECT partido, votos FROM resultados_historicos WHERE seccion_id=$1 AND tipo_eleccion=$2 AND anio=$3 ORDER BY votos DESC`,
+        `SELECT partido, votos, casillas FROM resultados_historicos WHERE seccion_id=$1 AND tipo_eleccion=$2 AND anio=$3 ORDER BY votos DESC`,
         [seccion.id, campana.tipo_eleccion, anio]
       );
       historico.rows.forEach((r) => { votos[r.partido] = r.votos; totalVotos += r.votos; });
       ganador = historico.rows[0]?.partido || null;
+      casillasSeccion = historico.rows[0]?.casillas || 0;
     }
 
     // Promovidos actuales de esta sección, por clasificación
@@ -312,6 +313,8 @@ router.get('/seccion/:numero', async (req, res) => {
         votos_historicos: votos,
         total_votos_historico: totalVotos,
         ganador_historico: ganador,
+        casillas: casillasSeccion,
+        participacion_pct: seccion.lista_nominal > 0 && totalVotos > 0 ? +((totalVotos / seccion.lista_nominal) * 100).toFixed(1) : null,
         promovidos: promos,
         total_promovidos: promos.base + promos.persuadible + promos.adversario,
         deficit_votos: Math.round(deficit),
