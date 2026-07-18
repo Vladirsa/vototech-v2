@@ -13,6 +13,7 @@ import Incidencias from './pages/Incidencias';
 import Finanzas from './pages/Finanzas';
 import Activos from './pages/Activos';
 import Reportes from './pages/Reportes';
+import Marketing from './pages/Marketing';
 import AdminPlataforma from './pages/AdminPlataforma';
 import MapaConCampana from './components/MapaConCampana';
 import RutaProtegida from './components/RutaProtegida';
@@ -38,6 +39,7 @@ export default function App() {
         <Route path="/finanzas" element={<RutaProtegida><Finanzas /></RutaProtegida>} />
         <Route path="/activos" element={<RutaProtegida><Activos /></RutaProtegida>} />
         <Route path="/reportes" element={<RutaProtegida><Reportes /></RutaProtegida>} />
+        <Route path="/marketing" element={<RutaProtegida><Marketing /></RutaProtegida>} />
         <Route
           path="/mapa"
           element={

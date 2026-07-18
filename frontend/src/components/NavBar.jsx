@@ -7,6 +7,7 @@ const MODULOS = [
   { ruta: '/mapa', ic: '🗺️', label: 'Mapa' },
   { ruta: '/promovidos', ic: '🤝', label: 'Promovidos' },
   { ruta: '/reportes', ic: '📊', label: 'Reportes' },
+  { ruta: '/marketing', ic: '📢', label: 'Marketing' },
   { ruta: '/priorizacion', ic: '🎯', label: 'Priorización' },
   { ruta: '/estructura', ic: '🗂️', label: 'Estructura' },
   { ruta: '/agenda', ic: '📅', label: 'Agenda' },
