@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo, useRef } from 'react';
-import { MapContainer, TileLayer, GeoJSON, Marker, Popup, LayersControl, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, GeoJSON, Marker, Popup, LayersControl, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet.heat';
 import axios from 'axios';
@@ -57,6 +57,17 @@ function VueloCamara({ centro, zoom }) {
   useEffect(() => {
     if (centro) map.flyTo(centro, zoom, { duration: 1.2 });
   }, [centro, zoom, map]);
+  return null;
+}
+
+/** Captura el siguiente clic en el mapa mientras se está en modo
+ * "colocar punto" — solo activo cuando activo=true. */
+function CapturaClicMapa({ activo, onClick }) {
+  useMapEvents({
+    click: (e) => {
+      if (activo) onClick(e.latlng.lat, e.latlng.lng);
+    },
+  });
   return null;
 }
 
@@ -317,6 +328,68 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
     html: `<div style="font-size:18px;filter:drop-shadow(0 1px 3px rgba(0,0,0,.7))">${ICONO_EVENTO[tipo] || '📅'}</div>`,
     iconSize: [22, 22],
   });
+
+  // ── AGREGAR PUNTO INTERACTIVO — clic en el botón, elige qué tipo de
+  // punto quieres poner, luego clic en el mapa donde va, y se llena
+  // un formulario corto que guarda directo en la capa correspondiente ──
+  const [menuAgregarAbierto, setMenuAgregarAbierto] = useState(false);
+  const [tipoColocando, setTipoColocando] = useState(null);
+  const [puntoNuevo, setPuntoNuevo] = useState(null);
+  const [formPunto, setFormPunto] = useState({});
+
+  const TIPOS_PUNTO = [
+    { id: 'barda', ic: '🧱', label: 'Barda' },
+    { id: 'espectacular', ic: '📺', label: 'Espectacular' },
+    { id: 'manta', ic: '🎏', label: 'Manta/Lona' },
+    { id: 'ine_representante', ic: '🗳️', label: 'Representante INE' },
+    { id: 'utilitario', ic: '👕', label: 'Material (playeras, etc)' },
+    { id: 'evento', ic: '📅', label: 'Evento/Reunión' },
+    { id: 'promovido', ic: '🤝', label: 'Promovido' },
+  ];
+
+  const iniciarColocacion = (tipo) => {
+    setTipoColocando(tipo);
+    setMenuAgregarAbierto(false);
+    setFormPunto({});
+  };
+
+  const cancelarColocacion = () => {
+    setTipoColocando(null);
+    setPuntoNuevo(null);
+    setFormPunto({});
+  };
+
+  const guardarPunto = async () => {
+    if (!puntoNuevo) return;
+    try {
+      if (tipoColocando === 'evento') {
+        await api.post('/agenda', {
+          titulo: formPunto.titulo, tipo: formPunto.tipoEvento || 'evento',
+          fecha_inicio: formPunto.fecha_inicio, lugar: formPunto.lugar || '',
+          lat: puntoNuevo.lat, lng: puntoNuevo.lng,
+        });
+        api.get('/agenda').then(r => setEventosAgenda(r.data.data.filter(e => e.lat && e.lng)));
+      } else if (tipoColocando === 'promovido') {
+        await api.post('/promovidos', {
+          nombre: formPunto.nombre, telefono: formPunto.telefono,
+          lat: puntoNuevo.lat, lng: puntoNuevo.lng, consentimiento: true,
+        });
+        api.get('/promovidos').then(r => setPromovidos(r.data.data));
+      } else {
+        await api.post('/activos', {
+          tipo: tipoColocando, direccion: formPunto.direccion || '',
+          empresa: formPunto.empresa, costo: formPunto.costo ? parseFloat(formPunto.costo) : undefined,
+          cantidad: formPunto.cantidad ? parseInt(formPunto.cantidad) : undefined,
+          nombre_rep: formPunto.nombre_rep, telefono_rep: formPunto.telefono_rep,
+          lat: puntoNuevo.lat, lng: puntoNuevo.lng,
+        });
+        api.get('/activos').then(r => setActivos(r.data.data.filter(a => a.lat && a.lng)));
+      }
+      cancelarColocacion();
+    } catch (e) {
+      alert('Error al guardar: ' + (e.response?.data?.error || e.message));
+    }
+  };
 
 
   // ── SECTORIZACIÓN: seleccionar varias secciones y asignarlas de un jalón ──
@@ -652,6 +725,14 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
 
         <CapaCalor puntos={promovidosConPosicion.map(p => ({ lat: p._lat, lng: p._lng }))} activa={capaCalor} />
         {vueloDestino && <VueloCamara key={vueloDestino.key} centro={vueloDestino.centro} zoom={vueloDestino.zoom} />}
+        <CapturaClicMapa activo={!!tipoColocando && !puntoNuevo} onClick={(lat, lng) => setPuntoNuevo({ lat, lng })} />
+
+        {/* Vista previa del punto que se está por guardar */}
+        {puntoNuevo && (
+          <Marker position={[puntoNuevo.lat, puntoNuevo.lng]} icon={new L.DivIcon({
+            className: '', html: `<div style="font-size:24px">📍</div>`, iconSize: [28, 28],
+          })} />
+        )}
       </MapContainer>
 
       {/* ── PANEL DE COLOREADO — AHORA SÍ REALMENTE MOVIBLE ── */}
@@ -916,17 +997,19 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
         {buscarTexto && !centroidesSeccion[parseInt(buscarTexto)] && (
           <div className="text-[10px] text-amber-400 px-1">Esa sección no está en tu territorio</div>
         )}
-        {territorioTipo === 'municipio' && (
-          <button onClick={abrirResumenMunicipio}
-            className="w-full px-4 py-2.5 rounded-xl bg-indigo-600/90 backdrop-blur text-sm text-white font-bold shadow-lg">
-            📊 Ficha técnica del municipio
-          </button>
-        )}
         <button onClick={() => { setModoSectorizacion(v => !v); setSeccionesSeleccionadas(new Set()); }}
           className={`w-full px-4 py-2.5 rounded-xl backdrop-blur text-sm font-bold shadow-lg ${modoSectorizacion ? 'bg-purple-600 text-white' : 'bg-slate-900/90 text-slate-300'}`}>
           ✂️ {modoSectorizacion ? 'Salir de Sectorización' : 'Modo Sectorización'}
         </button>
       </div>
+
+      {/* 📊 Ficha técnica del municipio — esquina inferior izquierda, como se pidió */}
+      {territorioTipo === 'municipio' && !modoSectorizacion && (
+        <button onClick={abrirResumenMunicipio}
+          className="absolute bottom-4 left-4 z-[1000] px-4 py-2.5 rounded-xl bg-indigo-600/90 backdrop-blur text-sm text-white font-bold shadow-lg">
+          📊 Ficha técnica del municipio
+        </button>
+      )}
 
       {/* Panel de control de sectorización — aparece solo en ese modo */}
       {modoSectorizacion && (
@@ -950,6 +1033,100 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
               {zonasAsignadas.length} secciones ya tienen zona asignada en total
             </div>
           )}
+        </div>
+      )}
+
+      {/* ➕ BOTÓN DE AGREGAR PUNTO INTERACTIVO — flotante, centro-inferior */}
+      {!tipoColocando ? (
+        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-[1600]">
+          {menuAgregarAbierto && (
+            <div className="absolute bottom-14 left-1/2 -translate-x-1/2 bg-slate-900/95 backdrop-blur border border-slate-700 rounded-2xl p-2 w-56 space-y-1 shadow-2xl">
+              {TIPOS_PUNTO.map((t) => (
+                <button key={t.id} onClick={() => iniciarColocacion(t.id)}
+                  className="w-full flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-slate-800 text-left">
+                  <span className="text-lg">{t.ic}</span>
+                  <span className="text-xs text-white font-bold">{t.label}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          <button onClick={() => setMenuAgregarAbierto(v => !v)}
+            className="w-14 h-14 rounded-full bg-indigo-600 text-white text-2xl font-bold shadow-2xl flex items-center justify-center hover:bg-indigo-500 transition">
+            {menuAgregarAbierto ? '✕' : '➕'}
+          </button>
+        </div>
+      ) : !puntoNuevo ? (
+        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-[1600] bg-indigo-600 text-white rounded-2xl px-5 py-3 shadow-2xl flex items-center gap-3">
+          <span className="text-sm font-bold">👆 Toca el mapa donde va: {TIPOS_PUNTO.find(t => t.id === tipoColocando)?.label}</span>
+          <button onClick={cancelarColocacion} className="text-xs bg-indigo-800 px-2 py-1 rounded-lg font-bold">Cancelar</button>
+        </div>
+      ) : (
+        <div className="absolute inset-0 bg-black/70 z-[2500] flex items-end md:items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-sm p-5 space-y-3">
+            <h2 className="text-lg font-black text-white">
+              {TIPOS_PUNTO.find(t => t.id === tipoColocando)?.ic} Nuevo {TIPOS_PUNTO.find(t => t.id === tipoColocando)?.label}
+            </h2>
+            <p className="text-[10px] text-slate-500">📍 {puntoNuevo.lat.toFixed(5)}, {puntoNuevo.lng.toFixed(5)}</p>
+
+            {tipoColocando === 'evento' && (
+              <>
+                <input placeholder="Título del evento" value={formPunto.titulo || ''} onChange={(e) => setFormPunto({ ...formPunto, titulo: e.target.value })}
+                  className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+                <select value={formPunto.tipoEvento || 'evento'} onChange={(e) => setFormPunto({ ...formPunto, tipoEvento: e.target.value })}
+                  className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
+                  <option value="evento">🎪 Evento</option>
+                  <option value="reunion">👥 Reunión</option>
+                  <option value="recorrido">🚶 Recorrido</option>
+                  <option value="entrevista">🎤 Entrevista</option>
+                </select>
+                <input type="datetime-local" value={formPunto.fecha_inicio || ''} onChange={(e) => setFormPunto({ ...formPunto, fecha_inicio: e.target.value })}
+                  className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+              </>
+            )}
+
+            {tipoColocando === 'promovido' && (
+              <>
+                <input placeholder="Nombre completo" value={formPunto.nombre || ''} onChange={(e) => setFormPunto({ ...formPunto, nombre: e.target.value })}
+                  className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+                <input placeholder="Teléfono" value={formPunto.telefono || ''} onChange={(e) => setFormPunto({ ...formPunto, telefono: e.target.value })}
+                  className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+              </>
+            )}
+
+            {tipoColocando === 'ine_representante' && (
+              <>
+                <input placeholder="Nombre del representante" value={formPunto.nombre_rep || ''} onChange={(e) => setFormPunto({ ...formPunto, nombre_rep: e.target.value })}
+                  className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+                <input placeholder="Teléfono" value={formPunto.telefono_rep || ''} onChange={(e) => setFormPunto({ ...formPunto, telefono_rep: e.target.value })}
+                  className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+              </>
+            )}
+
+            {['barda', 'espectacular', 'manta'].includes(tipoColocando) && (
+              <>
+                <input placeholder="Dirección (ej: Calle Francisco I. Madero)" value={formPunto.direccion || ''} onChange={(e) => setFormPunto({ ...formPunto, direccion: e.target.value })}
+                  className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+                <input placeholder="Empresa/proveedor" value={formPunto.empresa || ''} onChange={(e) => setFormPunto({ ...formPunto, empresa: e.target.value })}
+                  className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+                <input placeholder="Costo" type="number" value={formPunto.costo || ''} onChange={(e) => setFormPunto({ ...formPunto, costo: e.target.value })}
+                  className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+              </>
+            )}
+
+            {tipoColocando === 'utilitario' && (
+              <>
+                <input placeholder="¿Qué es? (ej: Playeras talla M)" value={formPunto.direccion || ''} onChange={(e) => setFormPunto({ ...formPunto, direccion: e.target.value })}
+                  className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+                <input placeholder="Cantidad entregada" type="number" value={formPunto.cantidad || ''} onChange={(e) => setFormPunto({ ...formPunto, cantidad: e.target.value })}
+                  className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+              </>
+            )}
+
+            <div className="flex gap-2 pt-1">
+              <button onClick={cancelarColocacion} className="flex-1 py-2.5 rounded-lg bg-slate-800 text-slate-300 text-sm font-bold">Cancelar</button>
+              <button onClick={guardarPunto} className="flex-[2] py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-bold">✅ Guardar en el mapa</button>
+            </div>
+          </div>
         </div>
       )}
 

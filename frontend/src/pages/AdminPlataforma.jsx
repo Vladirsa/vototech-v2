@@ -122,6 +122,20 @@ export default function AdminPlataforma() {
     setCreandoDemo(false);
   };
 
+  const [reparando, setReparando] = useState(false);
+  const [mensajeReparar, setMensajeReparar] = useState('');
+  const repararDatos = async () => {
+    setReparando(true);
+    setMensajeReparar('');
+    try {
+      const { data } = await axios.post(`${API_URL}/admin/reparar-lista-nominal`, {}, { headers });
+      setMensajeReparar(`✅ ${data.mensaje}`);
+    } catch (e) {
+      setMensajeReparar('⚠️ Error: ' + (e.response?.data?.error || e.message));
+    }
+    setReparando(false);
+  };
+
   if (!autenticado) {
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
@@ -148,6 +162,18 @@ export default function AdminPlataforma() {
     <div className="min-h-screen bg-slate-950 p-4 md:p-8">
       <div className="max-w-3xl mx-auto space-y-6">
         <h1 className="text-2xl font-black text-white">🔐 Panel de Administración VotoTech</h1>
+
+        {/* Reparación puntual de datos incompletos */}
+        <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 flex items-center justify-between">
+          <div>
+            <div className="text-xs font-bold text-amber-300">🔧 ¿Lista nominal en 0 en las fichas técnicas?</div>
+            <div className="text-[10px] text-slate-500">Corrige bases cargadas antes de esta actualización</div>
+          </div>
+          <button onClick={repararDatos} disabled={reparando} className="px-3 py-2 rounded-lg bg-amber-600 text-white text-xs font-bold disabled:opacity-50">
+            {reparando ? '⏳...' : 'Reparar'}
+          </button>
+        </div>
+        {mensajeReparar && <div className="text-xs text-slate-300 bg-slate-900/50 rounded-lg p-2">{mensajeReparar}</div>}
 
         {/* Cuenta demo para presentaciones de venta — ahora personalizable */}
         <div className="bg-gradient-to-br from-purple-900/40 to-pink-900/40 border border-purple-700/30 rounded-xl p-4 space-y-2.5">

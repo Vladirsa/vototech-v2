@@ -78,6 +78,17 @@ export async function correrSeed() {
   async function cargarResultados(hist, tipoEleccion, anio) {
     let n = 0;
     for (const [secc, datos] of Object.entries(hist)) {
+      // Actualizar la lista nominal REAL de la sección — antes esto
+      // solo se guardaba repetido en cada fila de resultados_historicos,
+      // pero la columna secciones.lista_nominal (la que usan las fichas
+      // técnicas y estadísticas) se quedaba en 0 porque nunca se tocaba.
+      try {
+        await query(
+          `UPDATE secciones SET lista_nominal=$1 WHERE estado_id=29 AND numero=$2 AND (lista_nominal IS NULL OR lista_nominal=0)`,
+          [datos.l || 0, parseInt(secc)]
+        );
+      } catch (e) { /* se ignora, no es crítico */ }
+
       const filas = [['morena', datos.m || 0], ...PARTIDOS.map((p) => [p, datos[CAMPO[p]] || 0])];
       for (const [partido, votos] of filas) {
         if (votos === 0) continue;
@@ -118,5 +129,31 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   correrSeed()
     .then(() => pool.end())
     .catch((e) => { console.error('❌ Error general:', e); process.exit(1); });
+}
+
+/**
+ * Reparación puntual para bases de datos que ya se cargaron ANTES de
+ * que se guardara la lista nominal en la tabla secciones (bug ya
+ * corregido en correrSeed, esto lo arregla en instalaciones que ya
+ * estaban corriendo con datos incompletos).
+ */
+export async function repararListaNominal() {
+  const cargarHist = (archivo, varName) => {
+    const c = fs.readFileSync(path.join(__dirname, 'datos-origen', archivo), 'utf-8');
+    const start = c.indexOf(`var ${varName}=`) + `var ${varName}=`.length;
+    return JSON.parse(c.slice(start, -1));
+  };
+
+  let actualizadas = 0;
+  const histAyunt = cargarHist('historico-ayuntamiento.js', 'VT_HIST_AYUNTAMIENTO');
+  for (const [secc, datos] of Object.entries(histAyunt)) {
+    if (!datos.l) continue;
+    const r = await query(
+      `UPDATE secciones SET lista_nominal=$1 WHERE estado_id=29 AND numero=$2`,
+      [datos.l, parseInt(secc)]
+    );
+    actualizadas += r.rowCount;
+  }
+  return actualizadas;
 }
 

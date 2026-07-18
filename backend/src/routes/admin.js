@@ -4,6 +4,7 @@ import { query } from '../db/pool.js';
 import { requiereSuperAdmin } from '../middleware/superAdmin.js';
 import { generarToken } from '../middleware/auth.js';
 import { crearDemo } from '../../seed-demo.js';
+import { repararListaNominal } from '../../seed.js';
 
 const router = Router();
 router.use(requiereSuperAdmin); // TODO en este archivo requiere la clave secreta
@@ -169,6 +170,22 @@ router.delete('/campanas/:id', async (req, res) => {
   } catch (e) {
     console.error('Error borrando campaña:', e);
     res.status(500).json({ ok: false, error: 'No se pudo borrar la campaña. Puede tener datos relacionados que lo impiden.' });
+  }
+});
+
+/**
+ * POST /api/admin/reparar-lista-nominal
+ * Corrige bases de datos que se cargaron antes de que el sistema
+ * guardara la lista nominal real por sección — un solo click, sin
+ * tener que borrar y recargar todo.
+ */
+router.post('/reparar-lista-nominal', async (req, res) => {
+  try {
+    const actualizadas = await repararListaNominal();
+    res.json({ ok: true, actualizadas, mensaje: `${actualizadas} secciones actualizadas con su lista nominal real` });
+  } catch (e) {
+    console.error('Error reparando lista nominal:', e);
+    res.status(500).json({ ok: false, error: 'No se pudo reparar: ' + e.message });
   }
 });
 
