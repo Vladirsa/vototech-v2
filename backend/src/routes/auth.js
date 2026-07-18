@@ -13,7 +13,7 @@ const esquemaRegistroCampana = z.object({
   email: z.string().email(),
   password: z.string().min(8, 'La contraseña debe tener al menos 8 caracteres'),
   partido: z.string().max(50).optional(),
-  tipo_eleccion: z.enum(['ayuntamiento', 'dip_local', 'dip_federal', 'gobernador', 'pres_comunidad']),
+  tipo_eleccion: z.enum(['ayuntamiento', 'dip_local', 'dip_federal', 'gobernador', 'pres_comunidad', 'senador']),
   estado_id: z.number().int(),
   subdominio: z.string().regex(/^[a-z0-9-]{3,63}$/, 'Solo minúsculas, números y guiones'),
   territorio_tipo: z.enum(['municipio', 'seccion', 'distrito_local', 'distrito_federal', 'estatal']).optional(),

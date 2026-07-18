@@ -32,7 +32,7 @@ export async function crearDemo(opciones = {}) {
     territorioTipo = 'distrito_local'; territorioId = distritoNumero; nombreTerritorio = `Distrito Local ${distritoNumero}`;
   } else if (tipoEleccion === 'dip_federal') {
     territorioTipo = 'distrito_federal'; territorioId = distritoNumero; nombreTerritorio = `Distrito Federal ${distritoNumero}`;
-  } else if (tipoEleccion === 'gobernador') {
+  } else if (tipoEleccion === 'gobernador' || tipoEleccion === 'senador') {
     territorioTipo = 'estatal'; territorioId = null; nombreTerritorio = 'Todo Tlaxcala';
   } else {
     territorioTipo = 'municipio'; territorioId = municipioClaveIne; nombreTerritorio = nombreMunicipio;
