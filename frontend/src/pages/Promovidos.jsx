@@ -4,6 +4,7 @@ import api, { descargarArchivo } from '../lib/api';
 import BuscadorCalle from '../components/BuscadorCalle';
 import Papa from 'papaparse';
 import AnaliticaPromovidos from '../components/AnaliticaPromovidos';
+import TableroPromovidos from '../components/TableroPromovidos';
 import AsistenteIA from '../components/AsistenteIA';
 
 const CLASIFICACION_ESTILO = {
@@ -369,6 +370,7 @@ export default function Promovidos() {
   const [mostrarModal, setMostrarModal] = useState(params.get('agregar') === '1');
   const [cargando, setCargando] = useState(true);
   const [tab, setTab] = useState('lista');
+  const [vista, setVista] = useState('lista'); // 'lista' | 'tablero'
   const [busqueda, setBusqueda] = useState('');
   const [filtroTemperatura, setFiltroTemperatura] = useState('todas');
   const [detalleId, setDetalleId] = useState(null);
@@ -460,9 +462,20 @@ export default function Promovidos() {
           </div>
         )}
 
+        {tab === 'lista' && (
+          <div className="flex gap-1.5">
+            <button onClick={() => setVista('lista')} className={`px-3 py-1 rounded-full text-[10px] font-bold ${vista === 'lista' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📋 Lista</button>
+            <button onClick={() => setVista('tablero')} className={`px-3 py-1 rounded-full text-[10px] font-bold ${vista === 'tablero' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🗂️ Tablero</button>
+          </div>
+        )}
+
         {tab === 'whatsapp' && <PanelWhatsAppMasivo persuadibles={lista.filter((p) => p.clasificacion === 'persuadible')} />}
 
-        {tab === 'lista' && (cargando ? (
+        {tab === 'lista' && vista === 'tablero' && (
+          <TableroPromovidos lista={listaFiltrada} onActualizar={cargar} onVerDetalle={setDetalleId} />
+        )}
+
+        {tab === 'lista' && vista === 'lista' && (cargando ? (
           <div className="text-center text-slate-500 py-10">⏳ Cargando...</div>
         ) : listaFiltrada.length === 0 ? (
           <div className="text-center text-slate-500 py-10">{seccionFiltro ? `Sin promovidos todavía en la sección ${seccionFiltro}` : 'Sin registros todavía'}</div>
