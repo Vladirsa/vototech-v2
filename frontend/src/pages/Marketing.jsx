@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../lib/api';
+import AsistenteIA from '../components/AsistenteIA';
 
 const CATEGORIA_ESTILO = {
   motivacional: { ic: '💪', color: 'text-emerald-400', bg: 'bg-emerald-500/10' },
@@ -214,6 +215,10 @@ function PanelNuevoEnvio({ onEnviado }) {
         </div>
       )}
 
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] font-bold text-slate-500 uppercase">Mensaje</span>
+        <AsistenteIA contexto="convocatoria_whatsapp" onTextoGenerado={setMensaje} />
+      </div>
       <textarea placeholder="Mensaje — usa {nombre} para personalizar" value={mensaje} onChange={(e) => setMensaje(e.target.value)}
         className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm min-h-24" />
 
@@ -282,7 +287,7 @@ export default function Marketing() {
 
   return (
     <div className="min-h-screen bg-slate-950 p-4 md:p-8">
-      <div className="max-w-2xl mx-auto space-y-4">
+      <div className="max-w-4xl mx-auto space-y-4">
         <div>
           <h1 className="text-2xl font-black text-white">📢 Marketing</h1>
           <Link to="/dashboard" className="text-xs text-indigo-400">← Dashboard</Link>

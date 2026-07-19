@@ -5,7 +5,6 @@ import BuscadorCalle from '../components/BuscadorCalle';
 import Papa from 'papaparse';
 import AnaliticaPromovidos from '../components/AnaliticaPromovidos';
 import TableroPromovidos from '../components/TableroPromovidos';
-import AsistenteIA from '../components/AsistenteIA';
 
 const CLASIFICACION_ESTILO = {
   base:        { color: 'text-emerald-400', bg: 'bg-emerald-500/10', label: '✅ Base' },
@@ -110,41 +109,6 @@ function ModalAgregar({ onCerrar, onGuardado, seccionInicial }) {
           </button>
         </div>
       </div>
-    </div>
-  );
-}
-
-function PanelWhatsAppMasivo({ persuadibles }) {
-  const [mensaje, setMensaje] = useState('');
-  const [enviando, setEnviando] = useState(false);
-  const [resultado, setResultado] = useState(null);
-
-  const enviar = async () => {
-    setEnviando(true);
-    setResultado(null);
-    const destinatarios = persuadibles.filter((p) => p.telefono).map((p) => ({ telefono: p.telefono, mensaje }));
-    try {
-      const { data } = await api.post('/whatsapp/enviar', { destinatarios });
-      setResultado(`✅ ${data.enviados} enviados, ${data.fallidos} fallidos`);
-    } catch (e) {
-      setResultado('⚠️ ' + (e.response?.data?.error || 'Error al enviar'));
-    }
-    setEnviando(false);
-  };
-
-  return (
-    <div className="bg-slate-900/60 border border-purple-800/30 rounded-xl p-4 space-y-2.5">
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-bold text-white">📲 WhatsApp masivo a Persuadibles</h3>
-        <AsistenteIA contexto="mensaje_persuasion" onTextoGenerado={setMensaje} />
-      </div>
-      <p className="text-[10px] text-slate-500">{persuadibles.filter((p) => p.telefono).length} de {persuadibles.length} tienen teléfono registrado</p>
-      <textarea value={mensaje} onChange={(e) => setMensaje(e.target.value)} placeholder="Escribe tu mensaje o usa el asistente de arriba..."
-        className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm min-h-20" />
-      <button onClick={enviar} disabled={enviando || !mensaje} className="w-full py-2.5 rounded-lg bg-gradient-to-r from-purple-600 to-pink-600 text-white text-sm font-bold disabled:opacity-40">
-        {enviando ? '⏳ Enviando...' : '📤 Enviar a todos'}
-      </button>
-      {resultado && <div className="text-xs text-center text-slate-300">{resultado}</div>}
     </div>
   );
 }
@@ -399,7 +363,7 @@ export default function Promovidos() {
 
   return (
     <div className="min-h-screen bg-slate-950 p-4 md:p-8">
-      <div className="max-w-3xl mx-auto space-y-4">
+      <div className="max-w-4xl mx-auto space-y-4">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-black text-white">🤝 Promovidos</h1>

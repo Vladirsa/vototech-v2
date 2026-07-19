@@ -102,7 +102,7 @@ export default function Incidencias() {
 
   return (
     <div className="min-h-screen bg-slate-950 p-4 md:p-8">
-      <div className="max-w-2xl mx-auto space-y-4">
+      <div className="max-w-4xl mx-auto space-y-4">
         {alertaUrgente && (
           <div className="fixed top-4 right-4 z-50 bg-red-600 text-white rounded-xl p-4 shadow-2xl max-w-xs animate-pulse">
             <div className="font-black text-sm">🚨 INCIDENCIA URGENTE</div>

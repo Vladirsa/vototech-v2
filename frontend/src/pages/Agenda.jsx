@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import api from '../lib/api';
 import BuscadorCalle from '../components/BuscadorCalle';
+import AsistenteIA from '../components/AsistenteIA';
 
 const TIPO_ICONO = { evento: '🎪', reunion: '👥', recorrido: '🚶', entrevista: '🎤' };
 const TIPO_LABEL = { evento: 'Evento', reunion: 'Reunión', recorrido: 'Recorrido', entrevista: 'Entrevista' };
@@ -29,6 +30,10 @@ function FormularioEvento({ inicial, onGuardar, onCancelar }) {
       <BuscadorCalle valor={form.lugar} onSeleccion={(d) => setForm({ ...form, lugar: d.direccion_completa, lat: d.lat, lng: d.lng })} />
       <input placeholder="Sección (opcional)" type="number" value={form.seccion_numero} onChange={(e) => setForm({ ...form, seccion_numero: e.target.value })}
         className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] font-bold text-slate-500 uppercase">Notas / invitación</span>
+        <AsistenteIA contexto="invitacion_evento" onTextoGenerado={(t) => setForm({ ...form, descripcion: t })} />
+      </div>
       <textarea placeholder="Notas (opcional)" value={form.descripcion || ''} onChange={(e) => setForm({ ...form, descripcion: e.target.value })}
         className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm min-h-16" />
       <div className="flex gap-2">
@@ -269,7 +274,7 @@ export default function Agenda() {
 
   return (
     <div className="min-h-screen bg-slate-950 p-4 md:p-8">
-      <div className="max-w-2xl mx-auto space-y-4">
+      <div className="max-w-4xl mx-auto space-y-4">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-black text-white">📅 Agenda</h1>

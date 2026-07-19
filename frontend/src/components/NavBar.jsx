@@ -10,7 +10,6 @@ const MODULOS = [
   { ruta: '/marketing', ic: '📢', label: 'Marketing' },
   { ruta: '/juridico', ic: '⚖️', label: 'Jurídico' },
   { ruta: '/encuestas', ic: '📋', label: 'Encuestas' },
-  { ruta: '/chat', ic: '💬', label: 'Chat' },
   { ruta: '/priorizacion', ic: '🎯', label: 'Priorización' },
   { ruta: '/estructura', ic: '🗂️', label: 'Estructura' },
   { ruta: '/agenda', ic: '📅', label: 'Agenda' },
@@ -29,8 +28,9 @@ export default function NavBar() {
   const salir = () => { cerrarSesion(); navigate('/login'); };
 
   return (
-    <nav className="sticky top-0 z-[2000] bg-slate-950/95 dark:bg-slate-950/95 backdrop-blur border-b border-slate-800 light:bg-white/95 light:border-slate-200">
-      <div className="max-w-6xl mx-auto px-3 flex items-center gap-1 overflow-x-auto no-scrollbar">
+    <nav className="sticky top-0 z-[2000] bg-slate-950/95 dark:bg-slate-950/95 backdrop-blur border-b border-slate-800 light:bg-white/95 light:border-slate-200 relative">
+      <div className="max-w-6xl mx-auto px-3 flex items-center gap-1 overflow-x-auto"
+        style={{ scrollbarWidth: 'thin', scrollbarColor: '#4f46e5 transparent' }}>
         <div className="flex items-center gap-2 pr-3 mr-2 border-r border-slate-800 flex-shrink-0 py-2.5">
           <span className="text-lg">🗳️</span>
           <span className="text-xs font-black text-white hidden sm:inline">VotoTech</span>
@@ -59,6 +59,9 @@ export default function NavBar() {
           <button onClick={salir} className="text-xs text-slate-500 hover:text-red-400 px-2 py-1">🚪</button>
         </div>
       </div>
+      {/* Degradado a los lados — pista visual de que el menú se puede deslizar */}
+      <div className="absolute top-0 bottom-0 left-0 w-4 bg-gradient-to-r from-slate-950 to-transparent pointer-events-none" />
+      <div className="absolute top-0 bottom-0 right-0 w-6 bg-gradient-to-l from-slate-950 to-transparent pointer-events-none" />
     </nav>
   );
 }
