@@ -157,13 +157,28 @@ io.use((socket, next) => {
   }
 });
 
+// Quién está conectado ahora mismo, por campaña — en memoria, se
+// resetea si el servidor reinicia (aceptable: se reconstruye solo
+// en cuanto la gente vuelve a abrir la app).
+const usuariosEnLinea = new Map(); // campana_id -> Set(usuario_id)
+
 io.on('connection', (socket) => {
-  const sala = `campana:${socket.usuario.campana_id}`;
+  const { campana_id, sub } = socket.usuario;
+  const sala = `campana:${campana_id}`;
   socket.join(sala);
   console.log(`🔌 ${socket.usuario.nombre} conectado a ${sala}`);
 
+  if (!usuariosEnLinea.has(campana_id)) usuariosEnLinea.set(campana_id, new Set());
+  usuariosEnLinea.get(campana_id).add(sub);
+  io.to(sala).emit('usuarios_en_linea', [...usuariosEnLinea.get(campana_id)]);
+
   socket.on('disconnect', () => {
     console.log(`🔌 ${socket.usuario.nombre} desconectado`);
+    const set = usuariosEnLinea.get(campana_id);
+    if (set) {
+      set.delete(sub);
+      io.to(sala).emit('usuarios_en_linea', [...set]);
+    }
   });
 });
 

@@ -56,7 +56,7 @@ ${d.detalles ? `Detalles adicionales: ${d.detalles}` : ''}
 Responde ÚNICAMENTE con el texto del mensaje, sin explicaciones ni comillas.`;
 
     const respuesta = await anthropic.messages.create({
-      model: 'claude-sonnet-4-5',
+      model: 'claude-sonnet-5',
       max_tokens: 300,
       messages: [{ role: 'user', content: prompt }],
     });
