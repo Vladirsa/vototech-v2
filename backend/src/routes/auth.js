@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
+import PDFDocument from 'pdfkit';
 import { query } from '../db/pool.js';
 import { generarToken, requiereAuth } from '../middleware/auth.js';
 
@@ -20,6 +21,7 @@ const esquemaRegistroCampana = z.object({
   territorio_id: z.number().int().optional(),
   fecha_eleccion: z.string().optional(),
   codigo_acceso: z.string().min(3, 'Se requiere un código de acceso válido'),
+  acepta_terminos: z.literal(true, { errorMap: () => ({ message: 'Debes aceptar los Términos y Condiciones y el Aviso de Privacidad para continuar' }) }),
 });
 
 /**
@@ -56,9 +58,12 @@ router.post('/registrar-campana', async (req, res) => {
 
     // Crear la campaña — nace en estado "pendiente", activa=false,
     // hasta que el dueño de la plataforma la apruebe manualmente.
+    // La aceptación de términos queda registrada con fecha/hora exacta,
+    // como respaldo — ya se validó arriba que venga en true, aquí
+    // solo se deja la constancia.
     const campana = await query(
-      `INSERT INTO campanas (nombre_candidato, partido, tipo_eleccion, estado_id, subdominio, territorio_tipo, territorio_id, fecha_eleccion, activa, estado_aprobacion)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false, 'pendiente') RETURNING id, subdominio`,
+      `INSERT INTO campanas (nombre_candidato, partido, tipo_eleccion, estado_id, subdominio, territorio_tipo, territorio_id, fecha_eleccion, activa, estado_aprobacion, terminos_aceptados_en, terminos_version)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false, 'pendiente', now(), 'v1') RETURNING id, subdominio`,
       [datos.nombre_candidato, datos.partido || null, datos.tipo_eleccion, datos.estado_id, datos.subdominio,
        datos.territorio_tipo || null, datos.territorio_id || null, datos.fecha_eleccion || null]
     );
@@ -236,12 +241,114 @@ router.post('/registrar-con-codigo', async (req, res) => {
  */
 router.get('/mi-campana', requiereAuth, async (req, res) => {
   const resultado = await query(
-    `SELECT nombre_candidato, partido, tipo_eleccion, territorio_tipo, territorio_id, fecha_eleccion
+    `SELECT nombre_candidato, partido, tipo_eleccion, territorio_tipo, territorio_id, fecha_eleccion, fecha_vencimiento, es_demo
      FROM campanas WHERE id=$1`,
     [req.usuario.campana_id]
   );
   if (!resultado.rows[0]) return res.status(404).json({ ok: false, error: 'Campaña no encontrada' });
   res.json({ ok: true, data: resultado.rows[0] });
+});
+
+const TIPO_ELECCION_LABEL = {
+  ayuntamiento: 'Presidente Municipal', pres_comunidad: 'Presidente de Comunidad',
+  dip_local: 'Diputado Local', dip_federal: 'Diputado Federal', gobernador: 'Gobernador', senador: 'Senador',
+};
+
+/**
+ * GET /api/auth/mi-contrato-pdf
+ * Genera el Contrato de Prestación de Servicios personalizado con
+ * los datos reales de la campaña — mismo texto base que el borrador
+ * revisado (Cláusulas Primera a Décima Primera), con los datos del
+ * candidato y la fecha de aceptación ya insertados donde antes había
+ * llaves {{...}}.
+ *
+ * AVISO: esto es un borrador generado automáticamente, no un
+ * documento legal validado por un abogado — se le recuerda al
+ * usuario en la propia pantalla, no solo aquí.
+ */
+router.get('/mi-contrato-pdf', requiereAuth, async (req, res) => {
+  const campanaRes = await query(
+    'SELECT nombre_candidato, tipo_eleccion, fecha_eleccion, terminos_aceptados_en FROM campanas WHERE id=$1',
+    [req.usuario.campana_id]
+  );
+  const c = campanaRes.rows[0];
+  if (!c) return res.status(404).json({ ok: false, error: 'Campaña no encontrada' });
+
+  const doc = new PDFDocument({ margin: 55 });
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', 'attachment; filename=contrato_vototech.pdf');
+  doc.pipe(res);
+
+  const titulo = (t) => { doc.moveDown(0.8); doc.fontSize(11).fillColor('#1e1b4b').font('Helvetica-Bold').text(t); doc.moveDown(0.2); doc.fontSize(9.5).fillColor('#334155').font('Helvetica'); };
+  const parrafo = (t) => { doc.text(t, { align: 'justify' }); doc.moveDown(0.4); };
+  const bullet = (t) => { doc.text(`•  ${t}`, { align: 'justify', indent: 10 }); doc.moveDown(0.2); };
+
+  doc.fontSize(16).fillColor('#1e1b4b').font('Helvetica-Bold').text('CONTRATO DE PRESTACIÓN DE SERVICIOS', { align: 'center' });
+  doc.fontSize(11).fillColor('#64748b').font('Helvetica').text('PLATAFORMA TECNOLÓGICA VOTOTECH', { align: 'center' });
+  doc.moveDown(1);
+
+  doc.fontSize(9.5).fillColor('#334155');
+  parrafo(`Contrato de prestación de servicios que celebran, por una parte VotoTech (en adelante "EL PRESTADOR"), y por la otra ${c.nombre_candidato}, en su calidad de candidato a ${TIPO_ELECCION_LABEL[c.tipo_eleccion] || c.tipo_eleccion} (en adelante "EL CLIENTE"), al tenor de las siguientes declaraciones y cláusulas:`);
+
+  titulo('DECLARACIONES');
+  parrafo('I. EL PRESTADOR declara ser una plataforma tecnológica de gestión de campañas electorales, con capacidad técnica para prestar el servicio objeto de este contrato.');
+  parrafo(`II. EL CLIENTE declara ser candidato o representante legalmente facultado de la campaña "${c.nombre_candidato}", para el proceso de ${TIPO_ELECCION_LABEL[c.tipo_eleccion] || c.tipo_eleccion}${c.fecha_eleccion ? `, con fecha de jornada electoral ${new Date(c.fecha_eleccion).toLocaleDateString('es-MX')}` : ''}, y contar con capacidad legal para obligarse en los términos de este contrato.`);
+  parrafo('III. Ambas partes declaran conocer y sujetarse a la Ley General de Instituciones y Procedimientos Electorales, la legislación electoral local aplicable, y la Ley Federal de Protección de Datos Personales en Posesión de los Particulares.');
+
+  titulo('CLÁUSULAS');
+  titulo('PRIMERA. OBJETO.');
+  parrafo('EL PRESTADOR otorga a EL CLIENTE una licencia de uso, no exclusiva e intransferible, de la plataforma VotoTech, conforme al plan contratado, para su uso exclusivo en la operación interna de la campaña señalada en las Declaraciones.');
+
+  titulo('SEGUNDA. VIGENCIA.');
+  parrafo('El presente contrato tendrá vigencia conforme al plan y periodo de suscripción contratado por EL CLIENTE, renovable por periodos iguales previo acuerdo de las partes.');
+
+  titulo('TERCERA. CONTRAPRESTACIÓN.');
+  parrafo('EL CLIENTE se obliga a cubrir la contraprestación correspondiente al plan contratado, en los términos, monto y modalidad de pago acordados por separado. La falta de pago oportuno faculta a EL PRESTADOR a suspender el acceso al servicio sin responsabilidad alguna.');
+
+  titulo('CUARTA. OBLIGACIONES DE EL CLIENTE.');
+  parrafo('EL CLIENTE se obliga expresamente a:');
+  bullet('Utilizar la plataforma exclusivamente para fines lícitos de organización interna de campaña, conforme a la legislación electoral aplicable.');
+  bullet('No importar, cargar ni distribuir el padrón electoral oficial del INE dentro de la plataforma.');
+  bullet('No utilizar la plataforma para actos de compra o coacción del voto, ni para verificar o inferir por quién votó cualquier persona.');
+  bullet('Contar con su propio Aviso de Privacidad frente a los ciudadanos cuyos datos capture, y obtener el consentimiento correspondiente conforme a la LFPDPPP.');
+  bullet('Cumplir con sus propias obligaciones de fiscalización, registro de gastos, y reporte ante el INE/OPLE.');
+  bullet('Ser el único responsable del uso que su equipo de campaña dé a la plataforma.');
+
+  doc.addPage();
+  doc.fontSize(9.5).fillColor('#334155');
+  titulo('QUINTA. LIMITACIÓN DE RESPONSABILIDAD.');
+  parrafo('EL PRESTADOR no será responsable, en ningún caso, por:');
+  bullet('El uso indebido, ilícito o contrario a la legislación electoral que EL CLIENTE o su equipo den a la plataforma.');
+  bullet('Interrupciones del servicio derivadas de fallas de proveedores de infraestructura tecnológica ajenos a EL PRESTADOR.');
+  bullet('Decisiones estratégicas o de campaña tomadas con base en la información, reportes o proyecciones estadísticas generadas por la plataforma, las cuales constituyen estimaciones y no garantías de resultado.');
+  bullet('Pérdida, alteración o divulgación de información derivada de negligencia de EL CLIENTE en el resguardo de sus credenciales de acceso.');
+  bullet('Sanciones, multas o procedimientos derivados de infracciones a la legislación electoral cometidas por EL CLIENTE en el uso de la plataforma.');
+  parrafo('La responsabilidad total y máxima de EL PRESTADOR no excederá el monto efectivamente pagado por EL CLIENTE durante los tres meses previos al hecho que la origine.');
+
+  titulo('SEXTA. CAPACIDAD TÉCNICA Y DISPONIBILIDAD.');
+  parrafo('EL PRESTADOR hará su mejor esfuerzo técnico para mantener el servicio disponible, sin garantizar disponibilidad ininterrumpida. EL CLIENTE reconoce que la plataforma opera bajo límites técnicos razonables de uso concurrente conforme al plan contratado.');
+
+  titulo('SÉPTIMA. PROTECCIÓN DE DATOS Y CONFIDENCIALIDAD.');
+  parrafo('EL PRESTADOR actuará como Encargado del tratamiento de los datos personales que EL CLIENTE capture en la plataforma, conforme a la LFPDPPP, siendo EL CLIENTE el Responsable de dichos datos frente a los titulares.');
+
+  titulo('OCTAVA. PROPIEDAD DE LA INFORMACIÓN.');
+  parrafo('EL CLIENTE conserva la propiedad de los datos que captura en la plataforma. EL PRESTADOR conserva la propiedad del software, código, diseño y marca VotoTech.');
+
+  titulo('NOVENA. CASO FORTUITO O FUERZA MAYOR.');
+  parrafo('Ninguna de las partes será responsable por incumplimientos derivados de caso fortuito o fuerza mayor.');
+
+  titulo('DÉCIMA. TERMINACIÓN.');
+  parrafo('Este contrato podrá darse por terminado por cualquiera de las partes con aviso previo, o de forma inmediata por EL PRESTADOR en caso de incumplimiento grave de EL CLIENTE a las obligaciones de la Cláusula Cuarta.');
+
+  titulo('DÉCIMA PRIMERA. JURISDICCIÓN.');
+  parrafo('Para la interpretación y cumplimiento de este contrato, las partes se someten a las leyes federales de los Estados Unidos Mexicanos, renunciando a cualquier otro fuero que pudiera corresponderles.');
+
+  doc.moveDown(1);
+  doc.fontSize(9).fillColor('#1e1b4b').font('Helvetica-Bold').text(`Términos y Condiciones y Aviso de Privacidad aceptados electrónicamente el: ${c.terminos_aceptados_en ? new Date(c.terminos_aceptados_en).toLocaleString('es-MX') : 'No registrado'}`);
+  doc.moveDown(1.5);
+  doc.fontSize(8).fillColor('#94a3b8').font('Helvetica').text('Este documento es un borrador generado automáticamente y no sustituye la revisión de un abogado. Para uso formal, se recomienda validación legal previa.', { align: 'center' });
+
+  doc.end();
 });
 
 export default router;

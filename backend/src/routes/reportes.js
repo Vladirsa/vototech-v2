@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import PDFDocument from 'pdfkit';
 import { query } from '../db/pool.js';
 import { requiereAuth } from '../middleware/auth.js';
 
@@ -234,9 +235,6 @@ router.get('/probabilidad', async (req, res) => {
     const ic = intervaloWilson(propiosPromos, totalPromos);
 
     // ── 2. MUESTRA EMPÍRICA DE VARIACIÓN (bootstrap) ──
-    // % de votos del partido propio, sección por sección, en Ayuntamiento
-    // vs Pdte. Comunidad 2024 — la diferencia real observada es la
-    // "muestra" de la que remuestreamos, no una distribución inventada.
     let filtroTerritorio = '';
     const paramsTerr = [];
     if (campana.territorio_tipo === 'municipio' && campana.territorio_id) {
@@ -248,29 +246,74 @@ router.get('/probabilidad', async (req, res) => {
       filtroTerritorio = 'AND s.distrito_federal=$1'; paramsTerr.push(campana.territorio_id);
     }
 
-    const datos2024 = await query(
-      `SELECT s.numero, r.tipo_eleccion, r.partido, r.votos FROM resultados_historicos r
-       JOIN secciones s ON s.id=r.seccion_id
-       WHERE r.anio=2024 AND r.tipo_eleccion IN ('ayuntamiento','pres_comunidad') AND s.estado_id=29 ${filtroTerritorio}`,
-      paramsTerr
+    // MEJOR CASO: comparar el MISMO tipo de elección entre dos años
+    // reales (ej. Ayuntamiento 2021 vs 2024) — esto es swing temporal
+    // de verdad, la cantidad que realmente interesa proyectar, no un
+    // sustituto entre boletas distintas del mismo día.
+    const aniosDisponibles = await query(
+      `SELECT DISTINCT anio FROM resultados_historicos WHERE tipo_eleccion=$1 ORDER BY anio`,
+      [campana.tipo_eleccion]
     );
-    const porSeccion = {};
-    datos2024.rows.forEach((r) => {
-      if (!porSeccion[r.numero]) porSeccion[r.numero] = { ayuntamiento: {}, pres_comunidad: {} };
-      porSeccion[r.numero][r.tipo_eleccion][r.partido] = r.votos;
-    });
-
     const swingsObservados = [];
-    Object.values(porSeccion).forEach((d) => {
-      const totalA = Object.values(d.ayuntamiento).reduce((a, b) => a + b, 0);
-      const totalP = Object.values(d.pres_comunidad).reduce((a, b) => a + b, 0);
-      if (totalA === 0 || totalP === 0) return;
-      const shareA = (d.ayuntamiento[campana.partido] || 0) / totalA;
-      const shareP = (d.pres_comunidad[campana.partido] || 0) / totalP;
-      swingsObservados.push(shareP - shareA); // diferencia real observada, en puntos porcentuales de share
-    });
-    // Si no hay suficientes secciones comparables, usar un supuesto
-    // conservador y decirlo con toda claridad (no inventar precisión).
+    let metodoBootstrap = 'sin_datos';
+
+    if (aniosDisponibles.rows.length >= 2) {
+      const anioViejo = aniosDisponibles.rows[0].anio;
+      const anioNuevo = aniosDisponibles.rows[aniosDisponibles.rows.length - 1].anio;
+      // filtroTerritorio trae su parámetro codificado como $1 (pensado
+      // para cuando es el único filtro extra) — aquí van 3 parámetros
+      // ANTES (tipo, año viejo, año nuevo), así que hace falta una
+      // versión con el índice corrido a $4, o el filtro terminaría
+      // comparando el territorio contra el tipo de elección por error.
+      const filtroTerritorioCorrido = filtroTerritorio.replace('$1', '$4');
+      const datosDosAnios = await query(
+        `SELECT s.numero, r.anio, r.partido, r.votos FROM resultados_historicos r
+         JOIN secciones s ON s.id=r.seccion_id
+         WHERE r.tipo_eleccion=$1 AND r.anio IN ($2,$3) AND s.estado_id=29 ${filtroTerritorioCorrido}`,
+        [campana.tipo_eleccion, anioViejo, anioNuevo, ...paramsTerr]
+      );
+      const porSeccionAnios = {};
+      datosDosAnios.rows.forEach((r) => {
+        if (!porSeccionAnios[r.numero]) porSeccionAnios[r.numero] = { viejo: {}, nuevo: {} };
+        porSeccionAnios[r.numero][r.anio === anioViejo ? 'viejo' : 'nuevo'][r.partido] = r.votos;
+      });
+      Object.values(porSeccionAnios).forEach((d) => {
+        const totalViejo = Object.values(d.viejo).reduce((a, b) => a + b, 0);
+        const totalNuevo = Object.values(d.nuevo).reduce((a, b) => a + b, 0);
+        if (totalViejo === 0 || totalNuevo === 0) return;
+        const shareViejo = (d.viejo[campana.partido] || 0) / totalViejo;
+        const shareNuevo = (d.nuevo[campana.partido] || 0) / totalNuevo;
+        swingsObservados.push(shareNuevo - shareViejo);
+      });
+      if (swingsObservados.length >= 5) metodoBootstrap = `temporal_${anioViejo}_${anioNuevo}`;
+    }
+
+    // RESPALDO: si no hay dos años del mismo tipo, comparar boletas
+    // distintas del mismo día más reciente (mejor que nada, pero
+    // menos preciso que un swing temporal real).
+    if (metodoBootstrap === 'sin_datos') {
+      const datosMismoDia = await query(
+        `SELECT s.numero, r.tipo_eleccion, r.partido, r.votos FROM resultados_historicos r
+         JOIN secciones s ON s.id=r.seccion_id
+         WHERE r.anio=2024 AND r.tipo_eleccion IN ('ayuntamiento','pres_comunidad') AND s.estado_id=29 ${filtroTerritorio}`,
+        paramsTerr
+      );
+      const porSeccion = {};
+      datosMismoDia.rows.forEach((r) => {
+        if (!porSeccion[r.numero]) porSeccion[r.numero] = { ayuntamiento: {}, pres_comunidad: {} };
+        porSeccion[r.numero][r.tipo_eleccion][r.partido] = r.votos;
+      });
+      Object.values(porSeccion).forEach((d) => {
+        const totalA = Object.values(d.ayuntamiento).reduce((a, b) => a + b, 0);
+        const totalP = Object.values(d.pres_comunidad).reduce((a, b) => a + b, 0);
+        if (totalA === 0 || totalP === 0) return;
+        const shareA = (d.ayuntamiento[campana.partido] || 0) / totalA;
+        const shareP = (d.pres_comunidad[campana.partido] || 0) / totalP;
+        swingsObservados.push(shareP - shareA);
+      });
+      if (swingsObservados.length >= 5) metodoBootstrap = 'mismo_dia_2024';
+    }
+
     const usandoSupuestoPorFaltaDeDatos = swingsObservados.length < 5;
 
     // ── Base histórica para la simulación: el tipo de elección real de tu campaña ──
@@ -366,6 +409,12 @@ router.get('/probabilidad', async (req, res) => {
         votos_oponente_referencia: Math.round(votosOponenteHist),
         metodologia: {
           bootstrap_real: !usandoSupuestoPorFaltaDeDatos,
+          metodo_bootstrap: metodoBootstrap,
+          metodo_bootstrap_descripcion: metodoBootstrap.startsWith('temporal_')
+            ? `Comparación real entre ${metodoBootstrap.split('_')[1]} y ${metodoBootstrap.split('_')[2]} (mismo tipo de elección, dos años reales)`
+            : metodoBootstrap === 'mismo_dia_2024'
+            ? 'Comparación entre Ayuntamiento y Pdte. Comunidad 2024 (mismo día, sin un segundo año de este tipo de elección todavía)'
+            : 'Supuesto conservador de ±6% de volatilidad (sin datos suficientes)',
           secciones_usadas_bootstrap: swingsObservados.length,
           corridas_simuladas: N,
           promovidos_base_actuales: promosBase,
@@ -712,6 +761,268 @@ router.get('/actividad-por-seccion', async (req, res) => {
     [req.usuario.campana_id]
   );
   res.json({ ok: true, data: resultado.rows });
+});
+
+/**
+ * GET /api/reportes/cierre-campana-pdf
+ * Resumen ejecutivo completo de toda la operación — para el
+ * candidato, en un solo documento descargable.
+ */
+router.get('/cierre-campana-pdf', async (req, res) => {
+  const campanaId = req.usuario.campana_id;
+
+  try {
+    const campanaRes = await query('SELECT nombre_candidato, partido, tipo_eleccion, meta_votos, fecha_eleccion FROM campanas WHERE id=$1', [campanaId]);
+    const campana = campanaRes.rows[0];
+
+    const promosRes = await query(
+      `SELECT clasificacion, COUNT(*) as total, COUNT(*) FILTER (WHERE comprometido) as comprometidos FROM promovidos WHERE campana_id=$1 GROUP BY clasificacion`,
+      [campanaId]
+    );
+    const promos = { base: 0, persuadible: 0, adversario: 0 };
+    let totalComprometidos = 0;
+    promosRes.rows.forEach((r) => { promos[r.clasificacion] = parseInt(r.total); totalComprometidos += parseInt(r.comprometidos); });
+    const totalPromovidos = promos.base + promos.persuadible + promos.adversario;
+
+    const estructuraRes = await query(
+      `SELECT rol, COUNT(*) as total FROM usuarios WHERE campana_id=$1 AND activo != false GROUP BY rol`,
+      [campanaId]
+    );
+
+    const seccionesRes = await query(
+      `SELECT COUNT(DISTINCT seccion_id) as total FROM promovidos WHERE campana_id=$1 AND seccion_id IS NOT NULL`,
+      [campanaId]
+    );
+
+    const gastoRes = await query(`SELECT COALESCE(SUM(monto),0) as total FROM gastos_campana WHERE campana_id=$1`, [campanaId]);
+    const campanaTope = await query('SELECT tope_gasto_ople FROM campanas WHERE id=$1', [campanaId]);
+
+    const activosRes = await query(`SELECT tipo, COUNT(*) as total FROM activos WHERE campana_id=$1 GROUP BY tipo`, [campanaId]);
+    const incidenciasRes = await query(`SELECT COUNT(*) as total FROM incidencias WHERE campana_id=$1`, [campanaId]);
+
+    // ── Generar el PDF ──
+    const doc = new PDFDocument({ margin: 50 });
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename=reporte_cierre_${new Date().toISOString().slice(0, 10)}.pdf`);
+    doc.pipe(res);
+
+    doc.fontSize(20).fillColor('#1e1b4b').text('Reporte de Cierre de Campaña', { align: 'center' });
+    doc.fontSize(12).fillColor('#4338ca').text(campana.nombre_candidato, { align: 'center' });
+    doc.fontSize(9).fillColor('#64748b').text(`${campana.partido?.toUpperCase()} · ${campana.tipo_eleccion} · Generado el ${new Date().toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' })}`, { align: 'center' });
+    doc.moveDown(2);
+
+    const seccion = (titulo) => { doc.moveDown(0.5); doc.fontSize(13).fillColor('#1e1b4b').text(titulo); doc.moveDown(0.3); doc.fontSize(10).fillColor('#334155'); };
+    const linea = (etiqueta, valor) => doc.text(`${etiqueta}: ${valor}`);
+
+    seccion('Avance Electoral');
+    linea('Meta de votos', campana.meta_votos?.toLocaleString() || 'No configurada');
+    linea('Promovidos totales', totalPromovidos.toLocaleString());
+    linea('Comprometidos a votar', totalComprometidos.toLocaleString());
+    linea('Base (voto seguro)', promos.base.toLocaleString());
+    linea('Persuadibles', promos.persuadible.toLocaleString());
+    linea('Secciones con presencia', seccionesRes.rows[0].total);
+
+    seccion('Estructura de Campaña');
+    estructuraRes.rows.forEach((r) => linea(r.rol, r.total));
+
+    seccion('Activos de Campaña');
+    if (activosRes.rows.length === 0) doc.text('Sin activos registrados');
+    activosRes.rows.forEach((r) => linea(r.tipo, r.total));
+
+    seccion('Finanzas');
+    const tope = campanaTope.rows[0]?.tope_gasto_ople;
+    linea('Gasto total', `$${parseFloat(gastoRes.rows[0].total).toLocaleString('es-MX')} MXN`);
+    if (tope) linea('% del tope OPLE usado', `${Math.round((gastoRes.rows[0].total / tope) * 100)}%`);
+
+    seccion('Incidencias');
+    linea('Total reportadas', incidenciasRes.rows[0].total);
+
+    doc.moveDown(2);
+    doc.fontSize(8).fillColor('#94a3b8').text('Documento generado automáticamente por VotoTech — uso interno de campaña.', { align: 'center' });
+
+    doc.end();
+  } catch (e) {
+    console.error('Error generando PDF de cierre:', e);
+    res.status(500).json({ ok: false, error: 'No se pudo generar el reporte' });
+  }
+});
+
+/**
+ * GET /api/reportes/encuestas-resumen
+ * Concentrado de todas las encuestas — cuántas respuestas por
+ * sección y por municipio, para ver de un vistazo dónde se está
+ * escuchando más a la gente y dónde falta.
+ */
+router.get('/encuestas-resumen', async (req, res) => {
+  const campanaId = req.usuario.campana_id;
+
+  const encuestasRes = await query(
+    `SELECT id, titulo, (SELECT COUNT(*) FROM encuesta_respuestas WHERE encuesta_id=encuestas.id) as total_respuestas
+     FROM encuestas WHERE campana_id=$1 ORDER BY creado_en DESC`,
+    [campanaId]
+  );
+
+  const porSeccion = await query(
+    `SELECT s.numero as seccion_numero, m.nombre as municipio, COUNT(r.id) as total
+     FROM encuesta_respuestas r
+     JOIN encuestas e ON e.id = r.encuesta_id
+     LEFT JOIN secciones s ON s.id = r.seccion_id
+     LEFT JOIN municipios m ON m.id = s.municipio_id
+     WHERE e.campana_id=$1 AND s.numero IS NOT NULL
+     GROUP BY s.numero, m.nombre ORDER BY total DESC`,
+    [campanaId]
+  );
+
+  const porMunicipio = await query(
+    `SELECT m.nombre as municipio, COUNT(r.id) as total
+     FROM encuesta_respuestas r
+     JOIN encuestas e ON e.id = r.encuesta_id
+     LEFT JOIN secciones s ON s.id = r.seccion_id
+     LEFT JOIN municipios m ON m.id = s.municipio_id
+     WHERE e.campana_id=$1 AND m.nombre IS NOT NULL
+     GROUP BY m.nombre ORDER BY total DESC`,
+    [campanaId]
+  );
+
+  const totalGeneral = encuestasRes.rows.reduce((s, e) => s + parseInt(e.total_respuestas), 0);
+
+  res.json({
+    ok: true,
+    data: {
+      total_encuestas: encuestasRes.rows.length,
+      total_respuestas: totalGeneral,
+      encuestas: encuestasRes.rows,
+      por_seccion: porSeccion.rows.slice(0, 15),
+      por_municipio: porMunicipio.rows,
+    },
+  });
+});
+
+/** Encabezado compartido para todos los reportes PDF — mismo estilo. */
+function iniciarPDF(res, nombreArchivo, titulo, subtitulo) {
+  const doc = new PDFDocument({ margin: 50 });
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename=${nombreArchivo}`);
+  doc.pipe(res);
+  doc.fontSize(18).fillColor('#1e1b4b').text(titulo, { align: 'center' });
+  if (subtitulo) doc.fontSize(9).fillColor('#64748b').text(subtitulo, { align: 'center' });
+  doc.fontSize(8).fillColor('#94a3b8').text(`Generado el ${new Date().toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' })}`, { align: 'center' });
+  doc.moveDown(1.5);
+  return doc;
+}
+const seccionPDF = (doc, titulo) => { doc.moveDown(0.5); doc.fontSize(13).fillColor('#1e1b4b').text(titulo); doc.moveDown(0.3); doc.fontSize(10).fillColor('#334155'); };
+const lineaPDF = (doc, etiqueta, valor) => doc.text(`${etiqueta}: ${valor}`);
+
+/**
+ * GET /api/reportes/pdf/juridico
+ */
+router.get('/pdf/juridico', async (req, res) => {
+  const campanaId = req.usuario.campana_id;
+  const campanaRes = await query('SELECT nombre_candidato FROM campanas WHERE id=$1', [campanaId]);
+  const plazos = await query('SELECT * FROM calendario_electoral WHERE campana_id=$1 ORDER BY fecha', [campanaId]);
+  const quejas = await query('SELECT * FROM quejas_recursos WHERE campana_id=$1 ORDER BY creado_en DESC', [campanaId]);
+
+  const doc = iniciarPDF(res, 'reporte_juridico.pdf', 'Reporte Juridico de Campana', campanaRes.rows[0]?.nombre_candidato);
+
+  seccionPDF(doc, 'Calendario Electoral');
+  if (plazos.rows.length === 0) doc.text('Sin plazos registrados');
+  plazos.rows.forEach((p) => lineaPDF(doc, new Date(p.fecha).toLocaleDateString('es-MX'), `${p.titulo} (${p.cumplido ? 'Cumplido' : 'Pendiente'})`));
+
+  seccionPDF(doc, `Quejas y Recursos (${quejas.rows.length} en total)`);
+  if (quejas.rows.length === 0) doc.text('Sin quejas ni recursos registrados');
+  quejas.rows.forEach((q) => {
+    doc.font('Helvetica-Bold').text(`${q.tipo.toUpperCase()} ante ${q.autoridad.toUpperCase()} - ${q.estado}`);
+    doc.font('Helvetica').fontSize(9).text(q.descripcion, { indent: 15 });
+    doc.fontSize(10).moveDown(0.3);
+  });
+
+  doc.end();
+});
+
+/**
+ * GET /api/reportes/pdf/estructura
+ */
+router.get('/pdf/estructura', async (req, res) => {
+  const campanaId = req.usuario.campana_id;
+  const campanaRes = await query('SELECT nombre_candidato FROM campanas WHERE id=$1', [campanaId]);
+  const miembros = await query(
+    `SELECT nombre, rol, puesto, (SELECT COUNT(*) FROM usuarios h WHERE h.parent_id=u.id) as reportes_directos
+     FROM usuarios u WHERE u.campana_id=$1 AND u.activo != false ORDER BY
+     CASE rol WHEN 'candidato' THEN 1 WHEN 'jefe_campana' THEN 2 WHEN 'coord_general' THEN 3
+       WHEN 'coord_distrital' THEN 4 WHEN 'coord_municipal' THEN 5 WHEN 'coord_seccional' THEN 6 ELSE 7 END`,
+    [campanaId]
+  );
+  const porRol = await query('SELECT rol, COUNT(*) as total FROM usuarios WHERE campana_id=$1 AND activo != false GROUP BY rol', [campanaId]);
+
+  const doc = iniciarPDF(res, 'reporte_estructura.pdf', 'Reporte de Estructura de Campana', campanaRes.rows[0]?.nombre_candidato);
+
+  seccionPDF(doc, 'Resumen por Nivel');
+  porRol.rows.forEach((r) => lineaPDF(doc, r.rol, r.total));
+
+  seccionPDF(doc, `Directorio Completo (${miembros.rows.length} personas)`);
+  miembros.rows.forEach((m) => lineaPDF(doc, m.nombre, `${m.puesto || m.rol} - ${m.reportes_directos} a cargo`));
+
+  doc.end();
+});
+
+/**
+ * GET /api/reportes/pdf/incidencias
+ */
+router.get('/pdf/incidencias', async (req, res) => {
+  const campanaId = req.usuario.campana_id;
+  const campanaRes = await query('SELECT nombre_candidato FROM campanas WHERE id=$1', [campanaId]);
+  const incidencias = await query(
+    `SELECT i.*, s.numero as seccion_numero FROM incidencias i LEFT JOIN secciones s ON s.id=i.seccion_id
+     WHERE i.campana_id=$1 ORDER BY i.creado_en DESC`,
+    [campanaId]
+  );
+  const porTipo = await query('SELECT tipo, COUNT(*) as total FROM incidencias WHERE campana_id=$1 GROUP BY tipo', [campanaId]);
+
+  const doc = iniciarPDF(res, 'reporte_incidencias.pdf', 'Reporte de Incidencias de Campana', campanaRes.rows[0]?.nombre_candidato);
+
+  seccionPDF(doc, 'Resumen por Tipo');
+  porTipo.rows.forEach((r) => lineaPDF(doc, r.tipo, r.total));
+
+  seccionPDF(doc, `Detalle (${incidencias.rows.length} incidencias)`);
+  incidencias.rows.forEach((i) => {
+    doc.font('Helvetica-Bold').text(`${i.tipo} - ${i.urgencia} - ${i.estado}${i.seccion_numero ? ` (Seccion ${i.seccion_numero})` : ''}`);
+    doc.font('Helvetica').fontSize(9).text(i.descripcion, { indent: 15 });
+    doc.fontSize(10).moveDown(0.3);
+  });
+
+  doc.end();
+});
+
+/**
+ * GET /api/reportes/pdf/encuestas
+ */
+router.get('/pdf/encuestas', async (req, res) => {
+  const campanaId = req.usuario.campana_id;
+  const campanaRes = await query('SELECT nombre_candidato FROM campanas WHERE id=$1', [campanaId]);
+  const encuestas = await query(
+    `SELECT id, titulo, (SELECT COUNT(*) FROM encuesta_respuestas WHERE encuesta_id=encuestas.id) as total_respuestas
+     FROM encuestas WHERE campana_id=$1 ORDER BY creado_en DESC`,
+    [campanaId]
+  );
+  const porMunicipio = await query(
+    `SELECT m.nombre as municipio, COUNT(r.id) as total
+     FROM encuesta_respuestas r JOIN encuestas e ON e.id=r.encuesta_id
+     LEFT JOIN secciones s ON s.id=r.seccion_id LEFT JOIN municipios m ON m.id=s.municipio_id
+     WHERE e.campana_id=$1 AND m.nombre IS NOT NULL GROUP BY m.nombre ORDER BY total DESC`,
+    [campanaId]
+  );
+
+  const doc = iniciarPDF(res, 'reporte_encuestas.pdf', 'Reporte Concentrado de Encuestas', campanaRes.rows[0]?.nombre_candidato);
+
+  seccionPDF(doc, 'Encuestas Activas');
+  if (encuestas.rows.length === 0) doc.text('Sin encuestas registradas');
+  encuestas.rows.forEach((e) => lineaPDF(doc, e.titulo, `${e.total_respuestas} respuestas`));
+
+  seccionPDF(doc, 'Respuestas por Municipio');
+  if (porMunicipio.rows.length === 0) doc.text('Sin respuestas con ubicacion registrada todavia');
+  porMunicipio.rows.forEach((m) => lineaPDF(doc, m.municipio, m.total));
+
+  doc.end();
 });
 
 export default router;

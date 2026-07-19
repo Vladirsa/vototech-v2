@@ -43,15 +43,15 @@ router.get('/encuesta/:id', async (req, res) => {
 });
 
 router.post('/encuesta/:id/responder', async (req, res) => {
-  const { respuestas } = req.body;
+  const { respuestas, lat, lng } = req.body;
   if (!respuestas || typeof respuestas !== 'object') return res.status(400).json({ ok: false, error: 'Respuestas inválidas' });
   const encuesta = await query('SELECT id, activa FROM encuestas WHERE id=$1', [req.params.id]);
   if (!encuesta.rows[0]) return res.status(404).json({ ok: false, error: 'Encuesta no encontrada' });
   if (!encuesta.rows[0].activa) return res.status(403).json({ ok: false, error: 'Esta encuesta ya no está activa' });
 
   await query(
-    `INSERT INTO encuesta_respuestas (encuesta_id, respuestas, origen) VALUES ($1,$2,'enlace')`,
-    [req.params.id, JSON.stringify(respuestas)]
+    `INSERT INTO encuesta_respuestas (encuesta_id, respuestas, origen, lat, lng) VALUES ($1,$2,'enlace',$3,$4)`,
+    [req.params.id, JSON.stringify(respuestas), lat || null, lng || null]
   );
   res.status(201).json({ ok: true, mensaje: '¡Gracias por responder!' });
 });

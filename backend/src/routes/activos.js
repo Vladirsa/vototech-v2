@@ -7,6 +7,9 @@ const router = Router();
 router.use(requiereAuth);
 
 router.get('/', async (req, res) => {
+  const campanaRes = await query('SELECT fecha_inicio_campana_oficial FROM campanas WHERE id=$1', [req.usuario.campana_id]);
+  const fechaOficial = campanaRes.rows[0]?.fecha_inicio_campana_oficial;
+
   const resultado = await query(
     `SELECT a.*, s.numero as seccion_numero, u.nombre as registrado_por_nombre
      FROM activos a
@@ -15,7 +18,13 @@ router.get('/', async (req, res) => {
      WHERE a.campana_id = $1 ORDER BY a.creado_en DESC`,
     [req.usuario.campana_id]
   );
-  res.json({ ok: true, data: resultado.rows });
+
+  const filas = resultado.rows.map((a) => ({
+    ...a,
+    riesgo_acto_anticipado: !!(fechaOficial && ['barda', 'espectacular', 'manta'].includes(a.tipo) && a.fecha_ini && new Date(a.fecha_ini) < new Date(fechaOficial)),
+  }));
+
+  res.json({ ok: true, data: filas, fecha_inicio_campana_oficial: fechaOficial });
 });
 
 const esquemaActivo = z.object({
@@ -54,7 +63,21 @@ router.post('/', async (req, res) => {
      d.nombre_rep || null, d.telefono_rep || null, d.notas || null, d.cantidad || null, d.subtipo || null, req.usuario.sub]
   );
 
-  res.status(201).json({ ok: true, data: resultado.rows[0] });
+  // ── ALERTA LEGAL: acto anticipado de campaña ──
+  // El ITE de Tlaxcala está sancionando activamente esto (junio-julio
+  // 2026): bardas/espectaculares colocados ANTES del arranque oficial
+  // de campaña. No bloqueamos el registro (la decisión es del equipo
+  // jurídico), pero sí avisamos con toda claridad en el momento.
+  let alertaLegal = null;
+  if (['barda', 'espectacular', 'manta'].includes(d.tipo) && d.fecha_ini) {
+    const campanaRes = await query('SELECT fecha_inicio_campana_oficial FROM campanas WHERE id=$1', [req.usuario.campana_id]);
+    const fechaOficial = campanaRes.rows[0]?.fecha_inicio_campana_oficial;
+    if (fechaOficial && new Date(d.fecha_ini) < new Date(fechaOficial)) {
+      alertaLegal = `⚠️ Este ${d.tipo} tiene fecha de colocación (${d.fecha_ini}) ANTERIOR al inicio oficial de campaña (${fechaOficial.toISOString().slice(0, 10)}). El ITE ha sancionado casos similares por "actos anticipados de campaña" — consulta con tu equipo jurídico antes de continuar.`;
+    }
+  }
+
+  res.status(201).json({ ok: true, data: resultado.rows[0], alerta_legal: alertaLegal });
 });
 
 router.patch('/:id/estado', async (req, res) => {

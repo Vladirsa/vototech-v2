@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { query } from '../db/pool.js';
 import { requiereAuth } from '../middleware/auth.js';
 import { getIo } from '../io.js';
+import { enviarPushMasivo } from './push.js';
 
 const router = Router();
 router.use(requiereAuth);
@@ -63,6 +64,18 @@ router.post('/', async (req, res) => {
   // debe enterarse al instante, no cuando alguien recargue la pantalla.
   if (d.urgencia === 'urgente') {
     getIo().to(`campana:${req.usuario.campana_id}`).emit('incidencia_urgente', resultado.rows[0]);
+
+    // Push real a los altos mandos — esto SÍ debe llegar aunque tengan
+    // el celular bloqueado, es justo el tipo de aviso que no puede esperar.
+    const altosMando = await query(
+      `SELECT id FROM usuarios WHERE campana_id=$1 AND rol IN ('candidato','jefe_campana','coord_general')`,
+      [req.usuario.campana_id]
+    );
+    enviarPushMasivo(altosMando.rows.map((u) => u.id), {
+      titulo: '🚨 Incidencia urgente',
+      cuerpo: d.descripcion.slice(0, 100),
+      url: '/incidencias',
+    }).catch(() => {});
   }
 
   res.status(201).json({ ok: true, data: resultado.rows[0] });

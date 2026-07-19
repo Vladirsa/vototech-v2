@@ -13,7 +13,9 @@ import rateLimit from 'express-rate-limit';
 import jwt from 'jsonwebtoken';
 import { setIo } from './io.js';
 import { query } from './db/pool.js';
-import { correrSeed } from '../seed.js';
+import { requiereAuth } from './middleware/auth.js';
+import { requiereModulo } from './middleware/permisos.js';
+import { correrSeed, cargarHistorico2021 } from '../seed.js';
 
 import authRoutes from './routes/auth.js';
 import geoRoutes from './routes/geo.js';
@@ -41,6 +43,7 @@ import marketingRoutes from './routes/marketing.js';
 import encuestasRoutes from './routes/encuestas.js';
 import juridicoRoutes from './routes/juridico.js';
 import chatRoutes from './routes/chat.js';
+import pushRoutes, { enviarPush } from './routes/push.js';
 import adminRoutes from './routes/admin.js';
 
 const app = express();
@@ -72,12 +75,27 @@ app.use(express.json({ limit: '2mb' }));
 // Rate limiting general: máximo 300 peticiones por IP cada 15 min.
 // Esto es justo lo que nos hacía falta contra abuso/ataques de fuerza bruta,
 // y no se podía controlar bien en hosting compartido.
+// 300/15min (20/min) era demasiado bajo: protege contra ataques, pero
+// en el día de la elección varios representantes pueden compartir IP
+// (misma red WiFi, o el mismo operador celular con IP compartida —
+// muy común en México) y se bloqueaban entre ellos sin culpa. Subido
+// a un nivel que sigue frenando abuso real pero no golpea uso legítimo.
 const limiteGeneral = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 300,
+  max: 1500,
   message: { ok: false, error: 'Demasiadas peticiones, intenta de nuevo en unos minutos' },
 });
 app.use('/api/', limiteGeneral);
+
+// El día de la elección necesita su propio límite, más alto todavía,
+// porque ahí es exactamente cuando MÁS gente concurrente comparte red
+// y MÁS importa que nadie se quede bloqueado.
+const limiteDiaEleccion = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 3000,
+  message: { ok: false, error: 'Demasiadas peticiones, intenta de nuevo en unos minutos' },
+});
+app.use('/api/dia-eleccion/', limiteDiaEleccion);
 
 // Rate limiting MÁS estricto específicamente para login (previene fuerza bruta
 // de contraseñas — máximo 10 intentos cada 15 min por IP).
@@ -92,29 +110,30 @@ app.use('/api/auth/login', limiteLogin);
 app.use('/api/auth', authRoutes);
 app.use('/api/geo', geoRoutes);
 app.use('/api/resultados', resultadosRoutes);
-app.use('/api/promovidos', promovidosRoutes);
-app.use('/api/priorizacion', priorizacionRoutes);
-app.use('/api/estructura', estructuraRoutes);
-app.use('/api/reportes', reportesRoutes);
-app.use('/api/agenda', agendaRoutes);
-app.use('/api/codigos', codigosRoutes);
-app.use('/api/dia-eleccion', diaEleccionRoutes);
-app.use('/api/incidencias', incidenciasRoutes);
-app.use('/api/finanzas', finanzasRoutes);
+app.use('/api/promovidos', requiereAuth, requiereModulo('promovidos'), promovidosRoutes);
+app.use('/api/priorizacion', requiereAuth, requiereModulo('priorizacion'), priorizacionRoutes);
+app.use('/api/estructura', requiereAuth, requiereModulo('estructura'), estructuraRoutes);
+app.use('/api/reportes', requiereAuth, requiereModulo('reportes'), reportesRoutes);
+app.use('/api/agenda', requiereAuth, requiereModulo('agenda'), agendaRoutes);
+app.use('/api/codigos', requiereAuth, requiereModulo('estructura'), codigosRoutes);
+app.use('/api/dia-eleccion', requiereAuth, requiereModulo('dia-eleccion'), diaEleccionRoutes);
+app.use('/api/incidencias', requiereAuth, requiereModulo('incidencias'), incidenciasRoutes);
+app.use('/api/finanzas', requiereAuth, requiereModulo('finanzas'), finanzasRoutes);
 app.use('/api/ia', iaRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
 app.use('/api/casas', casasRoutes);
 app.use('/api/fotos', fotosRoutes);
 app.use('/api/exportar', exportarRoutes);
-app.use('/api/activos', activosRoutes);
+app.use('/api/activos', requiereAuth, requiereModulo('activos'), activosRoutes);
 app.use('/api/zonas', zonasRoutes);
 app.use('/api/dashboard', dashboardRoutes);
-app.use('/api/promovidos-analitica', promovidosAnaliticaRoutes);
+app.use('/api/promovidos-analitica', requiereAuth, requiereModulo('promovidos'), promovidosAnaliticaRoutes);
 app.use('/api/publico', publicoRoutes);
-app.use('/api/marketing', marketingRoutes);
-app.use('/api/encuestas', encuestasRoutes);
-app.use('/api/juridico', juridicoRoutes);
+app.use('/api/marketing', requiereAuth, requiereModulo('marketing'), marketingRoutes);
+app.use('/api/encuestas', requiereAuth, requiereModulo('promovidos'), encuestasRoutes);
+app.use('/api/juridico', requiereAuth, requiereModulo('juridico'), juridicoRoutes);
 app.use('/api/chat', chatRoutes);
+app.use('/api/push', pushRoutes);
 app.use('/api/admin', adminRoutes);
 
 app.get('/api/salud', (req, res) => {
@@ -201,8 +220,43 @@ httpServer.listen(PORT, async () => {
       await correrSeed();
     } else {
       console.log(`ℹ️  Datos ya cargados completamente el ${yaCompletado} — se omite la carga automática.`);
+      // El histórico 2021 se agregó DESPUÉS de que muchas campañas ya
+      // habían corrido la siembra original — se checa aparte, con su
+      // propia bandera, para no tener que re-sembrar todo desde cero.
+      await cargarHistorico2021();
     }
   } catch (e) {
     console.error('⚠️ No se pudo verificar/cargar datos automáticamente:', e.message);
   }
+
+  // ── Tarea diaria: avisar por push a campañas cerca de vencer ──
+  // Corre una vez al arrancar y luego cada 24h — nada elegante, pero
+  // funciona bien para un solo proceso siempre encendido como este.
+  const revisarVencimientos = async () => {
+    try {
+      const campanas = await query(
+        `SELECT id, nombre_candidato, fecha_vencimiento FROM campanas
+         WHERE es_demo=false AND fecha_vencimiento IS NOT NULL
+           AND fecha_vencimiento BETWEEN now() AND now() + interval '7 days'`
+      );
+      for (const c of campanas.rows) {
+        const dias = Math.ceil((new Date(c.fecha_vencimiento) - new Date()) / 86400000);
+        const responsables = await query(
+          `SELECT id FROM usuarios WHERE campana_id=$1 AND rol IN ('candidato','jefe_campana')`,
+          [c.id]
+        );
+        for (const r of responsables.rows) {
+          await enviarPush(r.id, {
+            titulo: '💳 Suscripción por vencer',
+            cuerpo: `Tu suscripción de VotoTech vence en ${dias} día(s). Contacta a soporte para renovar.`,
+            url: '/dashboard',
+          });
+        }
+      }
+    } catch (e) {
+      console.error('⚠️ Error revisando vencimientos:', e.message);
+    }
+  };
+  revisarVencimientos();
+  setInterval(revisarVencimientos, 24 * 60 * 60 * 1000);
 });

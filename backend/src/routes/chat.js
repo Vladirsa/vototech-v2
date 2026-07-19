@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { query } from '../db/pool.js';
 import { requiereAuth } from '../middleware/auth.js';
 import { getIo } from '../io.js';
+import { enviarPush } from './push.js';
 
 const router = Router();
 router.use(requiereAuth);
@@ -73,6 +74,16 @@ router.post('/:canal', async (req, res) => {
   };
 
   getIo().to(`campana:${req.usuario.campana_id}`).emit('chat_mensaje', mensajeCompleto);
+
+  // Push real SOLO en mensajes directos — en canales grupales (General,
+  // Coordinadores) mandaríamos demasiadas notificaciones y la gente
+  // terminaría apagándolas todas, incluyendo las que sí importan.
+  if (canal.startsWith('dm-')) {
+    const [, idA, idB] = canal.match(/^dm-([0-9a-f-]{36})-([0-9a-f-]{36})$/);
+    const destinatarioId = idA === req.usuario.sub ? idB : idA;
+    enviarPush(destinatarioId, { titulo: `💬 ${req.usuario.nombre}`, cuerpo: texto.trim(), url: '/dashboard' }).catch(() => {});
+  }
+
   res.status(201).json({ ok: true, data: mensajeCompleto });
 });
 

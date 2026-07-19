@@ -168,12 +168,187 @@ export async function crearDemo(opciones = {}) {
      VALUES ($1,'irregularidad','media','Propaganda de otro candidato colocada fuera del perímetro permitido cerca de la casilla',$2,$3)`,
     [campanaId, seccEj.rows[0]?.id, jefeId]
   );
+  // Más incidencias variadas — para que el módulo se vea con actividad real
+  const incidenciasExtra = [
+    { tipo: 'compra_votos', urgencia: 'urgente', desc: 'Reporte de entrega de despensas condicionadas al voto en la colonia' },
+    { tipo: 'violencia', urgencia: 'alta', desc: 'Altercado entre simpatizantes de distintos partidos durante recorrido' },
+    { tipo: 'logistica', urgencia: 'baja', desc: 'Falta material de identificación para representantes de casilla' },
+    { tipo: 'representante', urgencia: 'media', desc: 'Representante de casilla no se presentó, se buscó reemplazo' },
+  ];
+  for (const inc of incidenciasExtra) {
+    const secc = secciones[Math.floor(Math.random() * secciones.length)];
+    const s = await query('SELECT id FROM secciones WHERE estado_id=29 AND numero=$1', [secc]);
+    await query(
+      `INSERT INTO incidencias (campana_id, tipo, urgencia, descripcion, seccion_id, reportado_por) VALUES ($1,$2,$3,$4,$5,$6)`,
+      [campanaId, inc.tipo, inc.urgencia, inc.desc, s.rows[0]?.id, promotorIds[Math.floor(Math.random() * promotorIds.length)]]
+    );
+  }
+
   await query(
     `INSERT INTO gastos_campana (campana_id, categoria, descripcion, monto, fecha, proveedor, forma_pago, registrado_por)
      VALUES ($1,'eventos','Renta de equipo de sonido para mitin de arranque',18500,CURRENT_DATE,'Sonido Profesional Tlaxcala','transferencia',$2)`,
     [campanaId, jefeId]
   );
-  console.log('✅ 1 incidencia y 1 gasto de ejemplo (Control Financiero)');
+  // Más gastos variados en distintas categorías, para que Finanzas se
+  // vea con historial real y el % del tope OPLE tenga sentido
+  const gastosExtra = [
+    { cat: 'propaganda_impresa', desc: 'Impresión de 5,000 volantes', monto: 4200, prov: 'Imprenta Rápida Tlax' },
+    { cat: 'espectaculares', desc: 'Renta de espectacular en carretera federal', monto: 22000, prov: 'Publicidad Exterior del Centro' },
+    { cat: 'transporte', desc: 'Combustible y viáticos equipo de campo', monto: 8600, prov: 'Gasolinera Apizaco' },
+    { cat: 'tecnologia', desc: 'Suscripción mensual VotoTech', monto: 2500, prov: 'VotoTech' },
+    { cat: 'personal', desc: 'Pago quincenal de coordinadores de campo', monto: 15000, prov: 'Nómina interna' },
+    { cat: 'publicidad_digital', desc: 'Campaña de anuncios en redes sociales', monto: 6800, prov: 'Meta Ads' },
+  ];
+  for (const g of gastosExtra) {
+    const diasAtras = Math.floor(Math.random() * 20);
+    await query(
+      `INSERT INTO gastos_campana (campana_id, categoria, descripcion, monto, fecha, proveedor, forma_pago, registrado_por)
+       VALUES ($1,$2,$3,$4,CURRENT_DATE - $5::int,$6,'transferencia',$7)`,
+      [campanaId, g.cat, g.desc, g.monto, diasAtras, g.prov, jefeId]
+    );
+  }
+  console.log('✅ 5 incidencias y 7 gastos de ejemplo (Control Financiero)');
+
+  // 7. Activos de campaña — bardas, espectaculares, mantas, representantes,
+  // repartidos en secciones reales, con fechas DESPUÉS del inicio oficial
+  // (para no disparar la alerta legal en la demo misma)
+  const activosEjemplo = [
+    { tipo: 'barda', direccion: 'Av. Juárez esq. Hidalgo', empresa: 'Pintores Unidos Tlax', costo: 3500 },
+    { tipo: 'barda', direccion: 'Calle Morelos #45', empresa: 'Pintores Unidos Tlax', costo: 2800 },
+    { tipo: 'barda', direccion: 'Carretera a San Luis Teolocholco km 2', empresa: 'Publicidad Rural', costo: 4200 },
+    { tipo: 'espectacular', direccion: 'Carretera Federal México-Tlaxcala km 18', empresa: 'Publicidad Exterior del Centro', costo: 22000 },
+    { tipo: 'espectacular', direccion: 'Entrada norte de Apizaco', empresa: 'Publicidad Exterior del Centro', costo: 19500 },
+    { tipo: 'manta', direccion: 'Puente peatonal Av. Revolución', empresa: 'Lonas y Mantas Express', costo: 1200 },
+    { tipo: 'manta', direccion: 'Plaza principal', empresa: 'Lonas y Mantas Express', costo: 950 },
+    { tipo: 'utilitario', direccion: 'Bodega de campaña', empresa: 'Playeras y Gorras Tlax', costo: 15000, subtipo: 'playeras', cantidad: 500 },
+    { tipo: 'utilitario', direccion: 'Bodega de campaña', empresa: 'Playeras y Gorras Tlax', costo: 6000, subtipo: 'gorras', cantidad: 300 },
+  ];
+  for (const a of activosEjemplo) {
+    const secc = secciones[Math.floor(Math.random() * secciones.length)];
+    const s = await query('SELECT id FROM secciones WHERE estado_id=29 AND numero=$1', [secc]);
+    const diasAtras = 5 + Math.floor(Math.random() * 15);
+    await query(
+      `INSERT INTO activos (campana_id, tipo, seccion_id, direccion, empresa, costo, fecha_ini, subtipo, cantidad, registrado_por)
+       VALUES ($1,$2,$3,$4,$5,$6,CURRENT_DATE - $7::int,$8,$9,$10)`,
+      [campanaId, a.tipo, s.rows[0]?.id, a.direccion, a.empresa, a.costo, diasAtras, a.subtipo || null, a.cantidad || null, jefeId]
+    );
+  }
+  // 4 representantes ante casilla, ligados a secciones reales
+  const nombresRep = ['Juan Pablo Sánchez', 'María Fernanda López', 'Óscar Iván Torres', 'Guadalupe Hernández'];
+  for (let i = 0; i < 4; i++) {
+    const secc = secciones[i];
+    const s = await query('SELECT id FROM secciones WHERE estado_id=29 AND numero=$1', [secc]);
+    await query(
+      `INSERT INTO activos (campana_id, tipo, seccion_id, nombre_rep, telefono_rep, registrado_por)
+       VALUES ($1,'ine_representante',$2,$3,$4,$5)`,
+      [campanaId, s.rows[0]?.id, nombresRep[i], `246${2000000 + i * 11}`, jefeId]
+    );
+  }
+  console.log('✅ 13 activos de campaña (bardas, espectaculares, mantas, utilitarios, representantes)');
+
+  // 8. Casillas registradas con ubicación, algunas con representante
+  // confirmado — para que Día de la Elección se vea listo para operar
+  for (let i = 0; i < 6; i++) {
+    const secc = secciones[i % secciones.length];
+    const s = await query('SELECT id, numero FROM secciones WHERE estado_id=29 AND numero=$1', [secc]);
+    if (!s.rows[0]) continue;
+    await query(
+      `INSERT INTO casillas (campana_id, seccion_id, numero, representante_id, confirmado_asistencia)
+       VALUES ($1,$2,$3,$4,$5) ON CONFLICT (campana_id, seccion_id, numero) DO NOTHING`,
+      [campanaId, s.rows[0].id, 'B', promotorIds[i % promotorIds.length], i < 4] // las primeras 4 confirmadas, 2 pendientes
+    );
+  }
+  console.log('✅ 6 casillas registradas (4 con representante confirmado, 2 pendientes — así se ve el Prep de Día D funcionando)');
+
+  // 9. Una encuesta de ejemplo con varias respuestas, algunas con ubicación
+  const encuestaDemo = await query(
+    `INSERT INTO encuestas (campana_id, titulo, descripcion, creado_por)
+     VALUES ($1,'Prioridades de la comunidad','Encuesta rápida aplicada en campo por los promotores',$2) RETURNING id`,
+    [campanaId, jefeId]
+  );
+  const preguntaOpcion = await query(
+    `INSERT INTO encuesta_preguntas (encuesta_id, tipo, texto, opciones, orden)
+     VALUES ($1,'opcion_multiple','¿Qué es lo más urgente que necesita su comunidad?',$2,0) RETURNING id`,
+    [encuestaDemo.rows[0].id, JSON.stringify(['Agua potable', 'Seguridad', 'Empleo', 'Pavimentación', 'Alumbrado público'])]
+  );
+  const preguntaAbierta = await query(
+    `INSERT INTO encuesta_preguntas (encuesta_id, tipo, texto, orden) VALUES ($1,'abierta','Si usted fuera candidato, ¿qué haría primero en su gestión?',1) RETURNING id`,
+    [encuestaDemo.rows[0].id]
+  );
+  const opcionesEncuesta = ['Agua potable', 'Seguridad', 'Empleo', 'Pavimentación', 'Alumbrado público'];
+  const respuestasAbiertas = ['Arreglar las calles principales', 'Más policías en las noches', 'Apoyo a comerciantes locales', 'Mejorar el drenaje', 'Programas para jóvenes'];
+  for (let i = 0; i < 18; i++) {
+    const secc = secciones[i % secciones.length];
+    const s = await query('SELECT id, numero FROM secciones WHERE estado_id=29 AND numero=$1', [secc]);
+    await query(
+      `INSERT INTO encuesta_respuestas (encuesta_id, respuestas, origen, seccion_id, capturado_por)
+       VALUES ($1,$2,'campo',$3,$4)`,
+      [encuestaDemo.rows[0].id, JSON.stringify({
+        [preguntaOpcion.rows[0].id]: opcionesEncuesta[i % opcionesEncuesta.length],
+        [preguntaAbierta.rows[0].id]: respuestasAbiertas[i % respuestasAbiertas.length],
+      }), s.rows[0]?.id, promotorIds[i % promotorIds.length]]
+    );
+  }
+  console.log('✅ 1 encuesta con 18 respuestas de ejemplo (con ubicación para la capa del mapa)');
+
+  // 10. Calendario electoral y una queja resuelta — para que Jurídico
+  // no se vea vacío en la primera visita
+  const plazos = [
+    { titulo: 'Inicio oficial de campaña', tipo: 'plazo_ite', dias: -10 },
+    { titulo: 'Fecha límite de fiscalización mensual', tipo: 'plazo_ine', dias: 12 },
+    { titulo: 'Veda electoral', tipo: 'veda', dias: 85 },
+    { titulo: 'Jornada electoral', tipo: 'otro', dias: 90 },
+  ];
+  for (const pl of plazos) {
+    await query(
+      `INSERT INTO calendario_electoral (campana_id, titulo, tipo, fecha, cumplido) VALUES ($1,$2,$3,CURRENT_DATE + $4::int, $5)`,
+      [campanaId, pl.titulo, pl.tipo, pl.dias, pl.dias < 0]
+    );
+  }
+  await query(
+    `INSERT INTO quejas_recursos (campana_id, tipo, autoridad, numero_expediente, descripcion, estado, fecha_presentacion, resultado, creado_por)
+     VALUES ($1,'queja','ite','ITE-Q-045/2027','Colocación de propaganda de oposición en equipamiento urbano no autorizado','resuelta',CURRENT_DATE - 8,'Se ordenó el retiro de la propaganda en 48 horas, cumplido por la parte denunciada',$2)`,
+    [campanaId, jefeId]
+  );
+  // También actualiza la fecha oficial de inicio de campaña de la
+  // propia campaña demo, para que la alerta legal de Activos tenga
+  // con qué compararse desde el primer momento
+  await query(`UPDATE campanas SET fecha_inicio_campana_oficial = CURRENT_DATE - 10 WHERE id=$1`, [campanaId]);
+  console.log('✅ Calendario electoral (4 plazos) y 1 queja resuelta ante el ITE');
+
+  // 11. Chat interno con mensajes de ejemplo en General
+  const mensajesChat = [
+    { autor: jefeId, texto: '¡Buenos días equipo! Hoy toca recorrido en la zona norte, nos vemos a las 9am en la oficina.' },
+    { autor: coordSano.rows[0].id, texto: 'Confirmado, ya tengo a los 8 promotores listos.' },
+    { autor: jefeId, texto: 'Perfecto. No olviden llevar el material nuevo de playeras.' },
+    { autor: promotorIds[0], texto: 'Ya llegamos a la zona, empezamos el recorrido 👍' },
+  ];
+  for (const m of mensajesChat) {
+    await query(`INSERT INTO chat_mensajes (campana_id, canal, autor_id, texto) VALUES ($1,'general',$2,$3)`, [campanaId, m.autor, m.texto]);
+  }
+  console.log('✅ 4 mensajes de ejemplo en el Chat interno');
+
+  // 12. Un anuncio interno fijado en Agenda
+  await query(
+    `INSERT INTO anuncios (campana_id, titulo, mensaje, importante, creado_por)
+     VALUES ($1,'Recordatorio: junta general el viernes','Todos los coordinadores deben asistir a la junta general de campaña este viernes a las 6pm en la oficina central.',true,$2)`,
+    [campanaId, jefeId]
+  );
+  console.log('✅ 1 anuncio interno fijado');
+
+  // 13. Más eventos de agenda ya realizados (para ver historial, no solo futuro)
+  const eventosPasados = [
+    { titulo: 'Reunión de arranque de campaña', tipo: 'reunion', dias: -12, lugar: 'Oficina central' },
+    { titulo: 'Recorrido zona centro', tipo: 'recorrido', dias: -6, lugar: 'Centro de Apizaco' },
+  ];
+  for (const e of eventosPasados) {
+    const fecha = new Date(Date.now() + e.dias * 86400000).toISOString();
+    await query(
+      `INSERT INTO agenda (campana_id, titulo, tipo, fecha_inicio, lugar, creado_por, realizado) VALUES ($1,$2,$3,$4,$5,$6,true)`,
+      [campanaId, e.titulo, e.tipo, fecha, e.lugar, jefeId]
+    );
+  }
+  console.log('✅ 2 eventos pasados marcados como realizados');
 
   console.log('\n🎉 Cuenta DEMO lista.\n');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');

@@ -35,7 +35,8 @@ router.get('/codigos-acceso', async (req, res) => {
  */
 router.get('/campanas', async (req, res) => {
   const resultado = await query(
-    `SELECT c.*, COUNT(u.id) as total_usuarios, MAX(u.ultimo_acceso) as ultimo_acceso
+    `SELECT c.*, COUNT(u.id) as total_usuarios, MAX(u.ultimo_acceso) as ultimo_acceso,
+            (SELECT telefono FROM usuarios WHERE campana_id=c.id AND rol='candidato' LIMIT 1) as telefono_candidato
      FROM campanas c LEFT JOIN usuarios u ON u.campana_id = c.id
      GROUP BY c.id ORDER BY c.creado_en DESC`
   );
@@ -58,6 +59,10 @@ router.patch('/campanas/:id/aprobar', async (req, res) => {
      WHERE id=$1 RETURNING *`,
     [req.params.id]
   );
+  if (resultado.rows[0]) {
+    await query(`INSERT INTO admin_bitacora (campana_id, nombre_campana, accion, detalle) VALUES ($1,$2,'aprobada','1 mes de gracia otorgado')`,
+      [req.params.id, resultado.rows[0].nombre_candidato]);
+  }
   res.json({ ok: true, data: resultado.rows[0] });
 });
 
@@ -66,6 +71,10 @@ router.patch('/campanas/:id/rechazar', async (req, res) => {
     `UPDATE campanas SET estado_aprobacion='rechazada', activa=false WHERE id=$1 RETURNING *`,
     [req.params.id]
   );
+  if (resultado.rows[0]) {
+    await query(`INSERT INTO admin_bitacora (campana_id, nombre_campana, accion) VALUES ($1,$2,'rechazada')`,
+      [req.params.id, resultado.rows[0].nombre_candidato]);
+  }
   res.json({ ok: true, data: resultado.rows[0] });
 });
 
@@ -153,6 +162,8 @@ router.patch('/campanas/:id/renovar', async (req, res) => {
     [meses, req.params.id]
   );
   if (!resultado.rows[0]) return res.status(404).json({ ok: false, error: 'No encontrada' });
+  await query(`INSERT INTO admin_bitacora (campana_id, nombre_campana, accion, detalle) VALUES ($1,$2,'renovada',$3)`,
+    [req.params.id, resultado.rows[0].nombre_candidato, `+${meses} mes(es)`]);
   res.json({ ok: true, data: resultado.rows[0] });
 });
 
@@ -166,11 +177,23 @@ router.delete('/campanas/:id', async (req, res) => {
   try {
     const resultado = await query('DELETE FROM campanas WHERE id=$1 RETURNING nombre_candidato', [req.params.id]);
     if (!resultado.rows[0]) return res.status(404).json({ ok: false, error: 'No encontrada' });
+    // campana_id queda NULL (la campaña ya no existe) pero el nombre se
+    // conserva — así la bitácora sigue teniendo sentido después de borrar.
+    await query(`INSERT INTO admin_bitacora (nombre_campana, accion) VALUES ($1,'borrada')`, [resultado.rows[0].nombre_candidato]);
     res.json({ ok: true, mensaje: `Campaña de ${resultado.rows[0].nombre_candidato} eliminada por completo` });
   } catch (e) {
     console.error('Error borrando campaña:', e);
     res.status(500).json({ ok: false, error: 'No se pudo borrar la campaña. Puede tener datos relacionados que lo impiden.' });
   }
+});
+
+/**
+ * GET /api/admin/bitacora
+ * Historial de qué se aprobó, rechazó, renovó o borró, y cuándo.
+ */
+router.get('/bitacora', async (req, res) => {
+  const resultado = await query('SELECT * FROM admin_bitacora ORDER BY creado_en DESC LIMIT 100');
+  res.json({ ok: true, data: resultado.rows });
 });
 
 /**

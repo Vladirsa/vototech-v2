@@ -104,4 +104,21 @@ router.get('/resumen', async (req, res) => {
   });
 });
 
+/**
+ * GET/PATCH /api/juridico/fecha-inicio-campana
+ * La fecha LEGAL de arranque de campaña — base de la alerta de
+ * "acto anticipado" en Activos. La captura manual el equipo jurídico,
+ * porque viene del convenio/registro ante el ITE, no de un cálculo.
+ */
+router.get('/fecha-inicio-campana', async (req, res) => {
+  const resultado = await query('SELECT fecha_inicio_campana_oficial FROM campanas WHERE id=$1', [req.usuario.campana_id]);
+  res.json({ ok: true, data: resultado.rows[0] });
+});
+
+router.patch('/fecha-inicio-campana', async (req, res) => {
+  const { fecha } = req.body;
+  await query('UPDATE campanas SET fecha_inicio_campana_oficial=$1 WHERE id=$2', [fecha || null, req.usuario.campana_id]);
+  res.json({ ok: true });
+});
+
 export default router;

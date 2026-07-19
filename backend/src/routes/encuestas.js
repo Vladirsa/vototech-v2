@@ -72,18 +72,38 @@ router.delete('/:id', async (req, res) => {
  * opcionalmente ligada a un promovido ya registrado.
  */
 router.post('/:id/responder', async (req, res) => {
-  const { respuestas, promovido_id } = req.body;
+  const { respuestas, promovido_id, lat, lng, seccion_numero } = req.body;
   if (!respuestas || typeof respuestas !== 'object') return res.status(400).json({ ok: false, error: 'Respuestas inválidas' });
 
   const encuesta = await query('SELECT id FROM encuestas WHERE id=$1 AND campana_id=$2', [req.params.id, req.usuario.campana_id]);
   if (!encuesta.rows[0]) return res.status(404).json({ ok: false, error: 'Encuesta no encontrada' });
 
+  let seccionId = null;
+  if (seccion_numero) {
+    const s = await query('SELECT id FROM secciones WHERE estado_id=29 AND numero=$1', [seccion_numero]);
+    seccionId = s.rows[0]?.id || null;
+  }
+
   const resultado = await query(
-    `INSERT INTO encuesta_respuestas (encuesta_id, promovido_id, respuestas, origen, capturado_por)
-     VALUES ($1,$2,$3,'campo',$4) RETURNING id`,
-    [req.params.id, promovido_id || null, JSON.stringify(respuestas), req.usuario.sub]
+    `INSERT INTO encuesta_respuestas (encuesta_id, promovido_id, respuestas, origen, capturado_por, lat, lng, seccion_id)
+     VALUES ($1,$2,$3,'campo',$4,$5,$6,$7) RETURNING id`,
+    [req.params.id, promovido_id || null, JSON.stringify(respuestas), req.usuario.sub, lat || null, lng || null, seccionId]
   );
   res.status(201).json({ ok: true, data: resultado.rows[0] });
+});
+
+/**
+ * GET /api/encuestas/:id/mapa
+ * Respuestas con ubicación real — para la capa nueva del mapa.
+ */
+router.get('/:id/mapa', async (req, res) => {
+  const resultado = await query(
+    `SELECT r.id, r.lat, r.lng, s.numero as seccion_numero, r.creado_en
+     FROM encuesta_respuestas r LEFT JOIN secciones s ON s.id = r.seccion_id
+     WHERE r.encuesta_id=$1 AND r.lat IS NOT NULL`,
+    [req.params.id]
+  );
+  res.json({ ok: true, data: resultado.rows });
 });
 
 /**
