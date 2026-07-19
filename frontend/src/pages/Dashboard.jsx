@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import api from '../lib/api';
+import api, { descargarArchivo } from '../lib/api';
 import { useAuth } from '../lib/authStore';
 
 const ROL_CORTO = { coord_general: 'Coord. General', coord_distrital: 'Coord. Distrital', coord_municipal: 'Coord. Municipal', coord_seccional: 'Coord. Seccional' };
@@ -39,8 +39,11 @@ export default function Dashboard() {
   const [d, setD] = useState(null);
   const [cargando, setCargando] = useState(true);
 
+  const [encuestasResumen, setEncuestasResumen] = useState(null);
+
   useEffect(() => {
     api.get('/dashboard/resumen').then((r) => { setD(r.data.data); setCargando(false); }).catch(() => setCargando(false));
+    api.get('/reportes/encuestas-resumen').then((r) => setEncuestasResumen(r.data.data)).catch(() => {});
   }, []);
 
   if (cargando || !d) {
@@ -247,6 +250,42 @@ export default function Dashboard() {
             <div className="text-3xl font-black text-emerald-400">{fmt(d.gasto_total)}</div>
             <p className="text-[10px] text-slate-500 mt-1">Incluye todos los gastos registrados en Finanzas</p>
             <Link to="/finanzas" className="text-[10px] font-bold text-indigo-400 block pt-2">Ver control financiero →</Link>
+          </div>
+        </div>
+
+        {/* 📋 Resumen de encuestas — concentrado por municipio/sección */}
+        {encuestasResumen && encuestasResumen.total_respuestas > 0 && (
+          <div className="bg-slate-900/60 border border-pink-800/30 rounded-xl p-4">
+            <h3 className="text-xs font-bold text-slate-400 uppercase mb-3">📋 Encuestas — concentrado</h3>
+            <div className="grid grid-cols-3 gap-2 mb-3">
+              <div className="text-center"><div className="text-lg font-black text-pink-400">{encuestasResumen.total_encuestas}</div><div className="text-[9px] text-slate-500">Encuestas</div></div>
+              <div className="text-center"><div className="text-lg font-black text-indigo-400">{encuestasResumen.total_respuestas}</div><div className="text-[9px] text-slate-500">Respuestas</div></div>
+              <div className="text-center"><div className="text-lg font-black text-emerald-400">{encuestasResumen.por_municipio.length}</div><div className="text-[9px] text-slate-500">Municipios con datos</div></div>
+            </div>
+            <Link to="/reportes" className="text-[10px] font-bold text-indigo-400">Ver concentrado completo →</Link>
+          </div>
+        )}
+
+        {/* 🔔 Notificaciones push */}
+        <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 flex items-center justify-between">
+          <div>
+            <h3 className="text-xs font-bold text-slate-400 uppercase">🔔 Notificaciones push</h3>
+            <p className="text-[10px] text-slate-500 mt-0.5">Mensajes directos, incidencias urgentes y avisos de vencimiento — llegan aunque tengas la app cerrada</p>
+          </div>
+          <button onClick={() => api.post('/push/prueba').then(() => alert('Si no te llegó nada, revisa que hayas dado permiso de notificaciones al navegador.'))}
+            className="px-3 py-2 rounded-lg bg-indigo-600 text-white text-xs font-bold flex-shrink-0">Probar</button>
+        </div>
+
+        {/* 📄 Reportes en PDF de cada módulo */}
+        <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+          <h3 className="text-xs font-bold text-slate-400 uppercase mb-3">📄 Descargar reportes en PDF</h3>
+          <div className="flex flex-wrap gap-2">
+            <button onClick={() => descargarArchivo('/reportes/cierre-campana-pdf', 'reporte_cierre_campana.pdf')} className="px-3 py-2 rounded-lg bg-red-700/40 text-red-300 text-xs font-bold">📄 Cierre de campaña</button>
+            <button onClick={() => descargarArchivo('/auth/mi-contrato-pdf', 'contrato_vototech.pdf')} className="px-3 py-2 rounded-lg bg-amber-700/40 text-amber-300 text-xs font-bold">📜 Mi contrato de servicio</button>
+            <button onClick={() => descargarArchivo('/reportes/pdf/juridico', 'reporte_juridico.pdf')} className="px-3 py-2 rounded-lg bg-slate-800 text-slate-300 text-xs font-bold">📄 Jurídico</button>
+            <button onClick={() => descargarArchivo('/reportes/pdf/estructura', 'reporte_estructura.pdf')} className="px-3 py-2 rounded-lg bg-slate-800 text-slate-300 text-xs font-bold">📄 Estructura</button>
+            <button onClick={() => descargarArchivo('/reportes/pdf/incidencias', 'reporte_incidencias.pdf')} className="px-3 py-2 rounded-lg bg-slate-800 text-slate-300 text-xs font-bold">📄 Incidencias</button>
+            <button onClick={() => descargarArchivo('/reportes/pdf/encuestas', 'reporte_encuestas.pdf')} className="px-3 py-2 rounded-lg bg-slate-800 text-slate-300 text-xs font-bold">📄 Encuestas</button>
           </div>
         </div>
       </div>

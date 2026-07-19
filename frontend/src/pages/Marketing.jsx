@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../lib/api';
 import AsistenteIA from '../components/AsistenteIA';
+import Ayuda from '../components/Ayuda';
 
 const CATEGORIA_ESTILO = {
   motivacional: { ic: '💪', color: 'text-emerald-400', bg: 'bg-emerald-500/10' },
@@ -183,6 +184,7 @@ function PanelNuevoEnvio({ onEnviado }) {
       <div className="flex gap-2">
         <button onClick={() => setModo('enlace')} className={`flex-1 py-2.5 rounded-lg text-xs font-bold ${modo === 'enlace' ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🆓 Modo gratis (enlaces)</button>
         <button onClick={() => setModo('twilio')} className={`flex-1 py-2.5 rounded-lg text-xs font-bold ${modo === 'twilio' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>⚡ Automático (Twilio)</button>
+        <Ayuda posicion="abajo" texto="Gratis: arma la lista y tu equipo toca 'enviar' uno por uno desde su propio WhatsApp, sin costo. Automático: se manda solo desde números configurados en la pestaña Números, sin que nadie toque nada, pero tiene costo por mensaje." />
       </div>
 
       <div className="flex gap-2">

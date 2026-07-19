@@ -5,6 +5,7 @@ import BuscadorCalle from '../components/BuscadorCalle';
 import Papa from 'papaparse';
 import AnaliticaPromovidos from '../components/AnaliticaPromovidos';
 import TableroPromovidos from '../components/TableroPromovidos';
+import PanelEncuestas from '../components/PanelEncuestas';
 
 const CLASIFICACION_ESTILO = {
   base:        { color: 'text-emerald-400', bg: 'bg-emerald-500/10', label: '✅ Base' },
@@ -408,9 +409,14 @@ export default function Promovidos() {
             className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'analitica' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
             📊 Analítica
           </button>
+          <button onClick={() => setTab('encuestas')}
+            className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'encuestas' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
+            📋 Encuestas
+          </button>
         </div>
 
         {tab === 'analitica' && <AnaliticaPromovidos />}
+        {tab === 'encuestas' && <PanelEncuestas />}
 
         {tab === 'lista' && (
           <div className="flex gap-2">

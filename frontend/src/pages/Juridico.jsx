@@ -14,13 +14,20 @@ export default function Juridico() {
   const [mostrarFormQueja, setMostrarFormQueja] = useState(false);
   const [formPlazo, setFormPlazo] = useState({ titulo: '', tipo: 'plazo_ite', fecha: '', descripcion: '' });
   const [formQueja, setFormQueja] = useState({ tipo: 'queja', autoridad: 'ite', descripcion: '', numero_expediente: '' });
+  const [fechaInicioCampana, setFechaInicioCampana] = useState('');
 
   const cargar = () => {
     api.get('/juridico/resumen').then((r) => setResumen(r.data.data));
     api.get('/juridico/calendario').then((r) => setCalendario(r.data.data));
     api.get('/juridico/quejas').then((r) => setQuejas(r.data.data));
+    api.get('/juridico/fecha-inicio-campana').then((r) => setFechaInicioCampana(r.data.data?.fecha_inicio_campana_oficial?.slice(0, 10) || ''));
   };
   useEffect(cargar, []);
+
+  const guardarFechaInicioCampana = async (fecha) => {
+    setFechaInicioCampana(fecha);
+    await api.patch('/juridico/fecha-inicio-campana', { fecha });
+  };
 
   const guardarPlazo = async () => {
     await api.post('/juridico/calendario', formPlazo);
@@ -51,6 +58,17 @@ export default function Juridico() {
           <button onClick={() => setTab('resumen')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'resumen' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📊 Resumen</button>
           <button onClick={() => setTab('calendario')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'calendario' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📅 Calendario Electoral</button>
           <button onClick={() => setTab('quejas')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'quejas' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📄 Quejas y Recursos</button>
+        </div>
+
+        {/* Fecha oficial de inicio de campaña — base de la alerta legal en Activos */}
+        <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-4">
+          <h3 className="text-xs font-bold text-amber-300 uppercase mb-1">⚖️ Fecha oficial de inicio de campaña</h3>
+          <p className="text-[10px] text-slate-400 mb-2">
+            El ITE está sancionando activamente "actos anticipados de campaña" en Tlaxcala (bardas y espectaculares colocados antes de tiempo).
+            Con esta fecha, el módulo de Activos te avisa automáticamente si algo se registró antes de lo permitido.
+          </p>
+          <input type="date" value={fechaInicioCampana} onChange={(e) => guardarFechaInicioCampana(e.target.value)}
+            className="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
         </div>
 
         {tab === 'resumen' && resumen && (

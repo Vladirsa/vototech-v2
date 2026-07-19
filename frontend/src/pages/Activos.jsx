@@ -12,16 +12,17 @@ const TIPO_LABEL = {
 const ESTADO_COLOR = { activo: 'text-emerald-400 bg-emerald-500/10', vencido: 'text-red-400 bg-red-500/10', retirado: 'text-slate-500 bg-slate-500/10' };
 
 function ModalAgregarActivo({ onCerrar, onGuardado }) {
-  const [form, setForm] = useState({ tipo: 'espectacular', seccion_numero: '', direccion: '', empresa: '', costo: '', fecha_vence: '', nombre_rep: '', telefono_rep: '', lat: null, lng: null });
+  const [form, setForm] = useState({ tipo: 'espectacular', seccion_numero: '', direccion: '', empresa: '', costo: '', fecha_ini: '', fecha_vence: '', nombre_rep: '', telefono_rep: '', lat: null, lng: null });
   const [error, setError] = useState('');
 
   const guardar = async () => {
     try {
-      await api.post('/activos', {
+      const { data } = await api.post('/activos', {
         ...form,
         seccion_numero: form.seccion_numero ? parseInt(form.seccion_numero) : undefined,
         costo: form.costo ? parseFloat(form.costo) : undefined,
       });
+      if (data.alerta_legal) alert(data.alerta_legal); // el activo ya quedó guardado, esto solo informa
       onGuardado();
     } catch (err) { setError(err.response?.data?.error || 'Error al guardar'); }
   };
@@ -56,9 +57,17 @@ function ModalAgregarActivo({ onCerrar, onGuardado }) {
             <div className="flex gap-2">
               <input placeholder="Costo" type="number" value={form.costo} onChange={(e) => setForm({ ...form, costo: e.target.value })}
                 className="flex-1 px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
-              <input placeholder="Vence" type="date" value={form.fecha_vence} onChange={(e) => setForm({ ...form, fecha_vence: e.target.value })}
-                className="flex-1 px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+              <div className="flex-1">
+                <label className="text-[9px] text-slate-500">Fecha de colocación</label>
+                <input type="date" value={form.fecha_ini} onChange={(e) => setForm({ ...form, fecha_ini: e.target.value })}
+                  className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+              </div>
             </div>
+            {['barda', 'espectacular', 'manta'].includes(form.tipo) && (
+              <p className="text-[9px] text-amber-400">⚠️ Si se coloca antes del inicio oficial de campaña, el sistema te avisará al guardar (riesgo de "acto anticipado")</p>
+            )}
+            <input placeholder="Vence" type="date" value={form.fecha_vence} onChange={(e) => setForm({ ...form, fecha_vence: e.target.value })}
+              className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
           </>
         )}
 
@@ -120,6 +129,11 @@ export default function Activos() {
                 </div>
                 <span className={`text-[9px] font-bold px-2 py-1 rounded-full ${ESTADO_COLOR[a.estado]}`}>{a.estado}</span>
               </div>
+              {a.riesgo_acto_anticipado && (
+                <div className="mt-2 text-[9px] bg-red-500/10 text-red-400 rounded-lg px-2 py-1.5">
+                  ⚠️ Colocado antes del inicio oficial de campaña — riesgo de "acto anticipado", el ITE ha sancionado casos similares
+                </div>
+              )}
               <div className="flex gap-1.5 mt-2">
                 {a.estado !== 'activo' && <button onClick={() => cambiarEstado(a.id, 'activo')} className="text-[10px] text-emerald-400 font-bold">✅ Marcar activo</button>}
                 {a.estado !== 'vencido' && <button onClick={() => cambiarEstado(a.id, 'vencido')} className="text-[10px] text-amber-400 font-bold">⏰ Marcar vencido</button>}

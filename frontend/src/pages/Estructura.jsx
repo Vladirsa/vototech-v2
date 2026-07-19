@@ -1,7 +1,9 @@
 import { useEffect, useState, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../lib/api';
-import html2canvas from 'html2canvas';
+// html2canvas se importa DINÁMICAMENTE dentro de exportarImagen() —
+// es una librería pesada que solo hace falta si alguien de verdad
+// toca "Exportar imagen", no en cada visita a Estructura.
 import QRCode from 'react-qr-code';
 
 const SALUD_ESTILO = {
@@ -466,6 +468,7 @@ export default function Estructura() {
   const exportarImagen = async () => {
     if (!refOrganigrama.current) return;
     setExportando(true);
+    const { default: html2canvas } = await import('html2canvas'); // se descarga solo aquí, no en cada visita
     const canvas = await html2canvas(refOrganigrama.current, { backgroundColor: '#020617', scale: 2 });
     const enlace = document.createElement('a');
     enlace.download = `organigrama-${new Date().toISOString().slice(0, 10)}.png`;

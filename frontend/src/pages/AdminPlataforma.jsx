@@ -125,6 +125,12 @@ export default function AdminPlataforma() {
 
   const [reparando, setReparando] = useState(false);
   const [mensajeReparar, setMensajeReparar] = useState('');
+  const [bitacora, setBitacora] = useState([]);
+  const [mostrarBitacora, setMostrarBitacora] = useState(false);
+
+  useEffect(() => {
+    if (autenticado) axios.get(`${API_URL}/admin/bitacora`, { headers }).then((r) => setBitacora(r.data.data)).catch(() => {});
+  }, [autenticado]);
   const repararDatos = async () => {
     setReparando(true);
     setMensajeReparar('');
@@ -175,6 +181,27 @@ export default function AdminPlataforma() {
           </button>
         </div>
         {mensajeReparar && <div className="text-xs text-slate-300 bg-slate-900/50 rounded-lg p-2">{mensajeReparar}</div>}
+
+        <div>
+          <button onClick={() => setMostrarBitacora((v) => !v)} className="text-xs font-bold text-slate-400">
+            {mostrarBitacora ? '▼' : '▶'} 🕒 Bitácora de acciones ({bitacora.length})
+          </button>
+          {mostrarBitacora && (
+            <div className="mt-2 space-y-1 max-h-64 overflow-y-auto bg-slate-900/40 rounded-lg p-2">
+              {bitacora.length === 0 ? (
+                <div className="text-[10px] text-slate-500 text-center py-3">Sin acciones registradas todavía</div>
+              ) : bitacora.map((b) => {
+                const COLOR = { aprobada: 'text-emerald-400', rechazada: 'text-red-400', renovada: 'text-indigo-400', borrada: 'text-slate-500' };
+                return (
+                  <div key={b.id} className="text-[10px] text-slate-400 flex justify-between">
+                    <span><span className={`font-bold ${COLOR[b.accion]}`}>{b.accion}</span> · {b.nombre_campana}{b.detalle && ` (${b.detalle})`}</span>
+                    <span>{new Date(b.creado_en).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' })}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
 
         {/* Cuenta demo para presentaciones de venta — ahora personalizable */}
         <div className="bg-gradient-to-br from-purple-900/40 to-pink-900/40 border border-purple-700/30 rounded-xl p-4 space-y-2.5">
@@ -257,6 +284,13 @@ export default function AdminPlataforma() {
                       <span className={`text-[9px] font-bold ${vencida ? 'text-red-400' : diasParaVencer <= 5 ? 'text-amber-400' : 'text-emerald-400'}`}>
                         {vencida ? `💳 Vencida hace ${Math.abs(diasParaVencer)}d` : `💳 Vence en ${diasParaVencer}d`}
                       </span>
+                    )}
+                    {!c.es_demo && c.telefono_candidato && diasParaVencer <= 7 && (
+                      <a href={`https://wa.me/52${c.telefono_candidato.replace(/\D/g, '')}?text=${encodeURIComponent(
+                        vencida
+                          ? `Hola ${c.nombre_candidato}, tu suscripción de VotoTech venció hace ${Math.abs(diasParaVencer)} días. Contáctanos para renovar y no perder acceso a tu plataforma.`
+                          : `Hola ${c.nombre_candidato}, tu suscripción de VotoTech vence en ${diasParaVencer} días. Contáctanos para renovar a tiempo.`
+                      )}`} target="_blank" rel="noreferrer" className="text-[9px] font-bold text-emerald-400">📲 Recordar</a>
                     )}
                   </div>
                 </div>

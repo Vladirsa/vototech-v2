@@ -11,6 +11,13 @@ export default defineConfig({
     // con ícono propio, pantalla completa sin barra del navegador.
     VitePWA({
       registerType: 'autoUpdate',   // se actualiza sola cuando subimos versión nueva
+      // injectManifest en vez de generateSW: necesitamos un Service
+      // Worker propio (src/sw.js) para poder manejar notificaciones
+      // push reales — generateSW no permite agregar ese código.
+      strategies: 'injectManifest',
+      srcDir: 'src',
+      filename: 'sw.js',
+      injectManifest: { maximumFileSizeToCacheInBytes: 3 * 1024 * 1024 },
       includeAssets: ['favicon.svg'],
       manifest: {
         name: 'VotoTech - Gestión Electoral',
@@ -26,32 +33,6 @@ export default defineConfig({
           { src: '/pwa-512x512.png', sizes: '512x512', type: 'image/png' },
           { src: '/pwa-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
         ],
-      },
-      workbox: {
-        // LECCIÓN APRENDIDA DE LA V1: NetworkFirst, nunca CacheFirst.
-        // En la v1 (WordPress) el service worker con Cache First servía
-        // versiones viejas eternamente y nos costó días de confusión.
-        runtimeCaching: [
-          {
-            urlPattern: ({ url }) => url.pathname.startsWith('/api/geo/'),
-            // Los datos geográficos casi no cambian: cache con expiración
-            handler: 'CacheFirst',
-            options: {
-              cacheName: 'geo-cache',
-              expiration: { maxEntries: 50, maxAgeSeconds: 60 * 60 * 24 }, // 1 día
-            },
-          },
-          {
-            urlPattern: ({ url }) => url.pathname.startsWith('/api/'),
-            handler: 'NetworkFirst',   // datos vivos: siempre intenta red primero
-            options: {
-              cacheName: 'api-cache',
-              networkTimeoutSeconds: 5,
-              expiration: { maxEntries: 100, maxAgeSeconds: 60 * 60 }, // 1 hora de respaldo offline
-            },
-          },
-        ],
-        maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
       },
     }),
   ],

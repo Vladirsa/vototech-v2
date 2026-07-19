@@ -22,11 +22,12 @@ function detectarSubdominio() {
 export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [verPassword, setVerPassword] = useState(false);
   const [error, setError] = useState('');
   const [cargando, setCargando] = useState(false);
   const navigate = useNavigate();
   const iniciarSesion = useAuth((s) => s.iniciarSesion);
-  const [subdominio, setSubdominio] = useState(detectarSubdominio() || '');
+  const [subdominio, setSubdominio] = useState(detectarSubdominio() || localStorage.getItem('vototech_ultimo_subdominio') || '');
   const subdominioAutomatico = !!detectarSubdominio();
 
   const manejarSubmit = async (e) => {
@@ -36,6 +37,7 @@ export default function Login() {
     try {
       const { data } = await api.post('/auth/login', { subdominio, email, password });
       if (data.ok) {
+        localStorage.setItem('vototech_ultimo_subdominio', subdominio);
         iniciarSesion(data.token, data.usuario, subdominio);
         navigate('/mapa');
       }
@@ -70,8 +72,8 @@ export default function Login() {
             <div>
               <label className="block text-xs font-semibold text-slate-400 mb-1.5">Subdominio de tu campaña</label>
               <input
-                required value={subdominio} onChange={(e) => setSubdominio(e.target.value.toLowerCase().trim())}
-                className="w-full px-4 py-2.5 rounded-xl bg-slate-800/80 border border-slate-700 text-white text-sm focus:outline-none focus:border-indigo-500"
+                required autoFocus={!subdominio} disabled={cargando} value={subdominio} onChange={(e) => setSubdominio(e.target.value.toLowerCase().trim())}
+                className="w-full px-4 py-2.5 rounded-xl bg-slate-800/80 border border-slate-700 text-white text-sm focus:outline-none focus:border-indigo-500 disabled:opacity-50"
                 placeholder="ej: demo"
               />
               <p className="text-[10px] text-slate-500 mt-1">El identificador que elegiste al registrar tu campaña</p>
@@ -81,19 +83,25 @@ export default function Login() {
           <div>
             <label className="block text-xs font-semibold text-slate-400 mb-1.5">Correo electrónico</label>
             <input
-              type="email" required value={email} onChange={(e) => setEmail(e.target.value)}
-              className="w-full px-4 py-2.5 rounded-xl bg-slate-800/80 border border-slate-700 text-white text-sm focus:outline-none focus:border-indigo-500"
+              type="email" required autoFocus={!!subdominio} disabled={cargando} value={email} onChange={(e) => setEmail(e.target.value)}
+              className="w-full px-4 py-2.5 rounded-xl bg-slate-800/80 border border-slate-700 text-white text-sm focus:outline-none focus:border-indigo-500 disabled:opacity-50"
               placeholder="tucorreo@ejemplo.com"
             />
           </div>
 
           <div>
             <label className="block text-xs font-semibold text-slate-400 mb-1.5">Contraseña</label>
-            <input
-              type="password" required value={password} onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-4 py-2.5 rounded-xl bg-slate-800/80 border border-slate-700 text-white text-sm focus:outline-none focus:border-indigo-500"
-              placeholder="••••••••"
-            />
+            <div className="relative">
+              <input
+                type={verPassword ? 'text' : 'password'} required disabled={cargando} value={password} onChange={(e) => setPassword(e.target.value)}
+                className="w-full px-4 py-2.5 pr-10 rounded-xl bg-slate-800/80 border border-slate-700 text-white text-sm focus:outline-none focus:border-indigo-500 disabled:opacity-50"
+                placeholder="••••••••"
+              />
+              <button type="button" onClick={() => setVerPassword((v) => !v)} tabIndex={-1}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 text-sm">
+                {verPassword ? '🙈' : '👁️'}
+              </button>
+            </div>
           </div>
 
           <button

@@ -18,8 +18,21 @@ export default function EncuestaPublica() {
   }, [id]);
 
   const enviar = async () => {
+    // Ubicación OPCIONAL — si la persona da permiso, ayuda a ubicar de
+    // dónde vienen las respuestas en el mapa. Si no da permiso o falla,
+    // se manda la respuesta igual, sin bloquear nada.
+    const obtenerUbicacion = () => new Promise((resolve) => {
+      if (!navigator.geolocation) return resolve(null);
+      navigator.geolocation.getCurrentPosition(
+        (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+        () => resolve(null),
+        { timeout: 4000 }
+      );
+    });
+
+    const ubicacion = await obtenerUbicacion();
     try {
-      await axios.post(`${API_URL}/publico/encuesta/${id}/responder`, { respuestas });
+      await axios.post(`${API_URL}/publico/encuesta/${id}/responder`, { respuestas, ...ubicacion });
       setEstado('enviado');
     } catch (e) {
       setError(e.response?.data?.error || 'Error al enviar');

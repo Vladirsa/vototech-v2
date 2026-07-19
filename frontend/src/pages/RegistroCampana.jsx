@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import api from '../lib/api';
+import Ayuda from '../components/Ayuda';
 
 const TIPOS_ELECCION = [
   { id: 'ayuntamiento', label: '🏛️ Presidente Municipal', desc: 'Un municipio completo' },
@@ -16,7 +17,7 @@ export default function RegistroCampana() {
   const [form, setForm] = useState({
     nombre_candidato: '', email: '', password: '', partido: 'morena',
     tipo_eleccion: '', estado_id: 29, subdominio: '', codigo_acceso: '',
-    territorio_tipo: '', territorio_id: '',
+    territorio_tipo: '', territorio_id: '', acepta_terminos: false,
   });
   const [municipios, setMunicipios] = useState([]);
   const [error, setError] = useState('');
@@ -194,7 +195,9 @@ export default function RegistroCampana() {
           {paso === 4 && (
             <div className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-400 mb-1.5">Tu subdominio (dirección web)</label>
+                <label className="block text-xs font-semibold text-slate-400 mb-1.5">Tu subdominio (dirección web)
+                  <Ayuda texto="Es la palabra que usarás para entrar a tu sistema, por ejemplo si pones 'andrea2027' tu equipo entrará escribiendo eso al iniciar sesión. Elige algo corto y fácil de recordar para tu equipo." posicion="abajo" />
+                </label>
                 <div className="flex items-center rounded-xl bg-slate-800/80 border border-slate-700 overflow-hidden">
                   <input value={form.subdominio}
                     onChange={(e) => actualizar('subdominio', e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
@@ -203,9 +206,25 @@ export default function RegistroCampana() {
                 </div>
                 <p className="text-[10px] text-slate-500 mt-1.5">Podrás conectar tu propio dominio después</p>
               </div>
+
+              {/* Aviso legal y aceptación explícita — obligatorio antes de crear la campaña */}
+              <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 space-y-2">
+                <p className="text-[10px] text-amber-300 leading-relaxed">
+                  Este sistema está hecho con el fin de ayudar a la organización interna de tu campaña. La información capturada es utilizada con fines estadísticos y de organización territorial, conforme a los Términos y Condiciones y el Aviso de Privacidad.
+                </p>
+                <label className="flex items-start gap-2 text-[11px] text-slate-300 cursor-pointer">
+                  <input type="checkbox" checked={form.acepta_terminos} onChange={(e) => actualizar('acepta_terminos', e.target.checked)}
+                    className="mt-0.5" />
+                  <span>
+                    He leído y acepto los{' '}
+                    <a href="/terminos" target="_blank" rel="noreferrer" className="text-indigo-400 underline">Términos y Condiciones y el Aviso de Privacidad</a>
+                  </span>
+                </label>
+              </div>
+
               <div className="flex gap-2 pt-2">
                 <button onClick={() => setPaso(3)} className="flex-1 py-3 rounded-xl bg-slate-800 text-slate-300 font-bold text-sm">← Atrás</button>
-                <button onClick={enviar} disabled={cargando || form.subdominio.length < 3}
+                <button onClick={enviar} disabled={cargando || form.subdominio.length < 3 || !form.acepta_terminos}
                   className="flex-[2] py-3 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-bold text-sm disabled:opacity-40">
                   {cargando ? '⏳ Creando...' : '🚀 Crear mi campaña'}
                 </button>

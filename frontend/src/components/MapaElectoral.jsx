@@ -345,6 +345,29 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
   const [casillas, setCasillas] = useState([]);
   const [capaCasillas, setCapaCasillas] = useState(false);
 
+  // ── RESPUESTAS DE ENCUESTAS — dónde viene contestando la gente ──
+  const [encuestasDisponibles, setEncuestasDisponibles] = useState([]);
+  const [encuestaSeleccionada, setEncuestaSeleccionada] = useState('');
+  const [respuestasEncuesta, setRespuestasEncuesta] = useState([]);
+  const [capaEncuestas, setCapaEncuestas] = useState(false);
+
+  useEffect(() => {
+    if (!capaEncuestas) return;
+    api.get('/encuestas').then(r => {
+      setEncuestasDisponibles(r.data.data);
+      if (!encuestaSeleccionada && r.data.data[0]) setEncuestaSeleccionada(r.data.data[0].id);
+    });
+  }, [capaEncuestas]);
+
+  useEffect(() => {
+    if (!capaEncuestas || !encuestaSeleccionada) return;
+    api.get(`/encuestas/${encuestaSeleccionada}/mapa`).then(r => setRespuestasEncuesta(r.data.data)).catch(() => setRespuestasEncuesta([]));
+  }, [capaEncuestas, encuestaSeleccionada]);
+
+  const iconoRespuestaEncuesta = new L.DivIcon({
+    className: '', html: `<div style="font-size:16px;filter:drop-shadow(0 1px 2px rgba(0,0,0,.7))">📋</div>`, iconSize: [18, 18],
+  });
+
   useEffect(() => {
     api.get('/dia-eleccion/casillas').then(r => setCasillas(r.data.data.filter(c => c.lat && c.lng))).catch(() => setCasillas([]));
   }, []);
@@ -776,6 +799,18 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
           </Marker>
         ))}
 
+        {/* Respuestas de encuestas con ubicación */}
+        {capaEncuestas && respuestasEncuesta.map((r) => (
+          <Marker key={r.id} position={[r.lat, r.lng]} icon={iconoRespuestaEncuesta}>
+            <Popup>
+              <div style={{ fontSize: 12 }}>
+                📋 Respuesta {r.seccion_numero ? `· Sección ${r.seccion_numero}` : ''}<br />
+                <em style={{ fontSize: 10, color: '#888' }}>{new Date(r.creado_en).toLocaleDateString('es-MX')}</em>
+              </div>
+            </Popup>
+          </Marker>
+        ))}
+
         {/* Ubicación de casillas registradas */}
         {capaCasillas && casillas.map((c) => (
           <Marker key={c.id} position={[c.lat, c.lng]} icon={iconoCasilla(!!c.representante_id)}>
@@ -935,6 +970,16 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
             <input type="checkbox" checked={capaCasillas} onChange={e => setCapaCasillas(e.target.checked)} />
             🗳️ Ubicación de casillas ({casillas.length})
           </label>
+          <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+            <input type="checkbox" checked={capaEncuestas} onChange={e => setCapaEncuestas(e.target.checked)} />
+            📋 Respuestas de encuestas
+          </label>
+          {capaEncuestas && encuestasDisponibles.length > 0 && (
+            <select value={encuestaSeleccionada} onChange={(e) => setEncuestaSeleccionada(e.target.value)}
+              className="w-full px-2 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-[10px] ml-5" style={{ width: 'calc(100% - 20px)' }}>
+              {encuestasDisponibles.map((e) => <option key={e.id} value={e.id}>{e.titulo}</option>)}
+            </select>
+          )}
           <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer border-t border-slate-800 pt-2">
             <input type="checkbox" checked={capaPulso} onChange={e => setCapaPulso(e.target.checked)} />
             💓 Pulso de actividad (últimos 7 días)

@@ -22,6 +22,8 @@ export default function ChatFlotante() {
   const [conversacionActiva, setConversacionActiva] = useState('general');
   const [contactos, setContactos] = useState([]);
   const [enLinea, setEnLinea] = useState(new Set());
+  const [busquedaContacto, setBusquedaContacto] = useState('');
+  const [filtroJerarquia, setFiltroJerarquia] = useState('todos');
   const [mensajes, setMensajes] = useState([]);
   const [texto, setTexto] = useState('');
   const [noLeidos, setNoLeidos] = useState(0);
@@ -32,6 +34,11 @@ export default function ChatFlotante() {
   useEffect(() => {
     if (!usuario) return;
     api.get('/chat/contactos/lista').then((r) => setContactos(r.data.data)).catch(() => {});
+    // Pide permiso de notificaciones del navegador una sola vez, sin
+    // ser invasivo — si la persona lo niega, simplemente no insistimos.
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
   }, [usuario]);
 
   useEffect(() => {
@@ -44,16 +51,42 @@ export default function ChatFlotante() {
     usuarios_en_linea: (ids) => setEnLinea(new Set(ids)),
     chat_mensaje: (m) => {
       const esMio = m.autor_id === usuario?.id;
-      const estaViendoEstaConversacion = abierto && m.canal === conversacionActiva;
+      const conversacionEstaAbierta = abierto && m.canal === conversacionActiva;
 
-      if (estaViendoEstaConversacion) {
+      // El mensaje se agrega a la lista SIEMPRE que la conversación
+      // esté abierta, sin importar si la pestaña tiene el foco —
+      // si no, al volver se vería como si faltara ese mensaje.
+      if (conversacionEstaAbierta) {
         setMensajes((prev) => [...prev, m]);
-      } else if (!esMio) {
+      }
+
+      if (!esMio && !(conversacionEstaAbierta && document.hasFocus())) {
         setNoLeidos((n) => n + 1);
         setNoLeidosPorConversacion((prev) => ({ ...prev, [m.canal]: (prev[m.canal] || 0) + 1 }));
+
+        // Notificación real del sistema si la pestaña está en segundo
+        // plano o el chat cerrado — no hace falta tener VotoTech en
+        // primer plano para enterarse de un mensaje nuevo.
+        if ((document.hidden || !abierto) && 'Notification' in window && Notification.permission === 'granted') {
+          new Notification(`💬 ${m.autor_nombre}`, { body: m.texto, icon: '/pwa-192x192.png', tag: 'vototech-chat' });
+        }
       }
     },
   });
+
+  // Título de la pestaña parpadea con el conteo de no leídos —
+  // visible aunque el navegador esté minimizado o en otra ventana.
+  useEffect(() => {
+    const original = 'VotoTech';
+    if (noLeidos === 0) { document.title = original; return; }
+    let visible = true;
+    const intervalo = setInterval(() => {
+      if (document.hasFocus()) { document.title = original; return; } // ya volviste, deja de parpadear
+      document.title = visible ? `(${noLeidos > 9 ? '9+' : noLeidos}) 💬 Nuevo mensaje` : original;
+      visible = !visible;
+    }, 1200);
+    return () => { clearInterval(intervalo); document.title = original; };
+  }, [noLeidos]);
 
   useEffect(() => { finRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [mensajes]);
 
@@ -76,6 +109,16 @@ export default function ChatFlotante() {
   const contactoActivo = conversacionActiva.startsWith('dm-') ? contactos.find((c) => conversacionActiva === nombreCanalDM(usuario.id, c.id)) : null;
   const tituloConversacion = conversacionActiva === 'general' ? '🌐 General' : conversacionActiva === 'coordinadores' ? '⭐ Coordinadores' : contactoActivo ? `${ROL_ICONO[contactoActivo.rol] || '👤'} ${contactoActivo.nombre}` : '...';
 
+  const NIVELES_JERARQUIA = [
+    { id: 'todos', label: 'Todos' },
+    { id: 'direccion', label: 'Dirección', roles: ['candidato', 'jefe_campana', 'coord_general'] },
+    { id: 'coordinacion', label: 'Coordinadores', roles: ['coord_distrital', 'coord_municipal', 'coord_seccional'] },
+    { id: 'promotor', label: 'Promotores', roles: ['promotor'] },
+  ];
+  const contactosFiltrados = contactos
+    .filter((c) => filtroJerarquia === 'todos' || NIVELES_JERARQUIA.find((n) => n.id === filtroJerarquia)?.roles.includes(c.rol))
+    .filter((c) => !busquedaContacto || c.nombre.toLowerCase().includes(busquedaContacto.toLowerCase()));
+
   return (
     <>
       {!abierto && (
@@ -90,40 +133,50 @@ export default function ChatFlotante() {
       )}
 
       {abierto && (
-        <div className="fixed bottom-5 right-5 z-[3000] w-[380px] max-w-[95vw] h-[560px] max-h-[85vh] bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl flex overflow-hidden">
-          <div className="w-28 flex-shrink-0 bg-slate-950/60 border-r border-slate-800 overflow-y-auto">
-            <div className="p-1.5 space-y-1">
+        <div className="fixed bottom-5 right-5 z-[3000] w-[440px] max-w-[95vw] h-[580px] max-h-[85vh] bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl flex overflow-hidden">
+          <div className="w-40 flex-shrink-0 bg-slate-950/60 border-r border-slate-800 flex flex-col">
+            <div className="p-1.5 flex gap-1">
               <button onClick={() => setConversacionActiva('general')}
-                className={`w-full flex flex-col items-center gap-0.5 p-1.5 rounded-lg relative ${conversacionActiva === 'general' ? 'bg-indigo-600' : 'hover:bg-slate-800'}`}>
-                <span className="text-base">🌐</span>
-                <span className="text-[8px] text-slate-300 leading-tight">General</span>
-                {noLeidosPorConversacion['general'] > 0 && <span className="absolute top-0.5 right-1 w-2 h-2 rounded-full bg-red-500" />}
+                className={`flex-1 flex items-center justify-center gap-1 py-1.5 rounded-lg text-[9px] font-bold relative ${conversacionActiva === 'general' ? 'bg-indigo-600 text-white' : 'hover:bg-slate-800 text-slate-300'}`}>
+                🌐 General
+                {noLeidosPorConversacion['general'] > 0 && <span className="absolute top-0.5 right-0.5 w-2 h-2 rounded-full bg-red-500" />}
               </button>
               {!esPromotor && (
                 <button onClick={() => setConversacionActiva('coordinadores')}
-                  className={`w-full flex flex-col items-center gap-0.5 p-1.5 rounded-lg relative ${conversacionActiva === 'coordinadores' ? 'bg-indigo-600' : 'hover:bg-slate-800'}`}>
-                  <span className="text-base">⭐</span>
-                  <span className="text-[8px] text-slate-300 leading-tight">Coords.</span>
-                  {noLeidosPorConversacion['coordinadores'] > 0 && <span className="absolute top-0.5 right-1 w-2 h-2 rounded-full bg-red-500" />}
+                  className={`flex-1 flex items-center justify-center gap-1 py-1.5 rounded-lg text-[9px] font-bold relative ${conversacionActiva === 'coordinadores' ? 'bg-indigo-600 text-white' : 'hover:bg-slate-800 text-slate-300'}`}>
+                  ⭐ Coords.
+                  {noLeidosPorConversacion['coordinadores'] > 0 && <span className="absolute top-0.5 right-0.5 w-2 h-2 rounded-full bg-red-500" />}
                 </button>
               )}
             </div>
-            <div className="border-t border-slate-800 mt-1 pt-1 px-1.5 space-y-1">
-              <div className="text-[8px] font-bold text-slate-600 uppercase px-1">Personas</div>
-              {contactos.map((c) => {
+
+            {/* Buscador y filtro por jerarquía — antes era una lista larga
+                imposible de recorrer, ahora se puede acotar de un jalón */}
+            <div className="px-1.5 pb-1.5 space-y-1 border-b border-slate-800">
+              <input value={busquedaContacto} onChange={(e) => setBusquedaContacto(e.target.value)} placeholder="🔍 Buscar..."
+                className="w-full px-2 py-1 rounded-lg bg-slate-800 border border-slate-700 text-white text-[10px]" />
+              <select value={filtroJerarquia} onChange={(e) => setFiltroJerarquia(e.target.value)}
+                className="w-full px-1.5 py-1 rounded-lg bg-slate-800 border border-slate-700 text-white text-[9px]">
+                {NIVELES_JERARQUIA.map((n) => <option key={n.id} value={n.id}>{n.label}</option>)}
+              </select>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-1.5 py-1 space-y-0.5">
+              {contactosFiltrados.length === 0 ? (
+                <div className="text-[9px] text-slate-600 text-center py-4">Sin resultados</div>
+              ) : contactosFiltrados.map((c) => {
                 const canalDM = nombreCanalDM(usuario.id, c.id);
                 const activo = conversacionActiva === canalDM;
                 const conectado = enLinea.has(c.id);
                 return (
                   <button key={c.id} onClick={() => setConversacionActiva(canalDM)}
-                    className={`w-full flex flex-col items-center gap-0.5 p-1.5 rounded-lg relative ${activo ? 'bg-indigo-600' : 'hover:bg-slate-800'}`}
-                    title={c.nombre}>
-                    <div className="relative">
-                      <span className="text-base">{ROL_ICONO[c.rol] || '👤'}</span>
+                    className={`w-full flex items-center gap-1.5 px-1.5 py-1.5 rounded-lg relative text-left ${activo ? 'bg-indigo-600' : 'hover:bg-slate-800'}`}>
+                    <div className="relative flex-shrink-0">
+                      <span className="text-sm">{ROL_ICONO[c.rol] || '👤'}</span>
                       <span className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-slate-950 ${conectado ? 'bg-emerald-400' : 'bg-slate-600'}`} />
                     </div>
-                    <span className="text-[7px] text-slate-400 leading-tight truncate w-full text-center">{c.nombre.split(' ')[0]}</span>
-                    {noLeidosPorConversacion[canalDM] > 0 && <span className="absolute top-0.5 right-1 w-2 h-2 rounded-full bg-red-500" />}
+                    <span className={`text-[9px] leading-tight truncate flex-1 ${activo ? 'text-white font-bold' : 'text-slate-300'}`}>{c.nombre}</span>
+                    {noLeidosPorConversacion[canalDM] > 0 && <span className="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0" />}
                   </button>
                 );
               })}

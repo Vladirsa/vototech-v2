@@ -3,21 +3,35 @@ import { useAuth } from '../lib/authStore';
 import { useTema } from '../lib/temaStore';
 
 const MODULOS = [
-  { ruta: '/dashboard', ic: '⚡', label: 'Dashboard' },
-  { ruta: '/mapa', ic: '🗺️', label: 'Mapa' },
-  { ruta: '/promovidos', ic: '🤝', label: 'Promovidos' },
-  { ruta: '/reportes', ic: '📊', label: 'Reportes' },
-  { ruta: '/marketing', ic: '📢', label: 'Marketing' },
-  { ruta: '/juridico', ic: '⚖️', label: 'Jurídico' },
-  { ruta: '/encuestas', ic: '📋', label: 'Encuestas' },
-  { ruta: '/priorizacion', ic: '🎯', label: 'Priorización' },
-  { ruta: '/estructura', ic: '🗂️', label: 'Estructura' },
-  { ruta: '/agenda', ic: '📅', label: 'Agenda' },
-  { ruta: '/dia-eleccion', ic: '🗳️', label: 'Día D' },
-  { ruta: '/incidencias', ic: '🚨', label: 'Incidencias' },
-  { ruta: '/finanzas', ic: '💰', label: 'Finanzas' },
-  { ruta: '/activos', ic: '📺', label: 'Activos' },
+  { ruta: '/dashboard', ic: '⚡', label: 'Dashboard', clave: 'dashboard' },
+  { ruta: '/mapa', ic: '🗺️', label: 'Mapa', clave: 'mapa' },
+  { ruta: '/promovidos', ic: '🤝', label: 'Promovidos', clave: 'promovidos' },
+  { ruta: '/reportes', ic: '📊', label: 'Reportes', clave: 'reportes' },
+  { ruta: '/marketing', ic: '📢', label: 'Marketing', clave: 'marketing' },
+  { ruta: '/juridico', ic: '⚖️', label: 'Jurídico', clave: 'juridico' },
+  { ruta: '/priorizacion', ic: '🎯', label: 'Priorización', clave: 'priorizacion' },
+  { ruta: '/estructura', ic: '🗂️', label: 'Estructura', clave: 'estructura' },
+  { ruta: '/agenda', ic: '📅', label: 'Agenda', clave: 'agenda' },
+  { ruta: '/dia-eleccion', ic: '🗳️', label: 'Día D', clave: 'dia-eleccion' },
+  { ruta: '/incidencias', ic: '🚨', label: 'Incidencias', clave: 'incidencias' },
+  { ruta: '/finanzas', ic: '💰', label: 'Finanzas', clave: 'finanzas' },
+  { ruta: '/activos', ic: '📺', label: 'Activos', clave: 'activos' },
 ];
+
+// Qué módulos ve cada rol en el menú — candidato/jefe/coord_general ven
+// todo; conforme se baja de nivel, se ocultan los módulos más
+// estratégicos (Finanzas, Jurídico, Marketing, Reportes) para no
+// saturar ni exponer información que no le toca a ese nivel.
+const TODOS = MODULOS.map((m) => m.clave);
+const MODULOS_POR_ROL = {
+  candidato: TODOS,
+  jefe_campana: TODOS,
+  coord_general: TODOS,
+  coord_distrital: TODOS.filter((c) => !['finanzas', 'juridico'].includes(c)),
+  coord_municipal: TODOS.filter((c) => !['finanzas', 'juridico'].includes(c)),
+  coord_seccional: ['dashboard', 'mapa', 'promovidos', 'estructura', 'agenda', 'dia-eleccion', 'incidencias', 'activos'],
+  promotor: ['dashboard', 'mapa', 'promovidos', 'agenda', 'dia-eleccion', 'incidencias', 'activos'],
+};
 
 export default function NavBar() {
   const usuario = useAuth((s) => s.usuario);
@@ -26,6 +40,7 @@ export default function NavBar() {
   const navigate = useNavigate();
 
   const salir = () => { cerrarSesion(); navigate('/login'); };
+  const modulosVisibles = MODULOS.filter((m) => (MODULOS_POR_ROL[usuario?.rol] || TODOS).includes(m.clave));
 
   return (
     <nav className="sticky top-0 z-[2000] bg-slate-950/95 dark:bg-slate-950/95 backdrop-blur border-b border-slate-800 light:bg-white/95 light:border-slate-200 relative">
@@ -36,7 +51,7 @@ export default function NavBar() {
           <span className="text-xs font-black text-white hidden sm:inline">VotoTech</span>
         </div>
 
-        {MODULOS.map((m) => (
+        {modulosVisibles.map((m) => (
           <NavLink
             key={m.ruta}
             to={m.ruta}

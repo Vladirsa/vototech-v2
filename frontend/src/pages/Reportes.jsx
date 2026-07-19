@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api, { descargarArchivo } from '../lib/api';
+import Ayuda from '../components/Ayuda';
 
 const PARTIDOS_COLOR = {
   morena: '#8B0000', pan: '#003DA5', pri: '#006847', pvem: '#2D7D27',
@@ -22,6 +23,7 @@ export default function Reportes() {
   const [actividadResumen, setActividadResumen] = useState(null);
   const [actividadPromotores, setActividadPromotores] = useState([]);
   const [actividadSecciones, setActividadSecciones] = useState([]);
+  const [encuestasResumen, setEncuestasResumen] = useState(null);
   const [cargando, setCargando] = useState(true);
 
   useEffect(() => {
@@ -39,6 +41,7 @@ export default function Reportes() {
     api.get('/reportes/actividad-resumen').then((r) => setActividadResumen(r.data.data));
     api.get('/reportes/actividad-por-promotor').then((r) => setActividadPromotores(r.data.data));
     api.get('/reportes/actividad-por-seccion').then((r) => setActividadSecciones(r.data.data));
+    api.get('/reportes/encuestas-resumen').then((r) => setEncuestasResumen(r.data.data));
   }, []);
 
   const maxTendencia = Math.max(1, ...tendencia.map((t) => t.promovidos));
@@ -53,10 +56,24 @@ export default function Reportes() {
             <h1 className="text-2xl font-black text-white">📊 Reportes y Estadísticas</h1>
             <Link to="/dashboard" className="text-xs text-indigo-400">← Dashboard</Link>
           </div>
-          <button onClick={() => descargarArchivo('/exportar/promovidos', 'reporte_promovidos.xlsx')}
-            className="px-3 py-2.5 rounded-xl bg-emerald-700/50 text-emerald-300 text-sm font-bold">
-            📥 Exportar Excel
-          </button>
+          <div className="flex gap-2">
+            <button onClick={() => descargarArchivo('/exportar/promovidos', 'reporte_promovidos.xlsx')}
+              className="px-3 py-2.5 rounded-xl bg-emerald-700/50 text-emerald-300 text-sm font-bold">
+              📥 Excel
+            </button>
+            <button onClick={() => descargarArchivo('/reportes/cierre-campana-pdf', 'reporte_cierre_campana.pdf')}
+              className="px-3 py-2.5 rounded-xl bg-red-700/50 text-red-300 text-sm font-bold">
+              📄 Reporte de cierre (PDF)
+            </button>
+          </div>
+        </div>
+
+        {/* Descargas rápidas de PDF por módulo */}
+        <div className="flex gap-2 flex-wrap">
+          <button onClick={() => descargarArchivo('/reportes/pdf/juridico', 'reporte_juridico.pdf')} className="text-[10px] font-bold text-slate-400 hover:text-white bg-slate-800/60 px-2.5 py-1.5 rounded-lg">📄 Jurídico</button>
+          <button onClick={() => descargarArchivo('/reportes/pdf/estructura', 'reporte_estructura.pdf')} className="text-[10px] font-bold text-slate-400 hover:text-white bg-slate-800/60 px-2.5 py-1.5 rounded-lg">📄 Estructura</button>
+          <button onClick={() => descargarArchivo('/reportes/pdf/incidencias', 'reporte_incidencias.pdf')} className="text-[10px] font-bold text-slate-400 hover:text-white bg-slate-800/60 px-2.5 py-1.5 rounded-lg">📄 Incidencias</button>
+          <button onClick={() => descargarArchivo('/reportes/pdf/encuestas', 'reporte_encuestas.pdf')} className="text-[10px] font-bold text-slate-400 hover:text-white bg-slate-800/60 px-2.5 py-1.5 rounded-lg">📄 Encuestas</button>
         </div>
 
         <div className="flex gap-2">
@@ -65,6 +82,7 @@ export default function Reportes() {
           <button onClick={() => setTab('estadisticas')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'estadisticas' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🗺️ Análisis histórico</button>
           <button onClick={() => setTab('probabilidad')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'probabilidad' ? 'bg-purple-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🎲 Estadística y Probabilidad</button>
           <button onClick={() => setTab('actividad')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'actividad' ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🎯 Actividad de Campo</button>
+          <button onClick={() => setTab('encuestas')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'encuestas' ? 'bg-pink-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📋 Encuestas</button>
         </div>
 
         {tab === 'probabilidad' && probabilidad && (
@@ -75,7 +93,9 @@ export default function Reportes() {
 
             {/* Intervalo de confianza sobre promovidos */}
             <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
-              <h3 className="text-xs font-bold text-slate-400 uppercase mb-1">📏 Intervalo de confianza — % de tus promovidos que son tu partido</h3>
+              <h3 className="text-xs font-bold text-slate-400 uppercase mb-1">📏 Intervalo de confianza — % de tus promovidos que son tu partido
+                <Ayuda texto="Es un RANGO en vez de un solo número, porque con una muestra chica nunca podemos estar 100% seguros del valor exacto. Entre más gente contactada, más angosto (y confiable) se vuelve el rango." />
+              </h3>
               <p className="text-[10px] text-slate-500 mb-3">Método: Wilson score, 95% de confianza · muestra: {probabilidad.total_promovidos_muestra} promovidos con partido declarado</p>
               {probabilidad.intervalo_confianza.centro == null ? (
                 <div className="text-xs text-slate-500 text-center py-4">Aún no hay suficientes promovidos con partido declarado</div>
@@ -104,7 +124,9 @@ export default function Reportes() {
             ) : (
               <>
                 <div className="bg-gradient-to-br from-purple-950/60 to-indigo-950/40 border border-purple-800/30 rounded-xl p-5 text-center">
-                  <div className="text-[10px] font-bold text-purple-300 uppercase mb-1">🎲 Simulación Monte Carlo — {probabilidad.metodologia.corridas_simuladas.toLocaleString()} escenarios</div>
+                  <div className="text-[10px] font-bold text-purple-300 uppercase mb-1">🎲 Simulación Monte Carlo — {probabilidad.metodologia.corridas_simuladas.toLocaleString()} escenarios
+                    <Ayuda texto="Imagina que la elección se repite miles de veces con la incertidumbre real (¿y si sube el ánimo? ¿y si baja?). El % que ves es en cuántos de esos escenarios simulados ganas — no es una promesa, es una probabilidad." />
+                  </div>
                   <div className={`text-4xl font-black ${probabilidad.probabilidad_triunfo >= 50 ? 'text-emerald-400' : 'text-red-400'}`}>{probabilidad.probabilidad_triunfo}%</div>
                   <p className="text-[10px] text-slate-400 mt-1">de los escenarios simulados, ganas</p>
                   <div className="mt-3 text-[10px] text-left text-slate-300 bg-slate-900/50 rounded-lg px-3 py-2">💬 <strong>¿Qué significa esto?</strong> {probabilidad.interpretacion_probabilidad}</div>
@@ -124,7 +146,7 @@ export default function Reportes() {
                   <h3 className="text-xs font-bold text-slate-400 uppercase mb-2">🔬 Metodología (transparencia total)</h3>
                   <ul className="text-[10px] text-slate-400 space-y-1">
                     <li>• {probabilidad.metodologia.bootstrap_real
-                      ? `Bootstrap no paramétrico: se remuestreó de ${probabilidad.metodologia.secciones_usadas_bootstrap} secciones reales comparando Ayuntamiento vs Pdte. Comunidad 2024`
+                      ? `Bootstrap no paramétrico: se remuestreó de ${probabilidad.metodologia.secciones_usadas_bootstrap} secciones reales — ${probabilidad.metodologia.metodo_bootstrap_descripcion}`
                       : `Sin suficientes secciones comparables para bootstrap real — se usó un supuesto conservador de ±6% de volatilidad`}</li>
                     <li>• Promovidos "Base" actuales: {probabilidad.metodologia.promovidos_base_actuales}, proyectados a {probabilidad.metodologia.promovidos_base_proyectados_dia_d} para el día de la elección ({probabilidad.metodologia.dias_restantes} días restantes)</li>
                     <li>• Tasa de conversión de promovido a voto: simulada con incertidumbre (~60% ± 15%), no un valor fijo</li>
@@ -158,7 +180,9 @@ export default function Reportes() {
 
             {/* 📈 REGRESIÓN — cobertura de promotores vs promovidos generados */}
             <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
-              <h3 className="text-xs font-bold text-slate-400 uppercase mb-1">📈 Regresión: cobertura de promotores vs. promovidos generados</h3>
+              <h3 className="text-xs font-bold text-slate-400 uppercase mb-1">📈 Regresión: cobertura de promotores vs. promovidos generados
+                <Ayuda texto="Responde: ¿de verdad ayuda tener más promotores en una sección, o da igual? Si el número es alto, sí ayuda mucho. Si es bajo, probablemente importa más QUIÉN está ahí que CUÁNTOS son." />
+              </h3>
               <p className="text-[10px] text-slate-500 mb-3">Método: mínimos cuadrados ordinarios (paramétrica)</p>
               {!regresion ? (
                 <div className="text-xs text-slate-500 text-center py-4">⏳ Calculando...</div>
@@ -178,7 +202,9 @@ export default function Reportes() {
 
             {/* 🧪 PRUEBA DE HIPÓTESIS — ritmo actual vs necesario */}
             <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
-              <h3 className="text-xs font-bold text-slate-400 uppercase mb-1">🧪 Prueba de hipótesis: ¿tu ritmo actual alcanza?</h3>
+              <h3 className="text-xs font-bold text-slate-400 uppercase mb-1">🧪 Prueba de hipótesis: ¿tu ritmo actual alcanza?
+                <Ayuda texto="Compara qué tan rápido está avanzando tu equipo contra qué tan rápido NECESITA avanzar para llegar a la meta. Te dice si la diferencia es real (hay que preocuparse) o solo variación normal del día a día." />
+              </h3>
               <p className="text-[10px] text-slate-500 mb-3">Método: prueba t de una muestra (paramétrica), 14 días analizados</p>
               {!pruebaRitmo ? (
                 <div className="text-xs text-slate-500 text-center py-4">⏳ Calculando...</div>
@@ -503,6 +529,59 @@ export default function Reportes() {
                 </table>
               </div>
             )}
+          </div>
+        )}
+
+        {/* 📋 CONCENTRADO DE ENCUESTAS — por municipio y por sección */}
+        {tab === 'encuestas' && encuestasResumen && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+              <div className="bg-slate-900/60 border border-pink-800/40 rounded-xl p-3 text-center">
+                <div className="text-xl font-black text-pink-400">{encuestasResumen.total_encuestas}</div>
+                <div className="text-[9px] text-slate-500">Encuestas creadas</div>
+              </div>
+              <div className="bg-slate-900/60 border border-indigo-800/40 rounded-xl p-3 text-center">
+                <div className="text-xl font-black text-indigo-400">{encuestasResumen.total_respuestas}</div>
+                <div className="text-[9px] text-slate-500">Respuestas totales</div>
+              </div>
+            </div>
+
+            <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+              <h3 className="text-xs font-bold text-slate-400 uppercase mb-2">Por encuesta</h3>
+              {encuestasResumen.encuestas.length === 0 ? (
+                <div className="text-[11px] text-slate-500 text-center py-3">Sin encuestas todavía — créalas desde Promovidos</div>
+              ) : encuestasResumen.encuestas.map((e) => (
+                <div key={e.id} className="flex justify-between text-xs py-1 border-b border-slate-800 last:border-0">
+                  <span className="text-slate-300">{e.titulo}</span>
+                  <span className="text-white font-bold">{e.total_respuestas}</span>
+                </div>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+                <h3 className="text-xs font-bold text-slate-400 uppercase mb-2">Respuestas por municipio</h3>
+                {encuestasResumen.por_municipio.length === 0 ? (
+                  <div className="text-[11px] text-slate-500">Sin ubicación registrada todavía</div>
+                ) : encuestasResumen.por_municipio.map((m) => (
+                  <div key={m.municipio} className="flex justify-between text-xs py-1">
+                    <span className="text-slate-300">{m.municipio}</span>
+                    <span className="text-white font-bold">{m.total}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+                <h3 className="text-xs font-bold text-slate-400 uppercase mb-2">Top secciones con respuestas</h3>
+                {encuestasResumen.por_seccion.length === 0 ? (
+                  <div className="text-[11px] text-slate-500">Sin ubicación registrada todavía</div>
+                ) : encuestasResumen.por_seccion.map((s) => (
+                  <div key={s.seccion_numero} className="flex justify-between text-xs py-1">
+                    <span className="text-slate-300">Sección {s.seccion_numero} {s.municipio && `(${s.municipio})`}</span>
+                    <span className="text-white font-bold">{s.total}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         )}
       </div>

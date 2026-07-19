@@ -1,6 +1,7 @@
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../lib/authStore';
 import NavBar from './NavBar';
+import AvisoVencimiento from './AvisoVencimiento';
 
 export default function RutaProtegida({ children }) {
   const token = useAuth((s) => s.token);
@@ -8,6 +9,7 @@ export default function RutaProtegida({ children }) {
   return (
     <>
       <NavBar />
+      <AvisoVencimiento />
       {children}
     </>
   );
