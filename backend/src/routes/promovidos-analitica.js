@@ -259,4 +259,43 @@ router.get('/oportunidad', async (req, res) => {
   });
 });
 
+/**
+ * GET /api/promovidos-analitica/segmentacion
+ * Desglose de TUS promovidos (no del INE — eso no se puede) por
+ * género, rango de edad y sección — con lo que el propio equipo va
+ * capturando en campo. Entre más completa la captura, más útil esto.
+ */
+router.get('/segmentacion', async (req, res) => {
+  const campanaId = req.usuario.campana_id;
+
+  const [porGenero, porEdad, conDatos, sinDatos] = await Promise.all([
+    query(`SELECT genero, COUNT(*) as total FROM promovidos WHERE campana_id=$1 AND genero IS NOT NULL GROUP BY genero`, [campanaId]),
+    query(`SELECT rango_edad, COUNT(*) as total FROM promovidos WHERE campana_id=$1 AND rango_edad IS NOT NULL GROUP BY rango_edad ORDER BY rango_edad`, [campanaId]),
+    query(`SELECT COUNT(*) as total FROM promovidos WHERE campana_id=$1 AND (genero IS NOT NULL OR rango_edad IS NOT NULL)`, [campanaId]),
+    query(`SELECT COUNT(*) as total FROM promovidos WHERE campana_id=$1`, [campanaId]),
+  ]);
+
+  // Cruce género x sección — para detectar, por ejemplo, "en la
+  // sección 12 casi no hemos hablado con mujeres", útil para decidir
+  // qué tipo de reunión organizar y con quién.
+  const cruce = await query(
+    `SELECT s.numero as seccion, p.genero, COUNT(*) as total
+     FROM promovidos p JOIN secciones s ON s.id=p.seccion_id
+     WHERE p.campana_id=$1 AND p.genero IS NOT NULL
+     GROUP BY s.numero, p.genero ORDER BY s.numero`,
+    [campanaId]
+  );
+
+  res.json({
+    ok: true,
+    data: {
+      total_con_segmentacion: parseInt(conDatos.rows[0].total),
+      total_promovidos: parseInt(sinDatos.rows[0].total),
+      por_genero: porGenero.rows,
+      por_edad: porEdad.rows,
+      cruce_seccion_genero: cruce.rows,
+    },
+  });
+});
+
 export default router;

@@ -14,7 +14,7 @@ import jwt from 'jsonwebtoken';
 import { setIo } from './io.js';
 import { query } from './db/pool.js';
 import { requiereAuth } from './middleware/auth.js';
-import { requiereModulo } from './middleware/permisos.js';
+import { requiereModulo, requiereModuloMarketing } from './middleware/permisos.js';
 import { correrSeed, cargarHistorico2021 } from '../seed.js';
 
 import authRoutes from './routes/auth.js';
@@ -131,7 +131,7 @@ app.use('/api/zonas', zonasRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/promovidos-analitica', requiereAuth, requiereModulo('promovidos'), promovidosAnaliticaRoutes);
 app.use('/api/publico', publicoRoutes);
-app.use('/api/marketing', requiereAuth, requiereModulo('marketing'), marketingRoutes);
+app.use('/api/marketing', requiereAuth, requiereModuloMarketing(), marketingRoutes);
 app.use('/api/encuestas', requiereAuth, requiereModulo('promovidos'), encuestasRoutes);
 app.use('/api/juridico', requiereAuth, requiereModulo('juridico'), juridicoRoutes);
 app.use('/api/chat', chatRoutes);

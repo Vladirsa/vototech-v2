@@ -17,11 +17,10 @@ export function generarToken(usuario) {
       campana_id: usuario.campana_id,
       rol: usuario.rol,
       nombre: usuario.nombre,
-      // El estado (Tlaxcala=29, etc.) va en el token desde el login —
-      // así cada consulta que necesita filtrar geografía lo toma de
-      // aquí, en vez de tener "29" escrito directo en cada archivo.
-      // Esto es lo que vuelve trivial soportar otro estado el día que
-      // se cargue su geografía: nada más cambia el dato, no el código.
+      // El puesto se usa para permisos más finos dentro de un mismo
+      // rol — por ejemplo, un "voluntario" solo entra a Marketing si
+      // su puesto específico es de esa área.
+      puesto: usuario.puesto || null,
       estado_id: usuario.estado_id || 29,
     },
     JWT_SECRET,

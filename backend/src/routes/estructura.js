@@ -30,11 +30,27 @@ const RANGO_SANO = {
  * calculado para cada coordinador (no solo el organigrama plano).
  */
 router.get('/', async (req, res) => {
+  // Un coord_seccional SOLO ve su propia rama (él mismo + toda su
+  // cadena hacia abajo) — no toda la campaña. El resto de los roles
+  // de mando (candidato, jefe, coord_general/distrital/municipal)
+  // siguen viendo todo, porque su trabajo es supervisar más allá de
+  // una sola rama.
+  const esRamaLimitada = req.usuario.rol === 'coord_seccional';
+
   const resultado = await query(
-    `SELECT id, nombre, email, telefono, rol, puesto, parent_id, territorio_tipo, territorio_id,
-            meta_diaria, activo, ultimo_acceso, creado_en
-     FROM usuarios WHERE campana_id = $1 ORDER BY creado_en`,
-    [req.usuario.campana_id]
+    esRamaLimitada
+      ? `WITH RECURSIVE mi_rama AS (
+           SELECT id FROM usuarios WHERE id = $2
+           UNION ALL
+           SELECT u.id FROM usuarios u JOIN mi_rama r ON u.parent_id = r.id
+         )
+         SELECT id, nombre, email, telefono, rol, puesto, parent_id, territorio_tipo, territorio_id,
+                meta_diaria, activo, ultimo_acceso, creado_en
+         FROM usuarios WHERE campana_id = $1 AND id IN (SELECT id FROM mi_rama) ORDER BY creado_en`
+      : `SELECT id, nombre, email, telefono, rol, puesto, parent_id, territorio_tipo, territorio_id,
+                meta_diaria, activo, ultimo_acceso, creado_en
+         FROM usuarios WHERE campana_id = $1 ORDER BY creado_en`,
+    esRamaLimitada ? [req.usuario.campana_id, req.usuario.sub] : [req.usuario.campana_id]
   );
   const usuarios = resultado.rows;
 

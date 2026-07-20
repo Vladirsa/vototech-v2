@@ -1,5 +1,7 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
+import twilio from 'twilio';
 import { z } from 'zod';
 import PDFDocument from 'pdfkit';
 import jwt from 'jsonwebtoken';
@@ -122,7 +124,7 @@ router.post('/login', async (req, res) => {
 
   try {
     const resultado = await query(
-      `SELECT u.id, u.nombre, u.email, u.password_hash, u.rol, u.activo,
+      `SELECT u.id, u.nombre, u.email, u.password_hash, u.rol, u.activo, u.puesto,
               u.dos_factores_activo, u.dos_factores_secreto,
               c.id as campana_id, c.activa as campana_activa, c.estado_aprobacion,
               c.fecha_vencimiento, c.es_demo, c.estado_id
@@ -291,6 +293,136 @@ router.post('/2fa/desactivar', requiereAuth, async (req, res) => {
 
   await query('UPDATE usuarios SET dos_factores_activo=false, dos_factores_secreto=NULL WHERE id=$1', [req.usuario.sub]);
   res.json({ ok: true, mensaje: 'Verificación en dos pasos desactivada' });
+});
+
+/**
+ * Envía un WhatsApp usando el Twilio de LA PLATAFORMA (no el de cada
+ * campaña — ese es para marketing de cada candidato, y muchas
+ * campañas ni siquiera lo tienen configurado). Este es un número
+ * propio de VotoTech, dedicado a mensajes de sistema como este.
+ */
+async function enviarWhatsAppPlataforma(telefono, texto) {
+  const sid = process.env.TWILIO_PLATAFORMA_SID;
+  const token = process.env.TWILIO_PLATAFORMA_TOKEN;
+  const desde = process.env.TWILIO_PLATAFORMA_WHATSAPP_FROM; // formato: whatsapp:+14155238886
+  if (!sid || !token || !desde) {
+    throw new Error('WHATSAPP_PLATAFORMA_NO_CONFIGURADO');
+  }
+  const cliente = twilio(sid, token);
+  const telefonoLimpio = telefono.replace(/\D/g, '');
+  await cliente.messages.create({
+    from: desde,
+    to: `whatsapp:+52${telefonoLimpio}`,
+    body: texto,
+  });
+}
+
+/**
+ * POST /api/auth/olvide-password
+ * Paso 1: pide el código de 6 dígitos, lo manda por WhatsApp al
+ * teléfono YA registrado de la persona (no se puede cambiar el
+ * teléfono desde aquí — eso evitaría el punto de seguridad completo).
+ */
+router.post('/olvide-password', async (req, res) => {
+  const { subdominio, email } = req.body;
+  if (!subdominio || !email) return res.status(400).json({ ok: false, error: 'Faltan datos' });
+
+  const resultado = await query(
+    `SELECT u.id, u.telefono, u.nombre FROM usuarios u JOIN campanas c ON c.id=u.campana_id
+     WHERE c.subdominio=$1 AND u.email=$2 AND u.activo != false`,
+    [subdominio, email]
+  );
+  const usuario = resultado.rows[0];
+
+  // Mismo mensaje exista o no la cuenta — no se le da a nadie pistas
+  // de qué correos sí están registrados en el sistema.
+  const mensajeGenerico = { ok: true, mensaje: 'Si el correo existe y tiene un teléfono registrado, te llegará un código por WhatsApp en un momento.' };
+  if (!usuario || !usuario.telefono) return res.json(mensajeGenerico);
+
+  const codigo = String(Math.floor(100000 + Math.random() * 900000)); // 6 dígitos
+  if (process.env.MOSTRAR_CODIGO_EN_LOG === 'true') console.log('🔑 CÓDIGO DE PRUEBA (solo con MOSTRAR_CODIGO_EN_LOG=true):', codigo);
+  const codigoHash = crypto.createHash('sha256').update(codigo).digest('hex');
+  await query(
+    `INSERT INTO codigos_recuperacion (usuario_id, codigo_hash, expira_en) VALUES ($1,$2, now() + interval '10 minutes')`,
+    [usuario.id, codigoHash]
+  );
+
+  try {
+    await enviarWhatsAppPlataforma(usuario.telefono, `🗳️ VotoTech\n\nHola ${usuario.nombre}, tu código para recuperar tu contraseña es:\n\n*${codigo}*\n\nValido por 10 minutos. Si tú no pediste esto, ignora el mensaje.`);
+  } catch (e) {
+    if (e.message === 'WHATSAPP_PLATAFORMA_NO_CONFIGURADO') {
+      console.error('⚠️ Recuperación de contraseña sin configurar: faltan TWILIO_PLATAFORMA_SID/TOKEN/WHATSAPP_FROM en el servidor');
+    } else {
+      console.error('Error enviando WhatsApp de recuperación:', e.message);
+    }
+    // No se le dice a la persona que falló el envío — mismo mensaje
+    // genérico, para no filtrar si el correo existe o no.
+  }
+
+  res.json(mensajeGenerico);
+});
+
+/**
+ * POST /api/auth/verificar-codigo-recuperacion
+ * Paso 2: valida el código de 6 dígitos y, si es correcto, entrega
+ * un token temporal (10 min) que solo sirve para cambiar la
+ * contraseña — no para iniciar sesión directamente.
+ */
+router.post('/verificar-codigo-recuperacion', async (req, res) => {
+  const { subdominio, email, codigo } = req.body;
+  if (!subdominio || !email || !codigo) return res.status(400).json({ ok: false, error: 'Faltan datos' });
+
+  const usuarioRes = await query(
+    `SELECT u.id FROM usuarios u JOIN campanas c ON c.id=u.campana_id WHERE c.subdominio=$1 AND u.email=$2`,
+    [subdominio, email]
+  );
+  if (!usuarioRes.rows[0]) return res.status(400).json({ ok: false, error: 'Código incorrecto o expirado' });
+
+  const codigoHash = crypto.createHash('sha256').update(codigo).digest('hex');
+  const codigoRes = await query(
+    `SELECT id FROM codigos_recuperacion WHERE usuario_id=$1 AND codigo_hash=$2 AND usado=false AND expira_en > now()
+     ORDER BY creado_en DESC LIMIT 1`,
+    [usuarioRes.rows[0].id, codigoHash]
+  );
+  if (!codigoRes.rows[0]) return res.status(400).json({ ok: false, error: 'Código incorrecto o expirado' });
+
+  await query('UPDATE codigos_recuperacion SET usado=true WHERE id=$1', [codigoRes.rows[0].id]);
+
+  const tokenReset = jwt.sign(
+    { sub: usuarioRes.rows[0].id, tipo: 'reset_password' },
+    process.env.JWT_SECRET || 'CAMBIAR_EN_PRODUCCION',
+    { expiresIn: '10m' }
+  );
+  res.json({ ok: true, token_reset: tokenReset });
+});
+
+/**
+ * POST /api/auth/restablecer-password
+ * Paso 3: cambia la contraseña de verdad, con el token temporal del
+ * paso 2 — y revoca TODAS las sesiones activas de esa persona (si
+ * alguien más tenía acceso con la contraseña vieja, se cierra solo).
+ */
+router.post('/restablecer-password', async (req, res) => {
+  const { token_reset, nueva_password } = req.body;
+  if (!token_reset || !nueva_password || nueva_password.length < 8) {
+    return res.status(400).json({ ok: false, error: 'La contraseña nueva debe tener al menos 8 caracteres' });
+  }
+
+  let payload;
+  try {
+    payload = jwt.verify(token_reset, process.env.JWT_SECRET || 'CAMBIAR_EN_PRODUCCION');
+    if (payload.tipo !== 'reset_password') throw new Error('tipo incorrecto');
+  } catch (e) {
+    return res.status(401).json({ ok: false, error: 'Sesión de recuperación expirada, empieza de nuevo' });
+  }
+
+  const hash = await bcrypt.hash(nueva_password, 10);
+  await query('UPDATE usuarios SET password_hash=$1 WHERE id=$2', [hash, payload.sub]);
+  // Cerrar todas las sesiones activas — la contraseña vieja ya no
+  // debe servir para nada, en ningún dispositivo.
+  await query('UPDATE refresh_tokens SET revocado_en=now() WHERE usuario_id=$1 AND revocado_en IS NULL', [payload.sub]);
+
+  res.json({ ok: true, mensaje: 'Contraseña actualizada. Ya puedes iniciar sesión con tu contraseña nueva.' });
 });
 
 router.post('/registrar-con-codigo', async (req, res) => {

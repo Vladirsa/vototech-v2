@@ -18,6 +18,14 @@ router.get('/', async (req, res) => {
     WHERE i.campana_id = $1`;
   const params = [req.usuario.campana_id];
 
+  // Coordinador seccional y promotor pueden REPORTAR incidencias,
+  // pero solo ven las que ellos mismos generaron — no todas las de
+  // la campaña, eso es información de mando.
+  if (['coord_seccional', 'promotor'].includes(req.usuario.rol)) {
+    params.push(req.usuario.sub);
+    sql += ` AND i.reportado_por = $${params.length}`;
+  }
+
   if (tipo) { params.push(tipo); sql += ` AND i.tipo = $${params.length}`; }
   if (estado) { params.push(estado); sql += ` AND i.estado = $${params.length}`; }
   if (urgencia) { params.push(urgencia); sql += ` AND i.urgencia = $${params.length}`; }

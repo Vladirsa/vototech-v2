@@ -127,6 +127,8 @@ const esquemaPromovido = z.object({
   encuesta: z.record(z.any()).optional(),
   situacion_grave: z.string().max(500).optional(),
   consentimiento: z.boolean(),
+  genero: z.enum(['hombre', 'mujer', 'otro']).optional(),
+  rango_edad: z.enum(['18-29', '30-44', '45-59', '60+']).optional(),
 });
 
 /**
@@ -134,6 +136,43 @@ const esquemaPromovido = z.object({
  * consentimiento=true es OBLIGATORIO — sin esto no se guarda, es
  * el requisito de la LFPDPPP (Ley Federal de Protección de Datos).
  */
+/**
+ * GET /api/promovidos/mi-resumen
+ * La pantalla que ve un promotor — SOLO sus propios números, nada
+ * del resto de la campaña. Cuántos lleva, de qué sección, y qué
+ * tan cerca está de su meta mínima (5 personas que lleve a votar).
+ */
+const META_MINIMA_PROMOTOR = 5;
+
+router.get('/mi-resumen', async (req, res) => {
+  const misPromovidos = await query(
+    `SELECT p.id, p.nombre, p.comprometido, s.numero as seccion_numero, p.creado_en
+     FROM promovidos p LEFT JOIN secciones s ON s.id = p.seccion_id
+     WHERE p.campana_id=$1 AND p.registrado_por=$2 ORDER BY p.creado_en DESC`,
+    [req.usuario.campana_id, req.usuario.sub]
+  );
+
+  const total = misPromovidos.rows.length;
+  const comprometidos = misPromovidos.rows.filter((p) => p.comprometido).length;
+  const porSeccion = {};
+  misPromovidos.rows.forEach((p) => {
+    const s = p.seccion_numero || 'sin sección';
+    porSeccion[s] = (porSeccion[s] || 0) + 1;
+  });
+
+  res.json({
+    ok: true,
+    data: {
+      total,
+      comprometidos,
+      meta: META_MINIMA_PROMOTOR,
+      porcentaje_meta: Math.min(100, Math.round((comprometidos / META_MINIMA_PROMOTOR) * 100)),
+      por_seccion: Object.entries(porSeccion).map(([seccion, total]) => ({ seccion, total })).sort((a, b) => b.total - a.total),
+      ultimos: misPromovidos.rows.slice(0, 5),
+    },
+  });
+});
+
 router.post('/', async (req, res) => {
   const parseado = esquemaPromovido.safeParse(req.body);
   if (!parseado.success) {
@@ -195,13 +234,13 @@ router.post('/', async (req, res) => {
     const resultado = await query(
       `INSERT INTO promovidos
         (campana_id, nombre, telefono, curp, seccion_id, calle, partido, comprometido,
-         temperatura, lat, lng, encuesta, situacion_grave, registrado_por, consentimiento)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+         temperatura, lat, lng, encuesta, situacion_grave, registrado_por, consentimiento, genero, rango_edad)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
        RETURNING *`,
       [req.usuario.campana_id, d.nombre, d.telefono || null, d.curp || null, seccionId,
        d.calle || null, d.partido || null, d.comprometido, d.temperatura,
        d.lat || null, d.lng || null, d.encuesta ? JSON.stringify(d.encuesta) : null,
-       d.situacion_grave || null, req.usuario.sub, d.consentimiento]
+       d.situacion_grave || null, req.usuario.sub, d.consentimiento, d.genero || null, d.rango_edad || null]
     );
 
     res.status(201).json({ ok: true, data: resultado.rows[0] });
