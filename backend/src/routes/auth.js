@@ -338,7 +338,16 @@ router.post('/registrar-con-codigo', async (req, res) => {
     });
 
     const refreshToken = await generarRefreshToken(nuevoUsuario.rows[0].id);
-    res.status(201).json({ ok: true, token, refresh_token: refreshToken, mensaje: '¡Bienvenido al equipo! Tu cuenta fue creada.' });
+    res.status(201).json({
+      ok: true, token, refresh_token: refreshToken,
+      // CRÍTICO: sin esto, el frontend no tiene el id real de la
+      // persona — cualquier función que dependa de saber quién eres
+      // (el chat armando conversaciones directas, por ejemplo) se
+      // rompe silenciosamente. Este bug exacto causaba "canal
+      // inválido" al platicar con un promotor recién registrado así.
+      usuario: { id: nuevoUsuario.rows[0].id, nombre: datos.nombre, rol: invitacion.rol_asignado },
+      mensaje: '¡Bienvenido al equipo! Tu cuenta fue creada.',
+    });
   } catch (e) {
     console.error('Error registrando con código:', e);
     res.status(500).json({ ok: false, error: 'Error interno' });

@@ -168,4 +168,28 @@ Reglas:
   }
 });
 
+/**
+ * GET /api/ia/estado
+ * Diagnóstico real, no adivinanza — para saber en 2 segundos si el
+ * Centro IA no funciona por falta de la llave (configuración) o por
+ * otra cosa (un bug de verdad).
+ */
+router.get('/estado', async (req, res) => {
+  if (!process.env.ANTHROPIC_API_KEY) {
+    return res.json({
+      ok: true,
+      data: { funciona: false, causa: 'sin_llave', mensaje: 'ANTHROPIC_API_KEY no está configurada en el servidor. Agrégala en las variables de entorno de Render.' },
+    });
+  }
+  try {
+    await anthropic.messages.create({ model: 'claude-sonnet-5', max_tokens: 10, messages: [{ role: 'user', content: 'di "ok"' }] });
+    res.json({ ok: true, data: { funciona: true, mensaje: 'El Centro IA está funcionando correctamente.' } });
+  } catch (e) {
+    res.json({
+      ok: true,
+      data: { funciona: false, causa: 'error_api', mensaje: `La llave está configurada pero Anthropic respondió con un error: ${e.message}` },
+    });
+  }
+});
+
 export default router;
