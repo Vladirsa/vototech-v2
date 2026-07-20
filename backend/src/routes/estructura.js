@@ -3,6 +3,7 @@ import { z } from 'zod';
 import bcrypt from 'bcryptjs';
 import { query } from '../db/pool.js';
 import { requiereAuth } from '../middleware/auth.js';
+import { registrarAuditoria } from '../lib/auditoria.js';
 
 const router = Router();
 router.use(requiereAuth);
@@ -240,6 +241,18 @@ router.patch('/:id', async (req, res) => {
     valores
   );
   if (!resultado.rows[0]) return res.status(404).json({ ok: false, error: 'No encontrado' });
+
+  // Cambiar el ROL o dar de baja/alta a alguien es sensible — afecta
+  // directamente a qué puede ver y hacer esa persona en el sistema.
+  if ('rol' in d || 'activo' in d) {
+    registrarAuditoria({
+      campanaId: req.usuario.campana_id, usuarioId: req.usuario.sub, usuarioNombre: req.usuario.nombre,
+      accion: 'editar', tabla: 'usuarios', registroId: req.params.id,
+      detalle: { cambios: d, persona_afectada: resultado.rows[0].nombre },
+      ip: req.ip,
+    });
+  }
+
   res.json({ ok: true, data: resultado.rows[0] });
 });
 

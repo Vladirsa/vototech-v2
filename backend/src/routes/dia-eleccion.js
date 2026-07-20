@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { query } from '../db/pool.js';
 import { requiereAuth } from '../middleware/auth.js';
 import { getIo } from '../io.js';
+import { registrarAuditoria } from '../lib/auditoria.js';
 
 const router = Router();
 
@@ -85,7 +86,7 @@ router.post('/casillas', async (req, res) => {
   if (!parseado.success) return res.status(400).json({ ok: false, error: parseado.error.errors[0].message });
   const d = parseado.data;
 
-  const seccion = await query('SELECT id FROM secciones WHERE estado_id=29 AND numero=$1', [d.seccion_numero]);
+  const seccion = await query('SELECT id FROM secciones WHERE estado_id=$2 AND numero=$1', [d.seccion_numero, req.usuario.estado_id]);
   if (!seccion.rows[0]) return res.status(404).json({ ok: false, error: 'Sección no encontrada' });
 
   const resultado = await query(
@@ -170,7 +171,7 @@ router.post('/resultados', async (req, res) => {
   const d = parseado.data;
 
   try {
-    const seccion = await query('SELECT id FROM secciones WHERE estado_id=29 AND numero=$1', [d.seccion_numero]);
+    const seccion = await query('SELECT id FROM secciones WHERE estado_id=$2 AND numero=$1', [d.seccion_numero, req.usuario.estado_id]);
     if (!seccion.rows[0]) return res.status(404).json({ ok: false, error: 'Sección no encontrada' });
 
     const resultado = await query(
@@ -184,6 +185,17 @@ router.post('/resultados', async (req, res) => {
 
     const filaCompleta = { ...resultado.rows[0], seccion_numero: d.seccion_numero, capturado_por_nombre: req.usuario.nombre };
     getIo().to(`campana:${req.usuario.campana_id}`).emit('resultado_actualizado', filaCompleta);
+
+    // Los resultados electorales son lo más sensible de todo el
+    // sistema — cada captura/corrección queda en la bitácora, con
+    // los votos exactos que se guardaron, para poder rastrear
+    // cualquier cambio después.
+    registrarAuditoria({
+      campanaId: req.usuario.campana_id, usuarioId: req.usuario.sub, usuarioNombre: req.usuario.nombre,
+      accion: 'crear', tabla: 'resultados_casilla', registroId: resultado.rows[0].id,
+      detalle: { seccion: d.seccion_numero, casilla: d.casilla, votos: d.votos, nulos: d.nulos },
+      ip: req.ip,
+    });
 
     res.status(201).json({ ok: true, data: filaCompleta });
   } catch (e) {
@@ -306,6 +318,177 @@ router.patch('/caceria/:id/voto', async (req, res) => {
 
   getIo().to(`campana:${req.usuario.campana_id}`).emit('voto_confirmado', resultado.rows[0]);
   res.json({ ok: true, data: resultado.rows[0] });
+});
+
+/**
+ * GET /api/dia-eleccion/avance-estructura
+ * La vista pensada para el candidato/jefe de campaña: no solo el
+ * porcentaje agregado, sino QUIÉN de tu equipo ya reportó y quién
+ * no — para saber a quién llamarle, no solo "falta el 30%".
+ */
+router.get('/avance-estructura', async (req, res) => {
+  const campanaId = req.usuario.campana_id;
+
+  const casillas = await query(
+    `SELECT c.id, s.numero as seccion_numero, c.numero as casilla_letra,
+            u.nombre as representante_nombre, u.telefono as representante_telefono,
+            c.confirmado_asistencia,
+            rc.id as resultado_id, rc.capturado_en as hora_reporte
+     FROM casillas c
+     JOIN secciones s ON s.id = c.seccion_id
+     LEFT JOIN usuarios u ON u.id = c.representante_id
+     LEFT JOIN resultados_casilla rc ON rc.campana_id = c.campana_id AND rc.seccion_id = c.seccion_id AND rc.casilla = c.numero
+     WHERE c.campana_id = $1
+     ORDER BY (rc.id IS NULL) DESC, s.numero`,
+    [campanaId]
+  );
+
+  const total = casillas.rows.length;
+  const reportaron = casillas.rows.filter((c) => c.resultado_id).length;
+
+  res.json({
+    ok: true,
+    data: {
+      total, reportaron,
+      porcentaje: total > 0 ? Math.round((reportaron / total) * 100) : 0,
+      casillas: casillas.rows.map((c) => ({
+        seccion_numero: c.seccion_numero,
+        casilla_letra: c.casilla_letra,
+        representante_nombre: c.representante_nombre,
+        representante_telefono: c.representante_telefono,
+        confirmado_asistencia: c.confirmado_asistencia,
+        ya_reporto: !!c.resultado_id,
+        hora_reporte: c.hora_reporte,
+      })),
+    },
+  });
+});
+
+/**
+ * POST /api/dia-eleccion/simular-eleccion
+ * SOLO para campañas demo — genera resultados realistas para las
+ * casillas que aún no tienen resultado, usando el histórico REAL de
+ * cada sección (no números al azar), y los va "transmitiendo" uno
+ * por uno con pequeños intervalos — para que al ver la pantalla de
+ * Avance en vivo se vea exactamente como se vería una noche de
+ * elección real, no como si todo apareciera de golpe.
+ *
+ * Solo altos mandos pueden dispararlo, y solo funciona en campañas
+ * marcadas es_demo=true — nunca en una campaña real, sería gravísimo
+ * inventar resultados electorales reales.
+ */
+router.post('/simular-eleccion', async (req, res) => {
+  if (!['candidato', 'jefe_campana', 'coord_general'].includes(req.usuario.rol)) {
+    return res.status(403).json({ ok: false, error: 'Solo altos mandos pueden simular' });
+  }
+  const campanaRes = await query('SELECT es_demo, partido, tipo_eleccion FROM campanas WHERE id=$1', [req.usuario.campana_id]);
+  const campana = campanaRes.rows[0];
+  if (!campana?.es_demo) {
+    return res.status(403).json({ ok: false, error: 'El simulador solo está disponible en campañas demo — nunca se deben inventar resultados en una campaña real.' });
+  }
+
+  const pendientes = await query(
+    `SELECT c.id, c.seccion_id, c.numero as casilla, s.numero as seccion_numero, s.lista_nominal
+     FROM casillas c JOIN secciones s ON s.id = c.seccion_id
+     WHERE c.campana_id=$1 AND NOT EXISTS (
+       SELECT 1 FROM resultados_casilla rc WHERE rc.campana_id=c.campana_id AND rc.seccion_id=c.seccion_id AND rc.casilla=c.numero
+     )`,
+    [req.usuario.campana_id]
+  );
+  if (pendientes.rows.length === 0) {
+    return res.json({ ok: true, mensaje: 'Todas las casillas ya tienen resultado — usa "Reiniciar simulación" primero.', total: 0 });
+  }
+
+  res.json({ ok: true, mensaje: `Simulación iniciada — ${pendientes.rows.length} casillas irán reportando en los próximos minutos.`, total: pendientes.rows.length });
+
+  // A partir de aquí corre EN SEGUNDO PLANO — la respuesta HTTP ya se
+  // mandó, esto sigue insertando resultados espaciados en el tiempo.
+  const PARTIDOS = ['morena', 'pan', 'pri', 'prd', 'mc', 'pvem', 'pt', 'pac'];
+  (async () => {
+    for (const casilla of pendientes.rows) {
+      // Espera entre 2 y 8 segundos entre cada casilla — se siente
+      // vivo sin hacer esperar demasiado a quien está viendo la demo.
+      await new Promise((resolve) => setTimeout(resolve, 2000 + Math.random() * 6000));
+
+      // Usar el histórico REAL de esa sección para que los números
+      // se sientan de verdad, no aleatorios sin sentido.
+      const hist = await query(
+        `SELECT partido, votos FROM resultados_historicos WHERE seccion_id=$1 AND tipo_eleccion=$2 ORDER BY anio DESC LIMIT 10`,
+        [casilla.seccion_id, campana.tipo_eleccion]
+      );
+      const totalHist = hist.rows.reduce((s, r) => s + r.votos, 0);
+      const PARTICIPACION_OBJETIVO = 0.53; // 53% del padrón, exacto — no aproximado
+      const totalEmitidos = Math.round((casilla.lista_nominal || 700) * PARTICIPACION_OBJETIVO);
+      const nulos = Math.round(totalEmitidos * (0.02 + Math.random() * 0.03)); // 2%-5% de nulos, normal en una elección real
+      const totalParaPartidos = totalEmitidos - nulos; // el resto SÍ se reparte entre partidos, sin pasarse
+
+      const votos = {};
+      if (totalHist > 0) {
+        // Se reparte con ruido natural, pero luego se AJUSTA para que
+        // la suma cuadre exacto con totalParaPartidos — así 53% de
+        // participación es el número real, no un promedio aproximado.
+        const pesos = {};
+        let sumaPesos = 0;
+        hist.rows.forEach((r) => {
+          const proporcion = r.votos / totalHist;
+          const ruido = 0.85 + Math.random() * 0.3;
+          pesos[r.partido] = proporcion * ruido;
+          sumaPesos += pesos[r.partido];
+        });
+        let asignado = 0;
+        const partidosOrdenados = Object.keys(pesos);
+        partidosOrdenados.forEach((partido, idx) => {
+          if (idx === partidosOrdenados.length - 1) {
+            votos[partido] = totalParaPartidos - asignado; // el último se lleva el resto exacto, sin redondeos perdidos
+          } else {
+            const v = Math.round(totalParaPartidos * (pesos[partido] / sumaPesos));
+            votos[partido] = v;
+            asignado += v;
+          }
+        });
+      } else {
+        votos[campana.partido] = Math.round(totalParaPartidos * 0.4);
+        votos.pan = Math.round(totalParaPartidos * 0.25);
+        votos.pri = totalParaPartidos - votos[campana.partido] - votos.pan; // ajuste exacto también aquí
+      }
+
+      try {
+        const resultado = await query(
+          `INSERT INTO resultados_casilla (campana_id, seccion_id, casilla, votos, nulos, lista_nominal, capturado_por)
+           VALUES ($1,$2,$3,$4,$5,$6,$7)
+           ON CONFLICT (campana_id, seccion_id, casilla) DO NOTHING RETURNING *`,
+          [req.usuario.campana_id, casilla.seccion_id, casilla.casilla, JSON.stringify(votos), nulos, casilla.lista_nominal, req.usuario.sub]
+        );
+        if (resultado.rows[0]) {
+          getIo().to(`campana:${req.usuario.campana_id}`).emit('resultado_actualizado', {
+            ...resultado.rows[0], seccion_numero: casilla.seccion_numero, capturado_por_nombre: '🤖 Simulación',
+          });
+        }
+      } catch (e) {
+        console.error('Error en simulación de casilla:', e.message);
+      }
+    }
+    console.log(`✅ Simulación de elección completada para campaña ${req.usuario.campana_id}`);
+  })();
+});
+
+/**
+ * POST /api/dia-eleccion/reiniciar-simulacion
+ * Borra todos los resultados capturados — para poder correr la
+ * simulación varias veces y ver el sistema funcionando desde cero
+ * cuantas veces haga falta.
+ */
+router.post('/reiniciar-simulacion', async (req, res) => {
+  if (!['candidato', 'jefe_campana', 'coord_general'].includes(req.usuario.rol)) {
+    return res.status(403).json({ ok: false, error: 'Solo altos mandos pueden reiniciar' });
+  }
+  const campanaRes = await query('SELECT es_demo FROM campanas WHERE id=$1', [req.usuario.campana_id]);
+  if (!campanaRes.rows[0]?.es_demo) {
+    return res.status(403).json({ ok: false, error: 'Solo disponible en campañas demo' });
+  }
+  await query('DELETE FROM resultados_casilla WHERE campana_id=$1', [req.usuario.campana_id]);
+  getIo().to(`campana:${req.usuario.campana_id}`).emit('resultado_actualizado', { reinicio: true });
+  res.json({ ok: true, mensaje: 'Resultados borrados — listo para simular de nuevo' });
 });
 
 export default router;

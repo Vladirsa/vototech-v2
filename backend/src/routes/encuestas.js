@@ -80,7 +80,7 @@ router.post('/:id/responder', async (req, res) => {
 
   let seccionId = null;
   if (seccion_numero) {
-    const s = await query('SELECT id FROM secciones WHERE estado_id=29 AND numero=$1', [seccion_numero]);
+    const s = await query('SELECT id FROM secciones WHERE estado_id=$2 AND numero=$1', [seccion_numero, req.usuario.estado_id]);
     seccionId = s.rows[0]?.id || null;
   }
 

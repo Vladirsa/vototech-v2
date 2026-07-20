@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { query } from '../db/pool.js';
 import { requiereAuth } from '../middleware/auth.js';
+import { registrarAuditoria } from '../lib/auditoria.js';
 
 const router = Router();
 router.use(requiereAuth); // todo este módulo requiere sesión
@@ -187,7 +188,7 @@ router.post('/', async (req, res) => {
 
     let seccionId = null;
     if (d.seccion_numero) {
-      const s = await query('SELECT id FROM secciones WHERE estado_id=29 AND numero=$1', [d.seccion_numero]);
+      const s = await query('SELECT id FROM secciones WHERE estado_id=$2 AND numero=$1', [d.seccion_numero, req.usuario.estado_id]);
       seccionId = s.rows[0]?.id || null;
     }
 
@@ -315,7 +316,7 @@ router.patch('/:id', async (req, res) => {
 
   let seccionId;
   if (d.seccion_numero) {
-    const s = await query('SELECT id FROM secciones WHERE estado_id=29 AND numero=$1', [d.seccion_numero]);
+    const s = await query('SELECT id FROM secciones WHERE estado_id=$2 AND numero=$1', [d.seccion_numero, req.usuario.estado_id]);
     seccionId = s.rows[0]?.id;
   }
 
@@ -386,7 +387,7 @@ router.post('/importar', async (req, res) => {
 
       let seccionId = null;
       if (d.seccion_numero) {
-        const s = await query('SELECT id FROM secciones WHERE estado_id=29 AND numero=$1', [d.seccion_numero]);
+        const s = await query('SELECT id FROM secciones WHERE estado_id=$2 AND numero=$1', [d.seccion_numero, req.usuario.estado_id]);
         seccionId = s.rows[0]?.id || null;
       }
 
@@ -400,6 +401,16 @@ router.post('/importar', async (req, res) => {
       errores++;
     }
   }
+
+  // Importar datos de ciudadanos de golpe (hasta 5000 a la vez) es
+  // justo el tipo de acción que vale la pena poder rastrear después:
+  // quién subió qué lote, cuándo, y cuántos registros entraron.
+  await registrarAuditoria({
+    campanaId: req.usuario.campana_id, usuarioId: req.usuario.sub, usuarioNombre: req.usuario.nombre,
+    accion: 'crear', tabla: 'promovidos_importacion', registroId: null,
+    detalle: { total_filas: filas.length, importados, duplicados, errores },
+    ip: req.ip,
+  });
 
   res.json({ ok: true, importados, duplicados, errores, total: filas.length });
 });

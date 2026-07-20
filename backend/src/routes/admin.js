@@ -120,7 +120,7 @@ router.post('/crear-demo', async (req, res) => {
  */
 router.post('/campanas/:id/continuar', async (req, res) => {
   const usuario = await query(
-    `SELECT u.*, c.subdominio FROM usuarios u
+    `SELECT u.*, c.subdominio, c.estado_id FROM usuarios u
      JOIN campanas c ON c.id = u.campana_id
      WHERE u.campana_id = $1 AND u.rol = 'candidato'
      ORDER BY u.creado_en LIMIT 1`,

@@ -198,4 +198,76 @@ router.get('/incidencias', requiereRol(...ROLES_EXPORT), async (req, res) => {
   res.end();
 });
 
+/**
+ * GET /api/exportar/respaldo-completo
+ * Todo lo que le pertenece a la campaña, en un solo Excel con una
+ * hoja por cada tipo de dato — la versión HONESTA de "restaurar
+ * campaña": en una base de datos compartida entre muchas campañas,
+ * no se puede regresar en el tiempo solo la tuya, pero sí puedes
+ * tener tu propia copia completa, descargable cuando quieras, para
+ * tu propio respaldo o si algún día decides dejar la plataforma.
+ */
+router.get('/respaldo-completo', requiereRol(...ROLES_EXPORT), async (req, res) => {
+  const campanaId = req.usuario.campana_id;
+  const libro = new ExcelJS.Workbook();
+
+  const agregarHoja = async (nombre, sql, columnas) => {
+    const datos = await query(sql, [campanaId]);
+    const hoja = libro.addWorksheet(nombre);
+    hoja.columns = columnas;
+    datos.rows.forEach((f) => hoja.addRow(f));
+    estiloEncabezado(hoja);
+    return datos.rows.length;
+  };
+
+  await agregarHoja('Promovidos',
+    `SELECT p.nombre, p.telefono, s.numero as seccion, p.partido, p.clasificacion, p.comprometido, p.creado_en
+     FROM promovidos p LEFT JOIN secciones s ON s.id=p.seccion_id WHERE p.campana_id=$1 ORDER BY p.creado_en`,
+    [{ header: 'Nombre', key: 'nombre', width: 28 }, { header: 'Teléfono', key: 'telefono', width: 14 },
+     { header: 'Sección', key: 'seccion', width: 10 }, { header: 'Partido', key: 'partido', width: 12 },
+     { header: 'Clasificación', key: 'clasificacion', width: 14 }, { header: 'Comprometido', key: 'comprometido', width: 14 },
+     { header: 'Fecha', key: 'creado_en', width: 18 }]);
+
+  await agregarHoja('Estructura',
+    `SELECT nombre, email, telefono, rol, puesto, meta_diaria, creado_en FROM usuarios WHERE campana_id=$1 ORDER BY rol`,
+    [{ header: 'Nombre', key: 'nombre', width: 28 }, { header: 'Correo', key: 'email', width: 26 },
+     { header: 'Teléfono', key: 'telefono', width: 14 }, { header: 'Rol', key: 'rol', width: 16 },
+     { header: 'Puesto', key: 'puesto', width: 22 }, { header: 'Meta diaria', key: 'meta_diaria', width: 12 },
+     { header: 'Fecha', key: 'creado_en', width: 18 }]);
+
+  await agregarHoja('Activos',
+    `SELECT a.tipo, s.numero as seccion, a.direccion, a.empresa, a.costo, a.fecha_ini, a.estado
+     FROM activos a LEFT JOIN secciones s ON s.id=a.seccion_id WHERE a.campana_id=$1`,
+    [{ header: 'Tipo', key: 'tipo', width: 16 }, { header: 'Sección', key: 'seccion', width: 10 },
+     { header: 'Dirección', key: 'direccion', width: 30 }, { header: 'Empresa', key: 'empresa', width: 22 },
+     { header: 'Costo', key: 'costo', width: 12 }, { header: 'Fecha colocación', key: 'fecha_ini', width: 16 },
+     { header: 'Estado', key: 'estado', width: 12 }]);
+
+  await agregarHoja('Incidencias',
+    `SELECT i.tipo, i.urgencia, i.descripcion, s.numero as seccion, i.estado, i.creado_en
+     FROM incidencias i LEFT JOIN secciones s ON s.id=i.seccion_id WHERE i.campana_id=$1`,
+    [{ header: 'Tipo', key: 'tipo', width: 16 }, { header: 'Urgencia', key: 'urgencia', width: 12 },
+     { header: 'Descripción', key: 'descripcion', width: 40 }, { header: 'Sección', key: 'seccion', width: 10 },
+     { header: 'Estado', key: 'estado', width: 12 }, { header: 'Fecha', key: 'creado_en', width: 18 }]);
+
+  await agregarHoja('Finanzas',
+    `SELECT categoria, descripcion, monto, fecha, proveedor, forma_pago FROM gastos_campana WHERE campana_id=$1 ORDER BY fecha`,
+    [{ header: 'Categoría', key: 'categoria', width: 18 }, { header: 'Descripción', key: 'descripcion', width: 30 },
+     { header: 'Monto', key: 'monto', width: 12 }, { header: 'Fecha', key: 'fecha', width: 14 },
+     { header: 'Proveedor', key: 'proveedor', width: 22 }, { header: 'Forma de pago', key: 'forma_pago', width: 14 }]);
+
+  await agregarHoja('Agenda',
+    `SELECT titulo, tipo, fecha_inicio, lugar, realizado FROM agenda WHERE campana_id=$1 ORDER BY fecha_inicio`,
+    [{ header: 'Título', key: 'titulo', width: 30 }, { header: 'Tipo', key: 'tipo', width: 14 },
+     { header: 'Fecha', key: 'fecha_inicio', width: 18 }, { header: 'Lugar', key: 'lugar', width: 26 },
+     { header: 'Realizado', key: 'realizado', width: 12 }]);
+
+  const totalHojas = libro.worksheets.length;
+
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename=respaldo_completo_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  await libro.xlsx.write(res);
+  res.end();
+});
+
 export default router;

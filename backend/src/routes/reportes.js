@@ -72,7 +72,7 @@ router.get('/estadisticas', async (req, res) => {
     let filtroTerritorio = '';
     const paramsTerr = [];
     if (campana.territorio_tipo === 'municipio' && campana.territorio_id) {
-      filtroTerritorio = 'AND s.municipio_id = (SELECT id FROM municipios WHERE estado_id=29 AND clave_ine=$1)';
+      filtroTerritorio = `AND s.municipio_id = (SELECT id FROM municipios WHERE estado_id=${req.usuario.estado_id} AND clave_ine=$1)`;
       paramsTerr.push(campana.territorio_id);
     } else if (campana.territorio_tipo === 'distrito_local' && campana.territorio_id) {
       filtroTerritorio = 'AND s.distrito_local = $1';
@@ -82,7 +82,7 @@ router.get('/estadisticas', async (req, res) => {
       paramsTerr.push(campana.territorio_id);
     }
 
-    const seccionesRes = await query(`SELECT s.id, s.numero, s.lista_nominal FROM secciones s WHERE s.estado_id=29 ${filtroTerritorio}`, paramsTerr);
+    const seccionesRes = await query(`SELECT s.id, s.numero, s.lista_nominal FROM secciones s WHERE s.estado_id=${req.usuario.estado_id} ${filtroTerritorio}`, paramsTerr);
     const seccionIds = seccionesRes.rows.map((s) => s.id);
     const listaNominalTotal = seccionesRes.rows.reduce((s, r) => s + (r.lista_nominal || 0), 0);
 
@@ -238,7 +238,7 @@ router.get('/probabilidad', async (req, res) => {
     let filtroTerritorio = '';
     const paramsTerr = [];
     if (campana.territorio_tipo === 'municipio' && campana.territorio_id) {
-      filtroTerritorio = 'AND s.municipio_id = (SELECT id FROM municipios WHERE estado_id=29 AND clave_ine=$1)';
+      filtroTerritorio = `AND s.municipio_id = (SELECT id FROM municipios WHERE estado_id=${req.usuario.estado_id} AND clave_ine=$1)`;
       paramsTerr.push(campana.territorio_id);
     } else if (campana.territorio_tipo === 'distrito_local' && campana.territorio_id) {
       filtroTerritorio = 'AND s.distrito_local=$1'; paramsTerr.push(campana.territorio_id);
@@ -269,7 +269,7 @@ router.get('/probabilidad', async (req, res) => {
       const datosDosAnios = await query(
         `SELECT s.numero, r.anio, r.partido, r.votos FROM resultados_historicos r
          JOIN secciones s ON s.id=r.seccion_id
-         WHERE r.tipo_eleccion=$1 AND r.anio IN ($2,$3) AND s.estado_id=29 ${filtroTerritorioCorrido}`,
+         WHERE r.tipo_eleccion=$1 AND r.anio IN ($2,$3) AND s.estado_id=${req.usuario.estado_id} ${filtroTerritorioCorrido}`,
         [campana.tipo_eleccion, anioViejo, anioNuevo, ...paramsTerr]
       );
       const porSeccionAnios = {};
@@ -295,7 +295,7 @@ router.get('/probabilidad', async (req, res) => {
       const datosMismoDia = await query(
         `SELECT s.numero, r.tipo_eleccion, r.partido, r.votos FROM resultados_historicos r
          JOIN secciones s ON s.id=r.seccion_id
-         WHERE r.anio=2024 AND r.tipo_eleccion IN ('ayuntamiento','pres_comunidad') AND s.estado_id=29 ${filtroTerritorio}`,
+         WHERE r.anio=2024 AND r.tipo_eleccion IN ('ayuntamiento','pres_comunidad') AND s.estado_id=${req.usuario.estado_id} ${filtroTerritorio}`,
         paramsTerr
       );
       const porSeccion = {};
@@ -342,7 +342,7 @@ router.get('/probabilidad', async (req, res) => {
     const historico = await query(
       `SELECT s.numero, r.partido, r.votos FROM resultados_historicos r
        JOIN secciones s ON s.id=r.seccion_id
-       WHERE r.tipo_eleccion=$${paramsTerr.length + 1} AND r.anio=$${paramsTerr.length + 2} AND s.estado_id=29 ${filtroTerritorio}`,
+       WHERE r.tipo_eleccion=$${paramsTerr.length + 1} AND r.anio=$${paramsTerr.length + 2} AND s.estado_id=${req.usuario.estado_id} ${filtroTerritorio}`,
       [...paramsTerr, campana.tipo_eleccion, anio]
     );
     const votosPorPartido = {};
@@ -445,7 +445,7 @@ router.get('/regresion-cobertura', async (req, res) => {
      FROM secciones s
      LEFT JOIN zonas_asignadas z ON z.seccion_id = s.id AND z.campana_id=$1
      LEFT JOIN promovidos p ON p.seccion_id = s.id AND p.campana_id=$1
-     WHERE s.estado_id=29 AND (z.campana_id=$1 OR p.campana_id=$1)
+     WHERE s.estado_id=${req.usuario.estado_id} AND (z.campana_id=$1 OR p.campana_id=$1)
      GROUP BY s.numero
      HAVING COUNT(DISTINCT z.usuario_id) > 0 OR COUNT(DISTINCT p.id) > 0`,
     [campanaId]
@@ -545,8 +545,8 @@ router.get('/prueba-ritmo', async (req, res) => {
   const errorEstandar = desviacion / Math.sqrt(n);
 
   const listaNominalRes = await query(
-    `SELECT COALESCE(SUM(s.lista_nominal),0) as total FROM secciones s WHERE s.estado_id=29
-     ${campana.territorio_tipo === 'municipio' && campana.territorio_id ? 'AND s.municipio_id=(SELECT id FROM municipios WHERE estado_id=29 AND clave_ine=$1)' : ''}`,
+    `SELECT COALESCE(SUM(s.lista_nominal),0) as total FROM secciones s WHERE s.estado_id=${req.usuario.estado_id}
+     ${campana.territorio_tipo === 'municipio' && campana.territorio_id ? `AND s.municipio_id=(SELECT id FROM municipios WHERE estado_id=${req.usuario.estado_id} AND clave_ine=$1)` : ''}`,
     campana.territorio_tipo === 'municipio' && campana.territorio_id ? [campana.territorio_id] : []
   );
   const metaVotos = campana.meta_votos || Math.round((listaNominalRes.rows[0]?.total || 0) * 0.35);
@@ -599,7 +599,7 @@ router.get('/camino-triunfo', async (req, res) => {
   let filtroTerritorio = '';
   const paramsTerr = [];
   if (campana.territorio_tipo === 'municipio' && campana.territorio_id) {
-    filtroTerritorio = 'AND s.municipio_id = (SELECT id FROM municipios WHERE estado_id=29 AND clave_ine=$1)';
+    filtroTerritorio = `AND s.municipio_id = (SELECT id FROM municipios WHERE estado_id=${req.usuario.estado_id} AND clave_ine=$1)`;
     paramsTerr.push(campana.territorio_id);
   } else if (campana.territorio_tipo === 'distrito_local' && campana.territorio_id) {
     filtroTerritorio = 'AND s.distrito_local=$1'; paramsTerr.push(campana.territorio_id);
@@ -614,7 +614,7 @@ router.get('/camino-triunfo', async (req, res) => {
   const hist = await query(
     `SELECT s.numero, r.partido, r.votos FROM resultados_historicos r
      JOIN secciones s ON s.id=r.seccion_id
-     WHERE r.tipo_eleccion=$${paramsTerr.length + 1} AND r.anio=$${paramsTerr.length + 2} AND s.estado_id=29 ${filtroTerritorio}`,
+     WHERE r.tipo_eleccion=$${paramsTerr.length + 1} AND r.anio=$${paramsTerr.length + 2} AND s.estado_id=${req.usuario.estado_id} ${filtroTerritorio}`,
     [...paramsTerr, campana.tipo_eleccion, anio]
   );
   const porSeccion = {};

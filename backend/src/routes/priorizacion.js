@@ -45,7 +45,7 @@ router.get('/', async (req, res) => {
     let filtroTerritorio = '';
     const params = [campana.tipo_eleccion];
     if (campana.territorio_tipo === 'municipio' && campana.territorio_id) {
-      filtroTerritorio = 'AND s.municipio_id = (SELECT id FROM municipios WHERE estado_id=29 AND clave_ine=$2)';
+      filtroTerritorio = `AND s.municipio_id = (SELECT id FROM municipios WHERE estado_id=${req.usuario.estado_id} AND clave_ine=$2)`;
       params.push(campana.territorio_id);
     } else if (campana.territorio_tipo === 'distrito_local' && campana.territorio_id) {
       filtroTerritorio = 'AND s.distrito_local = $2';
@@ -93,6 +93,21 @@ router.get('/', async (req, res) => {
       promosPorSeccion[fila.seccion][fila.clasificacion] = parseInt(fila.total);
     }
 
+    // 3.5. TERCERA DIMENSIÓN DEL SCORING COMPUESTO — cobertura real de
+    // estructura (promotores/coordinadores asignados vía Sectorización
+    // en el mapa). Antes el score solo pesaba histórico + promovidos;
+    // ahora una sección crítica SIN NADIE asignado sube de prioridad
+    // (nadie la está trabajando todavía), y una que ya tiene equipo
+    // baja un poco (ya se está atendiendo, aunque falte terminar).
+    const estructuraRes = await query(
+      `SELECT s.numero as seccion, COUNT(DISTINCT z.usuario_id) as personas
+       FROM zonas_asignadas z JOIN secciones s ON s.id = z.seccion_id
+       WHERE z.campana_id = $1 GROUP BY s.numero`,
+      [campanaId]
+    );
+    const estructuraPorSeccion = {};
+    estructuraRes.rows.forEach((r) => { estructuraPorSeccion[r.seccion] = parseInt(r.personas); });
+
     // 4. Agrupar histórico por sección
     const porSeccion = {};
     for (const fila of historico.rows) {
@@ -134,6 +149,18 @@ router.get('/', async (req, res) => {
       const factorUrgencia = diasRestantes < 30 ? 1.5 : diasRestantes < 90 ? 1.2 : 1;
       score = score * factorUrgencia * (1 - Math.min(0.7, (promos.base + promos.persuadible) / Math.max(1, promosNecesarios) * 0.5));
 
+      // TERCERA DIMENSIÓN: cobertura de estructura. Una sección
+      // prioritaria (crítica/recuperable/disputa) sin NADIE asignado
+      // todavía sube 25% — es un hueco real que nadie está llenando.
+      // Si ya tiene 3+ personas trabajándola, baja un poco — ya se
+      // está atendiendo, hay secciones más urgentes que atender primero.
+      const personasAsignadas = estructuraPorSeccion[seccNum] || 0;
+      const esPrioritaria = ['critica', 'recuperable', 'disputa'].includes(prioridad);
+      let ajusteEstructura = 1;
+      if (esPrioritaria && personasAsignadas === 0) ajusteEstructura = 1.25;
+      else if (esPrioritaria && personasAsignadas >= 3) ajusteEstructura = 0.85;
+      score = score * ajusteEstructura;
+
       analisis.push({
         seccion: parseInt(seccNum),
         lista_nominal: datos.lista_nominal,
@@ -147,6 +174,8 @@ router.get('/', async (req, res) => {
         deficit_votos: Math.round(deficit),
         promovidos_necesarios: promosNecesarios,
         ritmo_diario_necesario: ritmoDiario,
+        personas_asignadas: personasAsignadas,
+        sin_cobertura: esPrioritaria && personasAsignadas === 0,
         prioridad,
         score: +score.toFixed(1),
       });
@@ -165,6 +194,7 @@ router.get('/', async (req, res) => {
         consolidar: analisis.filter(a => a.prioridad === 'consolidar').length,
         perdidas: analisis.filter(a => a.prioridad === 'perdida').length,
         promovidos_necesarios_total: analisis.reduce((s, a) => s + a.promovidos_necesarios, 0),
+        secciones_prioritarias_sin_cobertura: analisis.filter(a => a.sin_cobertura).length,
       },
     });
   } catch (e) {
@@ -212,7 +242,7 @@ router.get('/hoy', async (req, res) => {
 
     // Sección más urgente ahora mismo (la de mayor score)
     const topSeccion = await query(
-      `SELECT s.numero FROM secciones s WHERE s.estado_id=29 LIMIT 1` // placeholder simplificado
+      `SELECT s.numero FROM secciones s WHERE s.estado_id=${req.usuario.estado_id} LIMIT 1` // placeholder simplificado
     );
 
     res.json({ ok: true, data: { dias_restantes: dias, fase, icono, mensaje } });
@@ -240,7 +270,7 @@ router.get('/seccion/:numero', async (req, res) => {
     const seccionRes = await query(
       `SELECT s.id, s.numero, s.lista_nominal, s.distrito_federal, s.distrito_local, m.nombre as municipio
        FROM secciones s JOIN municipios m ON m.id=s.municipio_id
-       WHERE s.estado_id=29 AND s.numero=$1`,
+       WHERE s.estado_id=${req.usuario.estado_id} AND s.numero=$1`,
       [numero]
     );
     if (!seccionRes.rows[0]) return res.status(404).json({ ok: false, error: 'Sección no encontrada' });
@@ -345,12 +375,12 @@ router.get('/municipio/:claveIne', async (req, res) => {
     const campanaRes = await query('SELECT partido, tipo_eleccion FROM campanas WHERE id=$1', [campanaId]);
     const campana = campanaRes.rows[0];
 
-    const municipioRes = await query('SELECT nombre FROM municipios WHERE estado_id=29 AND clave_ine=$1', [claveIne]);
+    const municipioRes = await query(`SELECT nombre FROM municipios WHERE estado_id=${req.usuario.estado_id} AND clave_ine=$1`, [claveIne]);
     if (!municipioRes.rows[0]) return res.status(404).json({ ok: false, error: 'Municipio no encontrado' });
 
     const secciones = await query(
       `SELECT s.id, s.numero, s.lista_nominal FROM secciones s
-       JOIN municipios m ON m.id=s.municipio_id WHERE m.estado_id=29 AND m.clave_ine=$1`,
+       JOIN municipios m ON m.id=s.municipio_id WHERE m.estado_id=${req.usuario.estado_id} AND m.clave_ine=$1`,
       [claveIne]
     );
     const seccionIds = secciones.rows.map((s) => s.id);

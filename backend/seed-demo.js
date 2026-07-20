@@ -118,7 +118,7 @@ export async function crearDemo(opciones = {}) {
 
   const seccionesEjemplo = await query(
     `SELECT s.numero FROM secciones s JOIN municipios m ON m.id=s.municipio_id
-     ${filtroSecciones} ORDER BY s.numero LIMIT 15`,
+     ${filtroSecciones} ORDER BY s.numero LIMIT 20`,
     paramsSecciones
   );
   const secciones = seccionesEjemplo.rows.map(r => r.numero);
@@ -144,6 +144,20 @@ export async function crearDemo(opciones = {}) {
     );
   }
   console.log(`✅ ${NOMBRES.length} promovidos de ejemplo (Base, Persuadibles y Adversarios representados)`);
+
+  // 4.5. Simular duplicados reales — casos donde dos promotores
+  // distintos intentaron registrar a la misma persona (pasa mucho en
+  // campo, cuando dos brigadas tocan la misma calle). Así el módulo
+  // de "Duplicados" en Promovidos tiene algo real que mostrar.
+  const primerosTres = await query(
+    `SELECT id, veces_intentado FROM promovidos WHERE campana_id=$1 ORDER BY creado_en LIMIT 3`,
+    [campanaId]
+  );
+  for (const p of primerosTres.rows) {
+    const vecesExtra = 1 + Math.floor(Math.random() * 2); // 2 o 3 intentos en total
+    await query('UPDATE promovidos SET veces_intentado=$1 WHERE id=$2', [1 + vecesExtra, p.id]);
+  }
+  console.log(`✅ ${primerosTres.rows.length} promovidos marcados como duplicados (varios promotores los registraron)`);
 
   // 5. Agenda con eventos de ejemplo
   const eventos = [
@@ -248,17 +262,17 @@ export async function crearDemo(opciones = {}) {
 
   // 8. Casillas registradas con ubicación, algunas con representante
   // confirmado — para que Día de la Elección se vea listo para operar
-  for (let i = 0; i < 6; i++) {
+  for (let i = 0; i < 18; i++) {
     const secc = secciones[i % secciones.length];
     const s = await query('SELECT id, numero FROM secciones WHERE estado_id=29 AND numero=$1', [secc]);
     if (!s.rows[0]) continue;
     await query(
       `INSERT INTO casillas (campana_id, seccion_id, numero, representante_id, confirmado_asistencia)
        VALUES ($1,$2,$3,$4,$5) ON CONFLICT (campana_id, seccion_id, numero) DO NOTHING`,
-      [campanaId, s.rows[0].id, 'B', promotorIds[i % promotorIds.length], i < 4] // las primeras 4 confirmadas, 2 pendientes
+      [campanaId, s.rows[0].id, 'B', promotorIds[i % promotorIds.length], i % 3 !== 0] // 2 de cada 3 confirmadas
     );
   }
-  console.log('✅ 6 casillas registradas (4 con representante confirmado, 2 pendientes — así se ve el Prep de Día D funcionando)');
+  console.log('✅ 18 casillas registradas — así se ve el Prep de Día D con volumen real');
 
   // 9. Una encuesta de ejemplo con varias respuestas, algunas con ubicación
   const encuestaDemo = await query(

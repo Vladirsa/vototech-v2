@@ -48,7 +48,7 @@ function generarPuntosPerimetro(coordenadas, distanciaMetros = 0.00016) {
  */
 router.get('/resumen/:seccion', async (req, res) => {
   try {
-    const seccionRow = await query('SELECT id FROM secciones WHERE estado_id=29 AND numero=$1', [req.params.seccion]);
+    const seccionRow = await query('SELECT id FROM secciones WHERE estado_id=$2 AND numero=$1', [req.params.seccion, req.usuario.estado_id]);
     if (!seccionRow.rows[0]) return res.json({ ok: true, data: [] });
 
     const resultado = await query(
@@ -81,7 +81,7 @@ router.get('/:seccion/:manzana', async (req, res) => {
   const { seccion, manzana } = req.params;
 
   try {
-    const seccionRow = await query('SELECT id FROM secciones WHERE estado_id=29 AND numero=$1', [seccion]);
+    const seccionRow = await query('SELECT id FROM secciones WHERE estado_id=$2 AND numero=$1', [seccion, req.usuario.estado_id]);
     if (!seccionRow.rows[0]) return res.status(404).json({ ok: false, error: 'Sección no encontrada' });
     const seccionId = seccionRow.rows[0].id;
 

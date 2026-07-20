@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { query } from '../db/pool.js';
 import { requiereAuth } from '../middleware/auth.js';
+import { registrarAuditoria } from '../lib/auditoria.js';
 
 const router = Router();
 router.use(requiereAuth);
@@ -54,6 +55,13 @@ router.post('/', async (req, res) => {
     [req.usuario.campana_id, d.categoria, d.descripcion, d.monto, d.fecha,
      d.proveedor || null, d.rfc || null, d.factura_uuid || null, d.forma_pago, req.usuario.sub]
   );
+
+  registrarAuditoria({
+    campanaId: req.usuario.campana_id, usuarioId: req.usuario.sub, usuarioNombre: req.usuario.nombre,
+    accion: 'crear', tabla: 'gastos_campana', registroId: resultado.rows[0].id,
+    detalle: { categoria: d.categoria, monto: d.monto, proveedor: d.proveedor },
+    ip: req.ip,
+  });
 
   res.status(201).json({ ok: true, data: resultado.rows[0] });
 });

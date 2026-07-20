@@ -44,6 +44,8 @@ import encuestasRoutes from './routes/encuestas.js';
 import juridicoRoutes from './routes/juridico.js';
 import chatRoutes from './routes/chat.js';
 import pushRoutes, { enviarPush } from './routes/push.js';
+import inteligenciaRoutes from './routes/inteligencia.js';
+import documentosRoutes from './routes/documentos.js';
 import adminRoutes from './routes/admin.js';
 
 const app = express();
@@ -134,6 +136,8 @@ app.use('/api/encuestas', requiereAuth, requiereModulo('promovidos'), encuestasR
 app.use('/api/juridico', requiereAuth, requiereModulo('juridico'), juridicoRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/push', pushRoutes);
+app.use('/api/inteligencia', inteligenciaRoutes);
+app.use('/api/documentos', requiereAuth, requiereModulo('juridico'), documentosRoutes);
 app.use('/api/admin', adminRoutes);
 
 app.get('/api/salud', (req, res) => {

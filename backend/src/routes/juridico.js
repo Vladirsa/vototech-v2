@@ -121,4 +121,22 @@ router.patch('/fecha-inicio-campana', async (req, res) => {
   res.json({ ok: true });
 });
 
+/**
+ * GET /api/juridico/auditoria
+ * Solo altos mandos pueden ver la bitácora completa — es información
+ * sensible de quién hizo qué en el sistema.
+ */
+router.get('/auditoria', async (req, res) => {
+  if (!['candidato', 'jefe_campana', 'coord_general'].includes(req.usuario.rol)) {
+    return res.status(403).json({ ok: false, error: 'Solo altos mandos pueden ver la bitácora de auditoría' });
+  }
+  const filtroTabla = req.query.tabla ? 'AND tabla=$2' : '';
+  const params = filtroTabla ? [req.usuario.campana_id, req.query.tabla] : [req.usuario.campana_id];
+  const resultado = await query(
+    `SELECT * FROM auditoria WHERE campana_id=$1 ${filtroTabla} ORDER BY creado_en DESC LIMIT 200`,
+    params
+  );
+  res.json({ ok: true, data: resultado.rows });
+});
+
 export default router;

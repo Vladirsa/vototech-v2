@@ -97,14 +97,15 @@ router.delete('/plantillas/:id', async (req, res) => {
 // AUDIENCIA — quién va a recibir el mensaje, según filtros
 // ═══════════════════════════════════════════════════════════════
 
-async function calcularAudiencia(campanaId, tipo, filtros = {}) {
+async function calcularAudiencia(campanaId, tipo, filtros = {}, estadoId = 29) {
   if (tipo === 'promovidos') {
     let sql = `SELECT p.id, p.nombre, p.telefono FROM promovidos p WHERE p.campana_id=$1 AND p.telefono IS NOT NULL AND p.telefono != ''`;
     const params = [campanaId];
     if (filtros.clasificacion) { params.push(filtros.clasificacion); sql += ` AND p.clasificacion=$${params.length}`; }
     if (filtros.seccion_numero) {
       params.push(filtros.seccion_numero);
-      sql += ` AND p.seccion_id = (SELECT id FROM secciones WHERE estado_id=29 AND numero=$${params.length})`;
+      params.push(estadoId);
+      sql += ` AND p.seccion_id = (SELECT id FROM secciones WHERE estado_id=$${params.length} AND numero=$${params.length - 1})`;
     }
     if (filtros.partido) { params.push(filtros.partido); sql += ` AND p.partido=$${params.length}`; }
     if (filtros.comprometido !== undefined) { params.push(filtros.comprometido); sql += ` AND p.comprometido=$${params.length}`; }
@@ -127,7 +128,7 @@ async function calcularAudiencia(campanaId, tipo, filtros = {}) {
 router.post('/audiencia/previsualizar', async (req, res) => {
   const { tipo, filtros } = req.body;
   if (!['promovidos', 'estructura'].includes(tipo)) return res.status(400).json({ ok: false, error: 'Tipo de audiencia inválido' });
-  const gente = await calcularAudiencia(req.usuario.campana_id, tipo, filtros || {});
+  const gente = await calcularAudiencia(req.usuario.campana_id, tipo, filtros || {}, req.usuario.estado_id);
   res.json({ ok: true, total: gente.length, muestra: gente.slice(0, 5) });
 });
 
@@ -176,7 +177,7 @@ router.post('/envios', async (req, res) => {
   if (!parseado.success) return res.status(400).json({ ok: false, error: parseado.error.errors[0].message });
   const d = parseado.data;
 
-  const gente = await calcularAudiencia(req.usuario.campana_id, d.audiencia_tipo, d.audiencia_filtro);
+  const gente = await calcularAudiencia(req.usuario.campana_id, d.audiencia_tipo, d.audiencia_filtro, req.usuario.estado_id);
   if (gente.length === 0) return res.status(400).json({ ok: false, error: 'No hay destinatarios con ese filtro (revisa que tengan teléfono registrado)' });
 
   const destinatarios = gente.map((p) => ({

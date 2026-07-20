@@ -2,8 +2,11 @@ import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import PDFDocument from 'pdfkit';
+import jwt from 'jsonwebtoken';
+import speakeasy from 'speakeasy';
+import QRCode from 'qrcode';
 import { query } from '../db/pool.js';
-import { generarToken, requiereAuth } from '../middleware/auth.js';
+import { generarToken, requiereAuth, generarRefreshToken, validarYRotarRefreshToken, revocarRefreshToken } from '../middleware/auth.js';
 
 const router = Router();
 
@@ -120,8 +123,9 @@ router.post('/login', async (req, res) => {
   try {
     const resultado = await query(
       `SELECT u.id, u.nombre, u.email, u.password_hash, u.rol, u.activo,
+              u.dos_factores_activo, u.dos_factores_secreto,
               c.id as campana_id, c.activa as campana_activa, c.estado_aprobacion,
-              c.fecha_vencimiento, c.es_demo
+              c.fecha_vencimiento, c.es_demo, c.estado_id
        FROM usuarios u
        JOIN campanas c ON c.id = u.campana_id
        WHERE c.subdominio = $1 AND u.email = $2`,
@@ -158,12 +162,27 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ ok: false, error: 'Usuario o contraseña incorrectos' });
     }
 
+    // Si tiene 2FA activo, la contraseña correcta NO es suficiente
+    // todavía — se detiene aquí y se pide el código de la app
+    // autenticadora en un segundo paso, con un token temporal de
+    // solo 5 minutos que únicamente sirve para ese propósito.
+    if (usuario.dos_factores_activo) {
+      const tokenPreAuth = jwt.sign(
+        { sub: usuario.id, tipo: 'pre_2fa' },
+        process.env.JWT_SECRET || 'CAMBIAR_EN_PRODUCCION',
+        { expiresIn: '5m' }
+      );
+      return res.json({ ok: true, requiere_2fa: true, token_pre_auth: tokenPreAuth });
+    }
+
     await query('UPDATE usuarios SET ultimo_acceso = now() WHERE id = $1', [usuario.id]);
 
     const token = generarToken(usuario);
+    const refreshToken = await generarRefreshToken(usuario.id);
     res.json({
       ok: true,
       token,
+      refresh_token: refreshToken,
       usuario: { id: usuario.id, nombre: usuario.nombre, rol: usuario.rol },
     });
   } catch (e) {
@@ -183,6 +202,95 @@ const esquemaRegistroPromotor = z.object({
   email: z.string().email(),
   password: z.string().min(8),
   telefono: z.string().optional(),
+});
+
+/**
+ * POST /api/auth/2fa/verificar-login
+ * Segundo paso del login cuando 2FA está activo — toma el token
+ * temporal de 5 minutos del primer paso + el código de 6 dígitos de
+ * la app autenticadora, y si coincide, ahí sí entrega los tokens
+ * reales de sesión.
+ */
+router.post('/2fa/verificar-login', async (req, res) => {
+  const { token_pre_auth, codigo } = req.body;
+  if (!token_pre_auth || !codigo) return res.status(400).json({ ok: false, error: 'Faltan datos' });
+
+  let payload;
+  try {
+    payload = jwt.verify(token_pre_auth, process.env.JWT_SECRET || 'CAMBIAR_EN_PRODUCCION');
+    if (payload.tipo !== 'pre_2fa') throw new Error('tipo incorrecto');
+  } catch (e) {
+    return res.status(401).json({ ok: false, error: 'Sesión de verificación expirada, inicia sesión de nuevo' });
+  }
+
+  const resultado = await query(
+    `SELECT u.*, c.estado_id FROM usuarios u JOIN campanas c ON c.id=u.campana_id WHERE u.id=$1`,
+    [payload.sub]
+  );
+  const usuario = resultado.rows[0];
+  if (!usuario || !usuario.dos_factores_activo) return res.status(401).json({ ok: false, error: 'No válido' });
+
+  const codigoValido = speakeasy.totp.verify({ secret: usuario.dos_factores_secreto, encoding: 'base32', token: codigo, window: 1 });
+  if (!codigoValido) return res.status(401).json({ ok: false, error: 'Código incorrecto. Revisa tu app autenticadora.' });
+
+  await query('UPDATE usuarios SET ultimo_acceso = now() WHERE id = $1', [usuario.id]);
+  const token = generarToken(usuario);
+  const refreshToken = await generarRefreshToken(usuario.id);
+  res.json({ ok: true, token, refresh_token: refreshToken, usuario: { id: usuario.id, nombre: usuario.nombre, rol: usuario.rol } });
+});
+
+/**
+ * POST /api/auth/2fa/generar-secreto
+ * Primer paso para ACTIVAR 2FA — genera un secreto nuevo y un código
+ * QR para escanear con Google Authenticator, Authy, etc. Todavía no
+ * se activa: eso pasa hasta que la persona confirme con un código
+ * real en /2fa/activar (así no se puede quedar bloqueada por un
+ * error al escanear el QR).
+ */
+router.post('/2fa/generar-secreto', requiereAuth, async (req, res) => {
+  const usuarioRes = await query('SELECT email FROM usuarios WHERE id=$1', [req.usuario.sub]);
+  const secreto = speakeasy.generateSecret({ length: 20, name: `VotoTech (${usuarioRes.rows[0].email})`, issuer: 'VotoTech' });
+  const qrDataUrl = await QRCode.toDataURL(secreto.otpauth_url);
+
+  // Se guarda como "pendiente" en una columna temporal — no se activa
+  // hasta confirmar con un código real.
+  await query('UPDATE usuarios SET dos_factores_secreto=$1 WHERE id=$2', [secreto.base32, req.usuario.sub]);
+
+  res.json({ ok: true, data: { qr: qrDataUrl, secreto_manual: secreto.base32 } });
+});
+
+/**
+ * POST /api/auth/2fa/activar
+ * Confirma el código generado por la app autenticadora y, si es
+ * correcto, ACTIVA 2FA de verdad.
+ */
+router.post('/2fa/activar', requiereAuth, async (req, res) => {
+  const { codigo } = req.body;
+  const usuarioRes = await query('SELECT dos_factores_secreto FROM usuarios WHERE id=$1', [req.usuario.sub]);
+  const secreto = usuarioRes.rows[0]?.dos_factores_secreto;
+  if (!secreto) return res.status(400).json({ ok: false, error: 'Primero genera el código QR' });
+
+  const valido = speakeasy.totp.verify({ secret: secreto, encoding: 'base32', token: codigo, window: 1 });
+  if (!valido) return res.status(400).json({ ok: false, error: 'Código incorrecto. Verifica la hora de tu celular y vuelve a intentar.' });
+
+  await query('UPDATE usuarios SET dos_factores_activo=true WHERE id=$1', [req.usuario.sub]);
+  res.json({ ok: true, mensaje: '✅ Verificación en dos pasos activada' });
+});
+
+/**
+ * POST /api/auth/2fa/desactivar
+ * Requiere la contraseña actual — no basta con estar dentro de la
+ * sesión, porque si alguien roba una sesión activa no debe poder
+ * quitar la segunda capa de seguridad tan fácilmente.
+ */
+router.post('/2fa/desactivar', requiereAuth, async (req, res) => {
+  const { password } = req.body;
+  const usuarioRes = await query('SELECT password_hash FROM usuarios WHERE id=$1', [req.usuario.sub]);
+  const passwordOk = await bcrypt.compare(password || '', usuarioRes.rows[0].password_hash);
+  if (!passwordOk) return res.status(401).json({ ok: false, error: 'Contraseña incorrecta' });
+
+  await query('UPDATE usuarios SET dos_factores_activo=false, dos_factores_secreto=NULL WHERE id=$1', [req.usuario.sub]);
+  res.json({ ok: true, mensaje: 'Verificación en dos pasos desactivada' });
 });
 
 router.post('/registrar-con-codigo', async (req, res) => {
@@ -219,14 +327,18 @@ router.post('/registrar-con-codigo', async (req, res) => {
       [invitacion.id]
     );
 
+    const campanaDatos = await query('SELECT estado_id FROM campanas WHERE id=$1', [invitacion.campana_id]);
+
     const token = generarToken({
       id: nuevoUsuario.rows[0].id,
       campana_id: invitacion.campana_id,
       rol: invitacion.rol_asignado,
       nombre: datos.nombre,
+      estado_id: campanaDatos.rows[0]?.estado_id,
     });
 
-    res.status(201).json({ ok: true, token, mensaje: '¡Bienvenido al equipo! Tu cuenta fue creada.' });
+    const refreshToken = await generarRefreshToken(nuevoUsuario.rows[0].id);
+    res.status(201).json({ ok: true, token, refresh_token: refreshToken, mensaje: '¡Bienvenido al equipo! Tu cuenta fue creada.' });
   } catch (e) {
     console.error('Error registrando con código:', e);
     res.status(500).json({ ok: false, error: 'Error interno' });
@@ -247,6 +359,38 @@ router.get('/mi-campana', requiereAuth, async (req, res) => {
   );
   if (!resultado.rows[0]) return res.status(404).json({ ok: false, error: 'Campaña no encontrada' });
   res.json({ ok: true, data: resultado.rows[0] });
+});
+
+/**
+ * POST /api/auth/refrescar
+ * Cambia un refresh token vigente por un token de acceso NUEVO
+ * (30 min) + un refresh token NUEVO (rotación) — así la sesión se
+ * mantiene viva sin que la persona tenga que volver a poner su
+ * contraseña cada 30 minutos, pero cada token de acceso individual
+ * dura poco si alguien lo llegara a robar.
+ */
+router.post('/refrescar', async (req, res) => {
+  const { refresh_token } = req.body;
+  if (!refresh_token) return res.status(400).json({ ok: false, error: 'Falta el refresh token' });
+
+  const resultado = await validarYRotarRefreshToken(refresh_token);
+  if (!resultado) {
+    return res.status(401).json({ ok: false, error: 'Sesión expirada o inválida, inicia sesión de nuevo' });
+  }
+
+  const nuevoToken = generarToken(resultado.usuario);
+  res.json({ ok: true, token: nuevoToken, refresh_token: resultado.refresh_token });
+});
+
+/**
+ * POST /api/auth/cerrar-sesion
+ * Revoca el refresh token actual — a partir de aquí ya no se puede
+ * usar para renovar, aunque todavía no haya expirado por sí solo.
+ */
+router.post('/cerrar-sesion', async (req, res) => {
+  const { refresh_token } = req.body;
+  if (refresh_token) await revocarRefreshToken(refresh_token);
+  res.json({ ok: true });
 });
 
 const TIPO_ELECCION_LABEL = {

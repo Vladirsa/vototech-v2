@@ -44,7 +44,7 @@ router.post('/asignar', async (req, res) => {
 
   let asignadas = 0;
   for (const numero of secciones) {
-    const s = await query('SELECT id FROM secciones WHERE estado_id=29 AND numero=$1', [numero]);
+    const s = await query('SELECT id FROM secciones WHERE estado_id=$2 AND numero=$1', [numero, req.usuario.estado_id]);
     if (!s.rows[0]) continue;
     await query(
       `INSERT INTO zonas_asignadas (campana_id, usuario_id, seccion_id, asignado_por)
@@ -62,7 +62,7 @@ router.post('/asignar', async (req, res) => {
  * Quitar una sección de la zona de alguien (por si se reasigna).
  */
 router.delete('/:usuarioId/:seccionNumero', async (req, res) => {
-  const s = await query('SELECT id FROM secciones WHERE estado_id=29 AND numero=$1', [req.params.seccionNumero]);
+  const s = await query('SELECT id FROM secciones WHERE estado_id=$2 AND numero=$1', [req.params.seccionNumero, req.usuario.estado_id]);
   if (!s.rows[0]) return res.status(404).json({ ok: false, error: 'Sección no encontrada' });
   await query(
     'DELETE FROM zonas_asignadas WHERE campana_id=$1 AND usuario_id=$2 AND seccion_id=$3',

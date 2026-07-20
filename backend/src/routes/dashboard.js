@@ -24,7 +24,7 @@ router.get('/resumen', async (req, res) => {
     let filtroTerritorio = '';
     const paramsTerr = [];
     if (campana.territorio_tipo === 'municipio' && campana.territorio_id) {
-      filtroTerritorio = 'AND s.municipio_id = (SELECT id FROM municipios WHERE estado_id=29 AND clave_ine=$1)';
+      filtroTerritorio = `AND s.municipio_id = (SELECT id FROM municipios WHERE estado_id=${req.usuario.estado_id} AND clave_ine=$1)`;
       paramsTerr.push(campana.territorio_id);
     } else if (campana.territorio_tipo === 'distrito_local' && campana.territorio_id) {
       filtroTerritorio = 'AND s.distrito_local = $1';
@@ -35,7 +35,7 @@ router.get('/resumen', async (req, res) => {
     }
 
     const seccionesRes = await query(
-      `SELECT s.id, s.numero, s.lista_nominal, s.distrito_local FROM secciones s WHERE s.estado_id=29 ${filtroTerritorio}`,
+      `SELECT s.id, s.numero, s.lista_nominal, s.distrito_local FROM secciones s WHERE s.estado_id=${req.usuario.estado_id} ${filtroTerritorio}`,
       paramsTerr
     );
     const seccionIds = seccionesRes.rows.map((s) => s.id);
@@ -204,6 +204,106 @@ router.get('/resumen', async (req, res) => {
     console.error('Error en resumen de dashboard:', e);
     res.status(500).json({ ok: false, error: 'Error al calcular el resumen' });
   }
+});
+
+/**
+ * GET /api/dashboard/ejecutivo
+ * Versión ultra simplificada para el candidato — 5 indicadores, nada
+ * más. La idea no es esconder información, es que quien no tiene
+ * tiempo de leer veinte gráficas pueda ver en 5 segundos cómo va todo.
+ */
+router.get('/ejecutivo', async (req, res) => {
+  const campanaId = req.usuario.campana_id;
+  const campanaRes = await query('SELECT partido, tipo_eleccion, territorio_tipo, territorio_id, meta_votos FROM campanas WHERE id=$1', [campanaId]);
+  const campana = campanaRes.rows[0];
+
+  let filtroTerritorio = '';
+  const paramsTerr = [];
+  if (campana.territorio_tipo === 'municipio' && campana.territorio_id) {
+    filtroTerritorio = `AND s.municipio_id = (SELECT id FROM municipios WHERE estado_id=${req.usuario.estado_id} AND clave_ine=$1)`;
+    paramsTerr.push(campana.territorio_id);
+  }
+
+  // ── 1. % DE COBERTURA TERRITORIAL ──
+  const totalSeccionesRes = await query(`SELECT COUNT(*) as total FROM secciones s WHERE s.estado_id=${req.usuario.estado_id} ${filtroTerritorio}`, paramsTerr);
+  // Filtro de territorio con su propio índice de parámetro — $1 aquí
+  // es campana_id, así que el filtro de territorio (si aplica) debe
+  // correrse a $2 para no chocar (mismo tipo de bug que ya corregimos
+  // antes en el bootstrap de Estadística).
+  const filtroTerritorioCorrido = filtroTerritorio.replace('$1', '$2');
+  const seccionesConPresenciaRes = await query(
+    `SELECT COUNT(DISTINCT p.seccion_id) as total FROM promovidos p JOIN secciones s ON s.id=p.seccion_id
+     WHERE p.campana_id=$1 ${filtroTerritorioCorrido}`,
+    [campanaId, ...paramsTerr]
+  );
+  const totalSecciones = parseInt(totalSeccionesRes.rows[0].total) || 1;
+  const seccionesConPresencia = parseInt(seccionesConPresenciaRes.rows[0].total) || 0;
+  const coberturaPct = Math.round((seccionesConPresencia / totalSecciones) * 100);
+
+  // ── 2. VOTO ESTIMADO ──
+  const comprometidosRes = await query(`SELECT COUNT(*) as total FROM promovidos WHERE campana_id=$1 AND comprometido=true`, [campanaId]);
+  const votoEstimado = parseInt(comprometidosRes.rows[0].total);
+
+  // ── 3. MUNICIPIOS EN RIESGO — donde el histórico dice que vas perdiendo ──
+  const anioRes = await query('SELECT MAX(anio) as anio FROM resultados_historicos WHERE tipo_eleccion=$1', [campana.tipo_eleccion]);
+  const anio = anioRes.rows[0]?.anio;
+  let municipiosRiesgo = 0, totalMunicipios = 0;
+  if (anio) {
+    // Igual que antes: $1 y $2 ya están usados (tipo_eleccion, año),
+    // así que el filtro de territorio necesita correrse a $3.
+    const filtroTerritorioCorrido3 = filtroTerritorio.replace('$1', '$3');
+    const porMunicipio = await query(
+      `SELECT m.nombre, r.partido, SUM(r.votos) as votos
+       FROM resultados_historicos r JOIN secciones s ON s.id=r.seccion_id JOIN municipios m ON m.id=s.municipio_id
+       WHERE r.tipo_eleccion=$1 AND r.anio=$2 AND s.estado_id=${req.usuario.estado_id} ${filtroTerritorioCorrido3}
+       GROUP BY m.nombre, r.partido`,
+      [campana.tipo_eleccion, anio, ...paramsTerr]
+    );
+    const agrupado = {};
+    porMunicipio.rows.forEach((r) => {
+      if (!agrupado[r.nombre]) agrupado[r.nombre] = {};
+      agrupado[r.nombre][r.partido] = parseInt(r.votos);
+    });
+    totalMunicipios = Object.keys(agrupado).length;
+    Object.values(agrupado).forEach((votos) => {
+      const ganador = Object.entries(votos).sort((a, b) => b[1] - a[1])[0];
+      if (ganador && ganador[0] !== campana.partido) municipiosRiesgo++;
+    });
+  }
+
+  // ── 4. ESTRUCTURA ACTIVA — % de promotores con actividad en 7 días ──
+  const totalPromotoresRes = await query(`SELECT COUNT(*) as total FROM usuarios WHERE campana_id=$1 AND rol='promotor' AND activo != false`, [campanaId]);
+  const promotoresActivosRes = await query(
+    `SELECT COUNT(DISTINCT registrado_por) as total FROM promovidos WHERE campana_id=$1 AND creado_en > now() - interval '7 days'`,
+    [campanaId]
+  );
+  const totalPromotores = parseInt(totalPromotoresRes.rows[0].total) || 1;
+  const promotoresActivos = parseInt(promotoresActivosRes.rows[0].total) || 0;
+  const estructuraActivaPct = Math.round((promotoresActivos / totalPromotores) * 100);
+
+  // ── 5. AVANCE DIARIO — promedio de últimos 7 días ──
+  const avanceRes = await query(
+    `SELECT COUNT(*) as total FROM promovidos WHERE campana_id=$1 AND creado_en > now() - interval '7 days'`,
+    [campanaId]
+  );
+  const avanceDiario = +(parseInt(avanceRes.rows[0].total) / 7).toFixed(1);
+
+  res.json({
+    ok: true,
+    data: {
+      cobertura_pct: coberturaPct,
+      secciones_con_presencia: seccionesConPresencia,
+      total_secciones: totalSecciones,
+      voto_estimado: votoEstimado,
+      meta_votos: campana.meta_votos,
+      municipios_riesgo: municipiosRiesgo,
+      total_municipios: totalMunicipios,
+      estructura_activa_pct: estructuraActivaPct,
+      promotores_activos: promotoresActivos,
+      total_promotores: totalPromotores,
+      avance_diario: avanceDiario,
+    },
+  });
 });
 
 export default router;
