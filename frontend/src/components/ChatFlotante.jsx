@@ -7,6 +7,10 @@ const ROL_ICONO = { candidato: '👑', jefe_campana: '👑', coord_general: '⭐
 const ROL_LABEL_CORTO = { candidato: 'Candidato', jefe_campana: 'Jefe Campaña', coord_general: 'Coord. General', coord_distrital: 'Coord. Distrital', coord_municipal: 'Coord. Municipal', coord_seccional: 'Coord. Seccional', promotor: 'Promotor' };
 
 function nombreCanalDM(idA, idB) {
+  // Si falta cualquiera de los dos IDs, no se debe ni intentar — es
+  // preferible que el botón no haga nada a que mande "dm-...-undefined"
+  // al servidor y salga "canal inválido" sin explicación.
+  if (!idA || !idB) return null;
   return `dm-${[idA, idB].sort().join('-')}`;
 }
 
@@ -169,8 +173,8 @@ export default function ChatFlotante() {
                 const activo = conversacionActiva === canalDM;
                 const conectado = enLinea.has(c.id);
                 return (
-                  <button key={c.id} onClick={() => setConversacionActiva(canalDM)}
-                    className={`w-full flex items-center gap-1.5 px-1.5 py-1.5 rounded-lg relative text-left ${activo ? 'bg-indigo-600' : 'hover:bg-slate-800'}`}>
+                  <button key={c.id} disabled={!canalDM} onClick={() => canalDM && setConversacionActiva(canalDM)}
+                    className={`w-full flex items-center gap-1.5 px-1.5 py-1.5 rounded-lg relative text-left ${activo ? 'bg-indigo-600' : 'hover:bg-slate-800'} disabled:opacity-40`}>
                     <div className="relative flex-shrink-0">
                       <span className="text-sm">{ROL_ICONO[c.rol] || '👤'}</span>
                       <span className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-slate-950 ${conectado ? 'bg-emerald-400' : 'bg-slate-600'}`} />

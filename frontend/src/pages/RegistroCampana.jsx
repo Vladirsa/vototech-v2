@@ -3,6 +3,21 @@ import { useNavigate, Link } from 'react-router-dom';
 import api from '../lib/api';
 import Ayuda from '../components/Ayuda';
 
+const PARTIDOS_MEXICO = [
+  { id: 'morena', label: 'MORENA' },
+  { id: 'pan', label: 'PAN' },
+  { id: 'pri', label: 'PRI' },
+  { id: 'prd', label: 'PRD' },
+  { id: 'mc', label: 'Movimiento Ciudadano' },
+  { id: 'pvem', label: 'Verde (PVEM)' },
+  { id: 'pt', label: 'PT' },
+  { id: 'pac', label: 'PAC' },
+  { id: 'rsp', label: 'RSP' },
+  { id: 'panalt', label: 'Panal' },
+  { id: 'fxm', label: 'Fuerza por México' },
+  { id: 'independiente', label: 'Independiente / sin partido' },
+];
+
 const TIPOS_ELECCION = [
   { id: 'ayuntamiento', label: '🏛️ Presidente Municipal', desc: 'Un municipio completo' },
   { id: 'pres_comunidad', label: '🏠 Presidente de Comunidad', desc: 'Una localidad/sección' },
@@ -104,6 +119,13 @@ export default function RegistroCampana() {
                   className="w-full px-4 py-2.5 rounded-xl bg-slate-800/80 border border-slate-700 text-white text-sm focus:outline-none focus:border-indigo-500"
                   placeholder="Ej: Andrea Arenas Pozos"
                 />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-400 mb-1.5">Partido con el que contiendes</label>
+                <select value={form.partido} onChange={(e) => actualizar('partido', e.target.value)}
+                  className="w-full px-4 py-2.5 rounded-xl bg-slate-800/80 border border-slate-700 text-white text-sm focus:outline-none focus:border-indigo-500">
+                  {PARTIDOS_MEXICO.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+                </select>
               </div>
               <div>
                 <label className="block text-xs font-semibold text-slate-400 mb-1.5">Correo (será tu usuario)</label>

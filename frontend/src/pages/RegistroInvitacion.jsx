@@ -19,7 +19,7 @@ export default function RegistroInvitacion() {
     try {
       const { data } = await api.post('/auth/registrar-con-codigo', form);
       if (data.ok) {
-        iniciarSesion(data.token, { nombre: form.nombre, rol: 'promotor' }, '', data.refresh_token);
+        iniciarSesion(data.token, data.usuario, '', data.refresh_token);
         navigate('/mapa');
       }
     } catch (err) {

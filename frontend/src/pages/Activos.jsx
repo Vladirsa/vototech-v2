@@ -85,11 +85,28 @@ export default function Activos() {
   const [filtro, setFiltro] = useState('todos');
   const [mostrarModal, setMostrarModal] = useState(false);
 
-  const cargar = () => api.get('/activos').then((r) => setLista(r.data.data));
+  const [error, setError] = useState('');
+  const cargar = () => {
+    setError('');
+    api.get('/activos').then((r) => setLista(r.data.data)).catch((e) => {
+      // Antes, si esto fallaba por cualquier razón (sesión vencida,
+      // sin conexión, lo que sea), la pantalla se quedaba mostrando
+      // "Sin activos registrados" — igual a como se ve si de verdad
+      // no hay nada, sin ninguna pista de que en realidad falló algo.
+      setError(e.response?.data?.error || 'No se pudo cargar la lista de activos. Revisa tu conexión e intenta de nuevo.');
+    });
+  };
   useEffect(cargar, []);
 
-  const cambiarEstado = async (id, estado) => { await api.patch(`/activos/${id}/estado`, { estado }); cargar(); };
-  const eliminar = async (id) => { if (confirm('¿Eliminar este activo?')) { await api.delete(`/activos/${id}`); cargar(); } };
+  const cambiarEstado = async (id, estado) => {
+    try { await api.patch(`/activos/${id}/estado`, { estado }); cargar(); }
+    catch (e) { alert(e.response?.data?.error || 'No se pudo cambiar el estado'); }
+  };
+  const eliminar = async (id) => {
+    if (!confirm('¿Eliminar este activo?')) return;
+    try { await api.delete(`/activos/${id}`); cargar(); }
+    catch (e) { alert(e.response?.data?.error || 'No se pudo eliminar'); }
+  };
 
   const filtrados = filtro === 'todos' ? lista : lista.filter((a) => a.tipo === filtro);
 
@@ -114,6 +131,7 @@ export default function Activos() {
         </div>
 
         <div className="space-y-2">
+          {error && <div className="bg-red-500/10 text-red-400 text-xs rounded-lg px-3 py-2.5">⚠️ {error} <button onClick={cargar} className="underline font-bold ml-1">Reintentar</button></div>}
           {filtrados.length === 0 ? (
             <div className="text-center text-slate-500 py-10">Sin activos registrados en esta categoría</div>
           ) : filtrados.map((a) => (

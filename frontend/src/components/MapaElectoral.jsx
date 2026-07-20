@@ -94,14 +94,12 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
   const [menuMobileAbierto, setMenuMobileAbierto] = useState(false);
   const mapRef = useRef(null);
   const [geoSecciones, setGeoSecciones] = useState(null);
-  const [localidades, setLocalidades] = useState([]);
   const [resultados, setResultados] = useState({});
   const [manzanas, setManzanas] = useState(null);
   const [promovidos, setPromovidos] = useState([]);
   const [capaPromovidos, setCapaPromovidos] = useState(true);
   const [seccionActiva, setSeccionActiva] = useState(null);
   const [coloreadoActivo, setColoreadoActivo] = useState(true);
-  const [capaLocalidades, setCapaLocalidades] = useState(true);
   const [capaCalor, setCapaCalor] = useState(false);
   const [buscarTexto, setBuscarTexto] = useState('');
   const [vueloDestino, setVueloDestino] = useState(null);
@@ -148,7 +146,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
 
   useEffect(() => {
     api.get('/geo/secciones/29').then(r => setGeoSecciones(r.data.data));
-    api.get('/geo/localidades/29').then(r => setLocalidades(r.data.data));
     api.get('/promovidos')
       .then(r => setPromovidos(r.data.data))
       .catch(() => setPromovidos([]));
@@ -577,19 +574,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
     return { ...geoSecciones, features: filtradas };
   }, [geoSecciones, territorioTipo, territorioId]);
 
-  const localidadesFiltradas = useMemo(() => {
-    if (!territorioTipo || territorioTipo === 'estatal') return localidades;
-    if (territorioTipo === 'distrito_local' || territorioTipo === 'distrito_federal') {
-      // Las localidades no traen distrito directo — se filtran por las
-      // secciones que sí quedaron dentro del distrito ya filtrado arriba.
-      const seccionesValidas = new Set((seccionesFiltradas?.features || []).map(f => f.properties.seccion));
-      return localidades.filter(l => seccionesValidas.has(l.seccion));
-    }
-    return localidades.filter(l =>
-      territorioTipo === 'municipio' ? l.municipio === territorioId : l.seccion === territorioId
-    );
-  }, [localidades, territorioTipo, territorioId]);
-
   // ── ESTILO DE CADA SECCIÓN (aquí vive el coloreado por partido) ──
   const estiloSeccion = (feature) => {
     const num = feature.properties.seccion;
@@ -664,12 +648,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
     className: '',
     html: `<div style="width:12px;height:12px;border-radius:50%;background:${COLOR_CLASIFICACION[clasificacion]||'#94a3b8'};border:2px solid white;box-shadow:0 1px 4px rgba(0,0,0,.5)"></div>`,
     iconSize: [12, 12],
-  });
-
-  const iconoLocalidad = (esCabecera) => new L.DivIcon({
-    className: '',
-    html: `<div class="${esCabecera ? 'pin-cabecera' : 'pin-localidad'}">${esCabecera ? '🏛️' : '📍'}</div>`,
-    iconSize: [28, 28],
   });
 
   const centroTlaxcala = [19.32, -98.24];
@@ -839,15 +817,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
           </Marker>
         ))}
 
-        {capaLocalidades && localidadesFiltradas.map((loc, i) => (
-          <Marker key={i} position={[loc.lat, loc.lng]} icon={iconoLocalidad(loc.cabecera)}>
-            <Popup>
-              <strong>{loc.cabecera ? '🏛️' : '📍'} {loc.nombre}</strong><br />
-              Sección {String(loc.seccion).padStart(3, '0')}
-            </Popup>
-          </Marker>
-        ))}
-
         {/* Promovidos reales — coloreados por clasificación estratégica */}
         {capaPromovidos && !capaCalor && promovidosFiltrados.map((p) => (
           <Marker key={p.id} position={[p._lat, p._lng]} icon={iconoPromovido(p.clasificacion)}>
@@ -886,6 +855,21 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
           />
         )}
       </MapContainer>
+
+      {/* ── LEYENDA DE COLORES — fija arriba del mapa, siempre visible
+          cuando el coloreado por partido está activo. Antes vivía
+          escondida dentro del panel de capas y nadie sabía por qué
+          el mapa estaba pintado así; ahora es lo primero que se ve. ── */}
+      {coloreadoActivo && modoColoreado === 'partido' && (
+        <div className="absolute top-2 left-1/2 -translate-x-1/2 z-[1000] bg-slate-900/95 backdrop-blur border border-slate-700 rounded-xl shadow-xl px-3 py-2 flex flex-wrap gap-x-3 gap-y-1 justify-center max-w-[92%]">
+          {Object.entries(PARTIDOS).map(([id, p]) => (
+            <div key={id} className="flex items-center gap-1 text-[10px] text-slate-200 font-semibold">
+              <span className="w-3 h-3 rounded-full flex-shrink-0 shadow" style={{ background: `linear-gradient(135deg, ${p.color}, ${p.color2})` }} />
+              {p.nombre}
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* ── PANEL DE COLOREADO — solo en escritorio, en móvil vive dentro del menú ── */}
       {!esMobile && (
@@ -926,10 +910,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
         )}
 
         <div className="p-3 space-y-2">
-          <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
-            <input type="checkbox" checked={capaLocalidades} onChange={e => setCapaLocalidades(e.target.checked)} />
-            🏘️ Comunidades/Localidades
-          </label>
           <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
             <input type="checkbox" checked={capaPromovidos} onChange={e => setCapaPromovidos(e.target.checked)} />
             🤝 Promovidos ({promovidosFiltrados.length})
@@ -989,20 +969,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
             🗂️ Cobertura de estructura (borde rojo = sin coordinador)
           </label>
         </div>
-
-        {coloreadoActivo && modoColoreado === 'partido' && (
-          <div className="grid grid-cols-2 gap-1.5 p-3 pt-0">
-            {Object.entries(PARTIDOS).map(([id, p]) => (
-              <div key={id} className="flex items-center gap-1.5 text-[10px] text-slate-300 font-semibold">
-                <span
-                  className="w-4 h-4 rounded-full flex-shrink-0 shadow"
-                  style={{ background: `linear-gradient(135deg, ${p.color}, ${p.color2})` }}
-                />
-                {p.nombre}
-              </div>
-            ))}
-          </div>
-        )}
 
         {coloreadoActivo && modoColoreado === 'prioridad' && (
           <div className="p-3 pt-0 space-y-1.5">
@@ -1246,7 +1212,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
 
                 <div className="border-t border-slate-800 pt-3 space-y-2.5">
                   <span className="text-xs font-bold text-white block mb-1">📍 Capas visibles</span>
-                  <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={capaLocalidades} onChange={e => setCapaLocalidades(e.target.checked)} /> 🏘️ Comunidades/Localidades</label>
                   <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={capaPromovidos} onChange={e => setCapaPromovidos(e.target.checked)} /> 🤝 Promovidos ({promovidosFiltrados.length})</label>
                   <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={capaCalor} onChange={e => setCapaCalor(e.target.checked)} /> 🔥 Mapa de calor</label>
                   <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={capaActivos} onChange={e => setCapaActivos(e.target.checked)} /> 📺 Activos ({activos.length})</label>

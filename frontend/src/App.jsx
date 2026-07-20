@@ -1,9 +1,10 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Login from './pages/Login';
 import RutaProtegida from './components/RutaProtegida';
 import ChatFlotante from './components/ChatFlotante';
 import AvisoOffline from './components/AvisoOffline';
+import ErrorBoundary from './components/ErrorBoundary';
 import { useSuscripcionPush } from './lib/useSuscripcionPush';
 
 // Carga diferida: cada módulo se descarga SOLO cuando alguien lo
@@ -38,7 +39,14 @@ function CargandoModulo() {
 
 export default function App() {
   useSuscripcionPush();
+  // Si llegamos aquí es que la app cargó bien — se limpia la bandera
+  // de "ya intenté recargar por un error de chunk", para que un
+  // futuro error genuino (otro despliegue más adelante) sí dispare
+  // el auto-recargado de nuevo, en vez de quedar bloqueado para siempre.
+  useEffect(() => { sessionStorage.removeItem('vototech_recarga_por_chunk'); }, []);
+
   return (
+    <ErrorBoundary>
     <BrowserRouter>
       <Suspense fallback={<CargandoModulo />}>
         <Routes>
@@ -76,5 +84,6 @@ export default function App() {
       <ChatFlotante />
       <AvisoOffline />
     </BrowserRouter>
+    </ErrorBoundary>
   );
 }
