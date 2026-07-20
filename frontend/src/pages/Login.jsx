@@ -30,15 +30,25 @@ export default function Login() {
   const [subdominio, setSubdominio] = useState(detectarSubdominio() || localStorage.getItem('vototech_ultimo_subdominio') || '');
   const subdominioAutomatico = !!detectarSubdominio();
 
+  // Segundo paso — solo aparece si la cuenta tiene 2FA activo
+  const [tokenPreAuth, setTokenPreAuth] = useState(null);
+  const [codigo2FA, setCodigo2FA] = useState('');
+
   const manejarSubmit = async (e) => {
     e.preventDefault();
     setError('');
     setCargando(true);
     try {
       const { data } = await api.post('/auth/login', { subdominio, email, password });
+      if (data.requiere_2fa) {
+        localStorage.setItem('vototech_ultimo_subdominio', subdominio);
+        setTokenPreAuth(data.token_pre_auth);
+        setCargando(false);
+        return;
+      }
       if (data.ok) {
         localStorage.setItem('vototech_ultimo_subdominio', subdominio);
-        iniciarSesion(data.token, data.usuario, subdominio);
+        iniciarSesion(data.token, data.usuario, subdominio, data.refresh_token);
         navigate('/mapa');
       }
     } catch (err) {
@@ -46,6 +56,48 @@ export default function Login() {
     }
     setCargando(false);
   };
+
+  const verificarCodigo2FA = async (e) => {
+    e.preventDefault();
+    setError('');
+    setCargando(true);
+    try {
+      const { data } = await api.post('/auth/2fa/verificar-login', { token_pre_auth: tokenPreAuth, codigo: codigo2FA });
+      if (data.ok) {
+        iniciarSesion(data.token, data.usuario, subdominio, data.refresh_token);
+        navigate('/mapa');
+      }
+    } catch (err) {
+      setError(err.response?.data?.error || 'Código incorrecto');
+    }
+    setCargando(false);
+  };
+
+  if (tokenPreAuth) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
+        <div className="w-full max-w-sm">
+          <div className="text-center mb-6">
+            <div className="text-3xl mb-2">🔐</div>
+            <h1 className="text-lg font-black text-white">Verificación en dos pasos</h1>
+            <p className="text-xs text-slate-500 mt-1">Ingresa el código de tu app autenticadora</p>
+          </div>
+          <form onSubmit={verificarCodigo2FA} className="space-y-4">
+            {error && <div className="bg-red-500/10 text-red-400 text-xs rounded-lg px-3 py-2 text-center">{error}</div>}
+            <input value={codigo2FA} onChange={(e) => setCodigo2FA(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              placeholder="000000" maxLength={6} autoFocus
+              className="w-full px-4 py-3 rounded-xl bg-slate-800/80 border border-slate-700 text-white text-2xl text-center tracking-[0.5em] focus:outline-none focus:border-indigo-500" />
+            <button type="submit" disabled={cargando || codigo2FA.length !== 6}
+              className="w-full py-3 rounded-xl bg-indigo-600 text-white font-bold text-sm disabled:opacity-40">
+              {cargando ? 'Verificando...' : 'Verificar'}
+            </button>
+            <button type="button" onClick={() => { setTokenPreAuth(null); setCodigo2FA(''); setError(''); }}
+              className="w-full text-xs text-slate-500 hover:text-slate-300">← Volver</button>
+          </form>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-950 p-4">
@@ -127,6 +179,11 @@ export default function Login() {
 
         <p className="text-center text-[10px] text-slate-600 mt-6">
           🔒 Conexión segura · Datos protegidos bajo LFPDPPP
+        </p>
+        <p className="text-center text-[10px] text-slate-600 mt-1">
+          <a href="/terminos" className="text-slate-500 hover:text-slate-300 underline">Términos y Privacidad</a>
+          {' · '}
+          <a href="/postura-legal" className="text-slate-500 hover:text-slate-300 underline">Postura Legal</a>
         </p>
       </div>
     </div>

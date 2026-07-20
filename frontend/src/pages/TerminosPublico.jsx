@@ -39,6 +39,9 @@ export default function TerminosPublico() {
         </section>
 
         <p className="text-[10px] text-slate-600 text-center pt-4">Última actualización: julio 2026 · Este resumen no sustituye el Contrato de Prestación de Servicios completo, disponible para descarga dentro de la plataforma tras el registro.</p>
+        <p className="text-[10px] text-center">
+          <a href="/postura-legal" className="text-indigo-400 underline">Ver la postura legal completa de VotoTech →</a>
+        </p>
       </div>
     </div>
   );

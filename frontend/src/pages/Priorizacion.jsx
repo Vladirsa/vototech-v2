@@ -80,6 +80,11 @@ export default function Priorizacion() {
         <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl px-3 py-2 text-[11px] text-emerald-300">
           ✅ {totalCubiertos} de {datos.data.length} secciones ya tienen su meta de promovidos cubierta
         </div>
+        {datos.resumen.secciones_prioritarias_sin_cobertura > 0 && (
+          <div className="bg-red-500/5 border border-red-500/20 rounded-xl px-3 py-2 text-[11px] text-red-300">
+            🈳 {datos.resumen.secciones_prioritarias_sin_cobertura} sección(es) prioritaria(s) sin NADIE asignado todavía — asígnalas desde Sectorización en el mapa
+          </div>
+        )}
 
         {/* Controles */}
         <div className="flex flex-wrap items-center gap-2">
@@ -104,11 +109,14 @@ export default function Priorizacion() {
                   <div className="flex items-center gap-3">
                     <span className="text-lg font-black text-white">{String(f.seccion).padStart(3, '0')}</span>
                     <span className={`text-xs font-bold ${est.texto}`}>{est.label}</span>
+                    {f.sin_cobertura && (
+                      <span className="text-[9px] font-bold bg-red-500/20 text-red-400 px-2 py-0.5 rounded-full">🈳 Sin nadie asignado</span>
+                    )}
                   </div>
                   <span className="text-[10px] text-slate-500">Ganó: <strong className="text-slate-300">{f.ganador_historico?.toUpperCase()}</strong> ({f.margen_pct > 0 ? '+' : ''}{f.margen_pct}%)</span>
                 </div>
 
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs mb-3">
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-xs mb-3">
                   <div>
                     <div className="text-slate-500">Lista nominal</div>
                     <div className="text-white font-bold">{f.lista_nominal?.toLocaleString()}</div>
@@ -120,6 +128,10 @@ export default function Priorizacion() {
                   <div>
                     <div className="text-slate-500">Promovidos</div>
                     <div className="text-white font-bold">{totalPromos} de {f.promovidos_necesarios}</div>
+                  </div>
+                  <div>
+                    <div className="text-slate-500">Gente asignada</div>
+                    <div className={`font-bold ${f.personas_asignadas === 0 ? 'text-red-400' : 'text-white'}`}>{f.personas_asignadas} {f.personas_asignadas === 1 ? 'persona' : 'personas'}</div>
                   </div>
                   <div>
                     <div className="text-slate-500">Ritmo diario necesario</div>

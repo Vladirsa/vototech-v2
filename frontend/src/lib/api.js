@@ -16,12 +16,39 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// Si el servidor responde 401 (token vencido/inválido), mandamos al login
-// automáticamente en vez de dejar la pantalla en un estado roto silencioso.
+// Si el servidor responde 401 (token de acceso vencido — dura solo
+// 30 min a propósito), intentamos renovarlo UNA vez con el refresh
+// token antes de mandar a la persona al login. Así la sesión se
+// siente continua aunque el token de acceso individual sea corto.
+let renovando = null; // evita que 10 peticiones simultáneas disparen 10 renovaciones a la vez
+
 api.interceptors.response.use(
   (res) => res,
-  (err) => {
-    if (err.response?.status === 401) {
+  async (err) => {
+    const peticionOriginal = err.config;
+    const esErrorDeSesion = err.response?.status === 401 && !peticionOriginal?._reintentada;
+
+    if (esErrorDeSesion) {
+      const refreshToken = localStorage.getItem('vototech_refresh_token');
+      if (refreshToken) {
+        peticionOriginal._reintentada = true;
+        try {
+          if (!renovando) {
+            renovando = axios.post(`${baseURL}/auth/refrescar`, { refresh_token: refreshToken });
+          }
+          const { data } = await renovando;
+          renovando = null;
+          localStorage.setItem('vototech_token', data.token);
+          localStorage.setItem('vototech_refresh_token', data.refresh_token);
+          peticionOriginal.headers.Authorization = `Bearer ${data.token}`;
+          return api(peticionOriginal); // reintenta la petición original, ya con token nuevo
+        } catch (e) {
+          renovando = null;
+          // El refresh token también falló (expiró a los 30 días, o
+          // fue revocado) — ahí sí ya no hay forma de continuar sin
+          // que la persona vuelva a poner su contraseña.
+        }
+      }
       localStorage.clear();
       window.location.href = '/login';
     }

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api, { descargarArchivo } from '../lib/api';
 import Ayuda from '../components/Ayuda';
+import InterpretarIA from '../components/InterpretarIA';
 
 const PARTIDOS_COLOR = {
   morena: '#8B0000', pan: '#003DA5', pri: '#006847', pvem: '#2D7D27',
@@ -417,6 +418,14 @@ export default function Reportes() {
 
             {subTabActividad === 'resumen' && actividadResumen && (
               <>
+                <InterpretarIA titulo="Resumen de actividad de campo" datos={{
+                  total_reportes: actividadResumen.total_reportes,
+                  personas_contactadas: actividadResumen.personas_contactadas,
+                  pct_comprometidos: actividadResumen.pct_comprometidos,
+                  secciones_cubiertas: actividadResumen.secciones_cubiertas,
+                  promotores_activos: actividadResumen.promotores_activos,
+                  ultimos_7_dias: actividadResumen.ultimos_7_dias,
+                }} />
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                   <div className="bg-slate-900/60 border border-emerald-800/40 rounded-xl p-3 text-center">
                     <div className="text-xl font-black text-emerald-400">{actividadResumen.total_reportes}</div>

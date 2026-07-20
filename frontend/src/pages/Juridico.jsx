@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../lib/api';
+import AsistenteIA from '../components/AsistenteIA';
 
 const TIPO_PLAZO = { plazo_ine: { ic: '🏛️', label: 'Plazo INE', color: 'text-blue-400' }, plazo_ite: { ic: '⚖️', label: 'Plazo ITE', color: 'text-purple-400' }, veda: { ic: '🚫', label: 'Veda Electoral', color: 'text-red-400' }, otro: { ic: '📌', label: 'Otro', color: 'text-slate-400' } };
 const ESTADO_QUEJA = { presentada: 'bg-blue-500/10 text-blue-400', en_proceso: 'bg-amber-500/10 text-amber-400', resuelta: 'bg-emerald-500/10 text-emerald-400' };
@@ -15,12 +16,41 @@ export default function Juridico() {
   const [formPlazo, setFormPlazo] = useState({ titulo: '', tipo: 'plazo_ite', fecha: '', descripcion: '' });
   const [formQueja, setFormQueja] = useState({ tipo: 'queja', autoridad: 'ite', descripcion: '', numero_expediente: '' });
   const [fechaInicioCampana, setFechaInicioCampana] = useState('');
+  const [auditoria, setAuditoria] = useState([]);
+  const [documentos, setDocumentos] = useState([]);
+  const [subiendoDoc, setSubiendoDoc] = useState(false);
+  const [formDoc, setFormDoc] = useState({ categoria: 'ine', nombre: '' });
 
   const cargar = () => {
     api.get('/juridico/resumen').then((r) => setResumen(r.data.data));
     api.get('/juridico/calendario').then((r) => setCalendario(r.data.data));
     api.get('/juridico/quejas').then((r) => setQuejas(r.data.data));
     api.get('/juridico/fecha-inicio-campana').then((r) => setFechaInicioCampana(r.data.data?.fecha_inicio_campana_oficial?.slice(0, 10) || ''));
+    api.get('/juridico/auditoria').then((r) => setAuditoria(r.data.data)).catch(() => setAuditoria([]));
+    api.get('/documentos').then((r) => setDocumentos(r.data.data)).catch(() => setDocumentos([]));
+  };
+
+  const subirDocumento = async (archivo) => {
+    if (!archivo) return;
+    setSubiendoDoc(true);
+    const formData = new FormData();
+    formData.append('archivo', archivo);
+    formData.append('categoria', formDoc.categoria);
+    formData.append('nombre', formDoc.nombre || archivo.name);
+    try {
+      await api.post('/documentos/subir', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+      setFormDoc({ categoria: 'ine', nombre: '' });
+      cargar();
+    } catch (e) {
+      alert(e.response?.data?.error || 'Error al subir el documento');
+    }
+    setSubiendoDoc(false);
+  };
+
+  const borrarDocumento = async (id) => {
+    if (!confirm('¿Borrar este documento?')) return;
+    await api.delete(`/documentos/${id}`);
+    cargar();
   };
   useEffect(cargar, []);
 
@@ -58,6 +88,8 @@ export default function Juridico() {
           <button onClick={() => setTab('resumen')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'resumen' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📊 Resumen</button>
           <button onClick={() => setTab('calendario')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'calendario' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📅 Calendario Electoral</button>
           <button onClick={() => setTab('quejas')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'quejas' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📄 Quejas y Recursos</button>
+          <button onClick={() => setTab('auditoria')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'auditoria' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🔍 Auditoría</button>
+          <button onClick={() => setTab('documentos')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'documentos' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📁 Documentos</button>
         </div>
 
         {/* Fecha oficial de inicio de campaña — base de la alerta legal en Activos */}
@@ -164,7 +196,11 @@ export default function Juridico() {
                 </div>
                 <input placeholder="Número de expediente (si ya lo tienes)" value={formQueja.numero_expediente} onChange={(e) => setFormQueja({ ...formQueja, numero_expediente: e.target.value })}
                   className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
-                <textarea placeholder="Descripción del caso" value={formQueja.descripcion} onChange={(e) => setFormQueja({ ...formQueja, descripcion: e.target.value })}
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold text-slate-500 uppercase">Descripción del caso</span>
+                  <AsistenteIA contexto="redactar_queja" onTextoGenerado={(t) => setFormQueja({ ...formQueja, descripcion: t })} />
+                </div>
+                <textarea placeholder="Describe los hechos brevemente, la IA te ayuda a redactarlo formal" value={formQueja.descripcion} onChange={(e) => setFormQueja({ ...formQueja, descripcion: e.target.value })}
                   className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm min-h-20" />
                 <button onClick={guardarQueja} disabled={!formQueja.descripcion} className="w-full py-2 rounded-lg bg-emerald-600 text-white text-xs font-bold disabled:opacity-40">Guardar</button>
               </div>
@@ -183,6 +219,75 @@ export default function Juridico() {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {tab === 'auditoria' && (
+          <div className="space-y-2">
+            <p className="text-[10px] text-slate-500">Bitácora de las acciones más sensibles: resultados electorales, finanzas, cambios de rol, e importaciones masivas de contactos. Solo altos mandos la pueden ver.</p>
+            {auditoria.length === 0 ? (
+              <div className="text-center text-slate-500 text-sm py-10">Sin acciones registradas todavía (o tu rol no tiene permiso para verla)</div>
+            ) : auditoria.map((a) => {
+              const TABLA_LABEL = { resultados_casilla: '🗳️ Resultado de casilla', gastos_campana: '💰 Gasto registrado', usuarios: '👤 Cambio de usuario', promovidos_importacion: '📥 Importación de contactos' };
+              const ACCION_COLOR = { crear: 'text-emerald-400', editar: 'text-amber-400', eliminar: 'text-red-400' };
+              return (
+                <div key={a.id} className="bg-slate-900/60 border border-slate-800 rounded-lg p-3">
+                  <div className="flex justify-between items-start">
+                    <span className="text-xs font-bold text-white">{TABLA_LABEL[a.tabla] || a.tabla}</span>
+                    <span className={`text-[9px] font-bold uppercase ${ACCION_COLOR[a.accion]}`}>{a.accion}</span>
+                  </div>
+                  <div className="text-[10px] text-slate-500 mt-0.5">{a.usuario_nombre || 'Usuario eliminado'} · {new Date(a.creado_en).toLocaleString('es-MX')}</div>
+                  {a.detalle && <pre className="text-[9px] text-slate-400 mt-1.5 bg-slate-950/50 rounded p-2 overflow-x-auto">{JSON.stringify(a.detalle, null, 1)}</pre>}
+                </div>
+              );
+            })}
+          </div>
+        )}
+        {tab === 'documentos' && (
+          <div className="space-y-4">
+            <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 space-y-3">
+              <h3 className="text-xs font-bold text-slate-400 uppercase">📥 Subir documento</h3>
+              <div className="flex gap-2">
+                <select value={formDoc.categoria} onChange={(e) => setFormDoc({ ...formDoc, categoria: e.target.value })}
+                  className="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
+                  <option value="ine">INE</option>
+                  <option value="nombramiento">Nombramiento</option>
+                  <option value="acta">Acta</option>
+                  <option value="contrato">Contrato</option>
+                  <option value="oficio">Oficio</option>
+                  <option value="otro">Otro</option>
+                </select>
+                <input placeholder="Nombre descriptivo (opcional)" value={formDoc.nombre} onChange={(e) => setFormDoc({ ...formDoc, nombre: e.target.value })}
+                  className="flex-1 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+              </div>
+              <label className="block">
+                <input type="file" onChange={(e) => subirDocumento(e.target.files[0])} disabled={subiendoDoc} className="hidden" id="input-documento" />
+                <span className="block text-center py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-bold cursor-pointer" onClick={() => document.getElementById('input-documento').click()}>
+                  {subiendoDoc ? '⏳ Subiendo...' : '+ Elegir archivo'}
+                </span>
+              </label>
+            </div>
+
+            {documentos.length === 0 ? (
+              <div className="text-center text-slate-500 text-sm py-10">Sin documentos todavía</div>
+            ) : documentos.map((d) => {
+              const CATEGORIA_ICONO = { ine: '🏛️', nombramiento: '📜', acta: '📋', contrato: '📄', oficio: '✉️', otro: '📎' };
+              return (
+                <div key={d.id} className="bg-slate-900/60 border border-slate-800 rounded-lg p-3 flex items-center justify-between">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-lg">{CATEGORIA_ICONO[d.categoria]}</span>
+                    <div className="min-w-0">
+                      <div className="text-xs font-bold text-white truncate">{d.nombre}</div>
+                      <div className="text-[9px] text-slate-500">{d.subido_por_nombre} · {new Date(d.creado_en).toLocaleDateString('es-MX')} · {d.tamano_kb} KB</div>
+                    </div>
+                  </div>
+                  <div className="flex gap-2 flex-shrink-0">
+                    <a href={d.url} target="_blank" rel="noreferrer" className="text-[10px] font-bold text-indigo-400">Ver</a>
+                    <button onClick={() => borrarDocumento(d.id)} className="text-[10px] font-bold text-red-400">Borrar</button>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>

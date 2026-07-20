@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Login from './pages/Login';
 import RutaProtegida from './components/RutaProtegida';
 import ChatFlotante from './components/ChatFlotante';
+import AvisoOffline from './components/AvisoOffline';
 import { useSuscripcionPush } from './lib/useSuscripcionPush';
 
 // Carga diferida: cada módulo se descarga SOLO cuando alguien lo
@@ -24,6 +25,7 @@ const Marketing = lazy(() => import('./pages/Marketing'));
 const Juridico = lazy(() => import('./pages/Juridico'));
 const EncuestaPublica = lazy(() => import('./pages/EncuestaPublica'));
 const TerminosPublico = lazy(() => import('./pages/TerminosPublico'));
+const PosturaLegal = lazy(() => import('./pages/PosturaLegal'));
 const AdminPlataforma = lazy(() => import('./pages/AdminPlataforma'));
 const MapaConCampana = lazy(() => import('./components/MapaConCampana'));
 const ConfirmarVoto = lazy(() => import('./pages/ConfirmarVoto'));
@@ -43,6 +45,7 @@ export default function App() {
           <Route path="/votar/:id" element={<ConfirmarVoto />} />
           <Route path="/encuesta/:id" element={<EncuestaPublica />} />
           <Route path="/terminos" element={<TerminosPublico />} />
+          <Route path="/postura-legal" element={<PosturaLegal />} />
           <Route path="/login" element={<Login />} />
           <Route path="/registro" element={<RegistroCampana />} />
           <Route path="/registro-invitacion" element={<RegistroInvitacion />} />
@@ -71,6 +74,7 @@ export default function App() {
         </Routes>
       </Suspense>
       <ChatFlotante />
+      <AvisoOffline />
     </BrowserRouter>
   );
 }

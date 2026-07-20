@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import api from '../lib/api';
+import api, { descargarArchivo } from '../lib/api';
 import BuscadorCalle from '../components/BuscadorCalle';
 import AsistenteIA from '../components/AsistenteIA';
 
@@ -30,6 +30,36 @@ function FormularioEvento({ inicial, onGuardar, onCancelar }) {
       <BuscadorCalle valor={form.lugar} onSeleccion={(d) => setForm({ ...form, lugar: d.direccion_completa, lat: d.lat, lng: d.lng })} />
       <input placeholder="Sección (opcional)" type="number" value={form.seccion_numero} onChange={(e) => setForm({ ...form, seccion_numero: e.target.value })}
         className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+
+      {form.tipo === 'reunion' && (
+        <div className="bg-indigo-500/5 border border-indigo-500/20 rounded-lg p-3 space-y-2.5">
+          <div className="text-[10px] font-bold text-indigo-300 uppercase">📋 Ficha de la reunión — para que el candidato llegue informado</div>
+          <div className="flex gap-2">
+            <input placeholder="Nombre del anfitrión" value={form.anfitrion_nombre || ''} onChange={(e) => setForm({ ...form, anfitrion_nombre: e.target.value })}
+              className="flex-1 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+            <input placeholder="Teléfono" value={form.anfitrion_telefono || ''} onChange={(e) => setForm({ ...form, anfitrion_telefono: e.target.value })}
+              className="w-32 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+          </div>
+          <input placeholder="Estructura relacionada (ej. Coordinación Zona Centro)" value={form.estructura_relacionada || ''} onChange={(e) => setForm({ ...form, estructura_relacionada: e.target.value })}
+            className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+          <input placeholder="Grupo social (ej. Club de madres, comerciantes)" value={form.grupo_social || ''} onChange={(e) => setForm({ ...form, grupo_social: e.target.value })}
+            className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+          <div className="flex gap-2">
+            <input placeholder="Duración (min)" type="number" value={form.duracion_minutos || ''} onChange={(e) => setForm({ ...form, duracion_minutos: e.target.value ? parseInt(e.target.value) : null })}
+              className="flex-1 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+            <input placeholder="Personas esperadas" type="number" value={form.personas_esperadas || ''} onChange={(e) => setForm({ ...form, personas_esperadas: e.target.value ? parseInt(e.target.value) : null })}
+              className="flex-1 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+          </div>
+          <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+            <input type="checkbox" checked={!!form.ofrece_aperitivo} onChange={(e) => setForm({ ...form, ofrece_aperitivo: e.target.checked })} />
+            ¿Van a dar aperitivo?
+          </label>
+          {form.ofrece_aperitivo && (
+            <input placeholder="¿Qué van a ofrecer?" value={form.detalle_aperitivo || ''} onChange={(e) => setForm({ ...form, detalle_aperitivo: e.target.value })}
+              className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+          )}
+        </div>
+      )}
       <div className="flex items-center justify-between">
         <span className="text-[10px] font-bold text-slate-500 uppercase">Notas / invitación</span>
         <AsistenteIA contexto="invitacion_evento" onTextoGenerado={(t) => setForm({ ...form, descripcion: t })} />
@@ -45,7 +75,76 @@ function FormularioEvento({ inicial, onGuardar, onCancelar }) {
   );
 }
 
+function ModalFicha({ eventoId, onCerrar }) {
+  const [datos, setDatos] = useState(null);
+  const [cargando, setCargando] = useState(true);
+
+  useEffect(() => {
+    api.get(`/agenda/${eventoId}/ficha-tecnica`).then((r) => setDatos(r.data.data)).finally(() => setCargando(false));
+  }, [eventoId]);
+
+  return (
+    <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onClick={onCerrar}>
+      <div className="bg-slate-950 border border-slate-800 rounded-2xl max-w-lg w-full max-h-[85vh] overflow-y-auto p-5" onClick={(e) => e.stopPropagation()}>
+        {cargando ? (
+          <div className="text-center text-slate-500 py-10">Cargando ficha...</div>
+        ) : !datos ? (
+          <div className="text-center text-red-400 py-10">No se pudo cargar la ficha</div>
+        ) : (
+          <>
+            <div className="flex justify-between items-start mb-3">
+              <div>
+                <h2 className="text-lg font-black text-white">{datos.evento.titulo}</h2>
+                <p className="text-[10px] text-slate-500">{new Date(datos.evento.fecha_inicio).toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' })}</p>
+              </div>
+              <button onClick={onCerrar} className="text-slate-500 text-xl">✕</button>
+            </div>
+
+            <div className="bg-indigo-500/5 border border-indigo-500/20 rounded-lg p-3 space-y-1 mb-3">
+              <div className="text-[10px] font-bold text-indigo-300 uppercase mb-1">👤 Con quién vas a hablar</div>
+              {datos.evento.anfitrion_nombre && <p className="text-xs text-slate-200"><strong>Anfitrión:</strong> {datos.evento.anfitrion_nombre} {datos.evento.anfitrion_telefono && `(${datos.evento.anfitrion_telefono})`}</p>}
+              {datos.evento.estructura_relacionada && <p className="text-xs text-slate-200"><strong>Estructura:</strong> {datos.evento.estructura_relacionada}</p>}
+              {datos.evento.grupo_social && <p className="text-xs text-slate-200"><strong>Grupo:</strong> {datos.evento.grupo_social}</p>}
+              {datos.evento.personas_esperadas && <p className="text-xs text-slate-200"><strong>Personas esperadas:</strong> {datos.evento.personas_esperadas}</p>}
+              {datos.evento.duracion_minutos && <p className="text-xs text-slate-200"><strong>Duración:</strong> {datos.evento.duracion_minutos} min</p>}
+              <p className="text-xs text-slate-200"><strong>Aperitivo:</strong> {datos.evento.ofrece_aperitivo ? (datos.evento.detalle_aperitivo || 'Sí') : 'No'}</p>
+            </div>
+
+            <div className="bg-slate-900/60 border border-slate-800 rounded-lg p-3 mb-3">
+              <div className="text-[10px] font-bold text-slate-400 uppercase mb-1">📍 Sección {datos.evento.seccion_numero || '—'} {datos.evento.municipio && `· ${datos.evento.municipio}`}</div>
+              {datos.ficha_seccion && datos.ficha_seccion.length > 0 ? datos.ficha_seccion.map((f, i) => (
+                <p key={i} className="text-[10px] text-slate-400">{TIPO_LABEL[f.tipo_eleccion] || f.tipo_eleccion} {f.anio}: ganó <strong className="text-white">{f.ganador?.toUpperCase()}</strong></p>
+              )) : <p className="text-[10px] text-slate-500">Sin histórico disponible</p>}
+            </div>
+
+            <div className="bg-slate-900/60 border border-slate-800 rounded-lg p-3 mb-3">
+              <div className="text-[10px] font-bold text-slate-400 uppercase mb-1">🗳️ Tu avance ahí</div>
+              {datos.promovidos && datos.promovidos.total > 0 ? (
+                <>
+                  <p className="text-[10px] text-slate-400">{datos.promovidos.total} promovidos en esta sección</p>
+                  {datos.promovidos.por_clasificacion.map((p) => <p key={p.clasificacion} className="text-[10px] text-slate-500">· {p.clasificacion}: {p.total}</p>)}
+                </>
+              ) : <p className="text-[10px] text-slate-500">Sin promovidos registrados aquí todavía</p>}
+            </div>
+
+            <div className="bg-slate-900/60 border border-slate-800 rounded-lg p-3 mb-4">
+              <div className="text-[10px] font-bold text-slate-400 uppercase mb-1">📋 Encuestas</div>
+              <p className="text-[10px] text-slate-400">{datos.encuestas?.total_respuestas || 0} respuestas capturadas en esta sección</p>
+            </div>
+
+            <button onClick={() => descargarArchivo(`/agenda/${eventoId}/pdf`, `tarjeta_${datos.evento.titulo.replace(/\s+/g, '_')}.pdf`)}
+              className="w-full py-2.5 rounded-lg bg-purple-600 text-white text-sm font-bold">
+              📄 Descargar tarjeta informativa (PDF)
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function agruparPorFecha(eventos) {
+
   const ahora = new Date();
   const hoy = ahora.toDateString();
   const finSemana = new Date(ahora.getTime() + 7 * 86400000);
@@ -219,6 +318,7 @@ export default function Agenda() {
   const [eventos, setEventos] = useState([]);
   const [mostrarForm, setMostrarForm] = useState(!!seccionUrl);
   const [editandoId, setEditandoId] = useState(null);
+  const [verFichaId, setVerFichaId] = useState(null);
   const [filtroTipo, setFiltroTipo] = useState('todos');
   const [vista, setVista] = useState('lista'); // 'lista' | 'dia' | 'calendario' | 'anuncios'
   const [diaActual, setDiaActual] = useState(new Date());
@@ -226,7 +326,8 @@ export default function Agenda() {
   const [diaSeleccionado, setDiaSeleccionado] = useState(null);
   const [cargando, setCargando] = useState(true);
 
-  const formVacio = { titulo: '', tipo: 'evento', color_alerta: 'azul', fecha_inicio: '', lugar: '', seccion_numero: seccionUrl || '', descripcion: '', lat: null, lng: null };
+  const formVacio = { titulo: '', tipo: 'evento', color_alerta: 'azul', fecha_inicio: '', lugar: '', seccion_numero: seccionUrl || '', descripcion: '', lat: null, lng: null,
+    anfitrion_nombre: '', anfitrion_telefono: '', estructura_relacionada: '', grupo_social: '', duracion_minutos: null, personas_esperadas: null, ofrece_aperitivo: false, detalle_aperitivo: '' };
 
   const cargar = () => { setCargando(true); api.get('/agenda').then((r) => { setEventos(r.data.data); setCargando(false); }); };
   useEffect(() => { cargar(); }, []);
@@ -263,6 +364,7 @@ export default function Agenda() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {e.tipo === 'reunion' && <button onClick={() => setVerFichaId(e.id)} className="text-[10px] text-purple-400 font-bold">📋 Ficha</button>}
           {!e.realizado && <button onClick={() => marcarRealizado(e.id)} className="text-[10px] text-emerald-400 font-bold">✅</button>}
           <button onClick={() => setEditandoId(e.id)} className="text-[10px] text-indigo-400 font-bold">✏️</button>
           <button onClick={() => eliminar(e.id)} className="text-slate-600 hover:text-red-400 text-xs">🗑️</button>
@@ -348,6 +450,7 @@ export default function Agenda() {
           </div>
         )}
       </div>
+      {verFichaId && <ModalFicha eventoId={verFichaId} onCerrar={() => setVerFichaId(null)} />}
     </div>
   );
 }

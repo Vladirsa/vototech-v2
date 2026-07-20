@@ -1,12 +1,17 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../lib/api';
 import { useSocket } from '../lib/useSocket';
 import { useAuth } from '../lib/authStore';
+import { guardarEnColaOffline } from '../lib/colaOffline';
 import SubidaFotos from '../components/SubidaFotos';
 
 const PARTIDOS = ['morena', 'pan', 'pri', 'prd', 'mc', 'pvem', 'pt', 'pac'];
 const ROLES_ALTOS = ['candidato', 'jefe_campana', 'coord_general'];
+// Quien va a su propia casilla a capturar no necesita ver el avance
+// de TODA la campaña — eso lo distrae y no le sirve para su tarea.
+// Prep y Conteo rápido son vistas de mando, no de campo.
+const ROLES_VISTA_SIMPLE = ['promotor', 'coord_seccional'];
 
 /** Captura rápida: foto primero, números mientras se sube en segundo plano. */
 function FormularioCaptura({ onGuardado, bloqueada }) {
@@ -17,20 +22,56 @@ function FormularioCaptura({ onGuardado, bloqueada }) {
   const [resultadoId, setResultadoId] = useState(null);
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState('');
+  const [leyendoActa, setLeyendoActa] = useState(false);
+  const [avisoOCR, setAvisoOCR] = useState(null);
+  const inputOCR = useRef(null);
+
+  const leerActaConIA = async (archivo) => {
+    if (!archivo) return;
+    setLeyendoActa(true);
+    setAvisoOCR(null);
+    try {
+      const formData = new FormData();
+      formData.append('foto', archivo);
+      const { data } = await api.post('/ia/leer-acta', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+      // SOLO se sugiere — nunca se guarda automático. La persona ve
+      // los números pre-llenados y debe revisarlos antes de guardar,
+      // exactamente como si los hubiera tecleado ella misma.
+      setVotos((v) => ({ ...v, ...data.data.votos }));
+      setNulos(data.data.nulos || 0);
+      setAvisoOCR({ confianza: data.data.confianza, advertencia: data.data.advertencia });
+    } catch (e) {
+      setAvisoOCR({ confianza: 'baja', advertencia: e.response?.data?.error || 'No se pudo leer el acta, captúralo a mano.' });
+    }
+    setLeyendoActa(false);
+    if (inputOCR.current) inputOCR.current.value = '';
+  };
 
   const guardar = async (soloIniciar = false) => {
     if (!seccion) return;
     setGuardando(true); setError('');
+    const datos = { seccion_numero: parseInt(seccion), casilla, votos, nulos };
     try {
-      const { data } = await api.post('/dia-eleccion/resultados', {
-        seccion_numero: parseInt(seccion), casilla, votos, nulos,
-      });
+      const { data } = await api.post('/dia-eleccion/resultados', datos);
       setResultadoId(data.data.id);
       if (!soloIniciar) {
         setSeccion(''); setCasilla('B'); setVotos({}); setNulos(0); setResultadoId(null);
         onGuardado();
       }
-    } catch (e) { setError(e.response?.data?.error || 'Error al guardar'); }
+    } catch (e) {
+      if (!e.response) {
+        // Esto es EXACTAMENTE el caso que más importa proteger: un
+        // representante en una comunidad sin señal, con el resultado
+        // de su casilla ya capturado. No se pierde — se guarda local
+        // y se manda solo en cuanto haya conexión.
+        await guardarEnColaOffline('resultado_casilla', '/dia-eleccion/resultados', datos);
+        setError('');
+        alert('📡 Sin señal — el resultado se guardó en este celular y se transmitirá automáticamente en cuanto haya conexión. No lo pierdas de vista hasta confirmar que se envió.');
+        if (!soloIniciar) { setSeccion(''); setCasilla('B'); setVotos({}); setNulos(0); setResultadoId(null); onGuardado(); }
+      } else {
+        setError(e.response?.data?.error || 'Error al guardar');
+      }
+    }
     setGuardando(false);
   };
 
@@ -61,6 +102,21 @@ function FormularioCaptura({ onGuardado, bloqueada }) {
         </button>
       ) : (
         <SubidaFotos contexto="acta" referenciaId={resultadoId} maximo={3} />
+      )}
+
+      <div className="flex items-center gap-2">
+        <button onClick={() => inputOCR.current?.click()} disabled={leyendoActa}
+          className="text-[10px] font-bold text-purple-400 bg-purple-500/10 px-3 py-2 rounded-lg disabled:opacity-50 flex-1">
+          {leyendoActa ? '🔍 Leyendo el acta...' : '📸 Leer números con IA (solo sugerencia, tú confirmas)'}
+        </button>
+        <input ref={inputOCR} type="file" accept="image/*" capture="environment" className="hidden"
+          onChange={(e) => leerActaConIA(e.target.files[0])} />
+      </div>
+      {avisoOCR && (
+        <div className={`text-[10px] rounded-lg px-3 py-2 ${avisoOCR.confianza === 'alta' ? 'bg-emerald-500/10 text-emerald-300' : 'bg-amber-500/10 text-amber-300'}`}>
+          {avisoOCR.confianza === 'alta' ? '✅ Lectura clara' : `⚠️ Confianza ${avisoOCR.confianza}`} — revisa los números abajo antes de guardar, la IA se puede equivocar.
+          {avisoOCR.advertencia && <div className="mt-1">{avisoOCR.advertencia}</div>}
+        </div>
       )}
 
       <div className="grid grid-cols-4 gap-2">
@@ -116,13 +172,18 @@ function PanelPrep({ prep }) {
 export default function DiaEleccion() {
   const usuario = useAuth((s) => s.usuario);
   const esAltoMando = ROLES_ALTOS.includes(usuario?.rol);
+  const vistaSimple = ROLES_VISTA_SIMPLE.includes(usuario?.rol);
   const [tab, setTab] = useState('captura');
   const [resultados, setResultados] = useState([]);
   const [caceria, setCaceria] = useState([]);
   const [prep, setPrep] = useState(null);
   const [conteoRapido, setConteoRapido] = useState(null);
+  const [avanceEstructura, setAvanceEstructura] = useState(null);
   const [alertasSinReportar, setAlertasSinReportar] = useState([]);
   const [capturaCerrada, setCapturaCerrada] = useState(false);
+  const [esDemo, setEsDemo] = useState(false);
+  const [simulando, setSimulando] = useState(false);
+  const [mensajeSimulacion, setMensajeSimulacion] = useState('');
 
   const cargarTodo = () => {
     api.get('/dia-eleccion/resultados').then((r) => setResultados(r.data.data));
@@ -130,8 +191,34 @@ export default function DiaEleccion() {
     api.get('/dia-eleccion/prep').then((r) => { setPrep(r.data.data); setCapturaCerrada(r.data.data.captura_cerrada); });
     api.get('/dia-eleccion/conteo-rapido').then((r) => setConteoRapido(r.data.data));
     api.get('/dia-eleccion/alertas-sin-reportar').then((r) => setAlertasSinReportar(r.data.data));
+    if (!vistaSimple) api.get('/dia-eleccion/avance-estructura').then((r) => setAvanceEstructura(r.data.data)).catch(() => {});
+    api.get('/auth/mi-campana').then((r) => setEsDemo(r.data.data.es_demo)).catch(() => {});
   };
   useEffect(cargarTodo, []);
+
+  const iniciarSimulacion = async () => {
+    setSimulando(true);
+    try {
+      const { data } = await api.post('/dia-eleccion/simular-eleccion');
+      setMensajeSimulacion(data.mensaje);
+    } catch (e) { setMensajeSimulacion(e.response?.data?.error || 'Error al iniciar la simulación'); }
+    setSimulando(false);
+  };
+
+  const reiniciarSimulacion = async () => {
+    if (!confirm('¿Borrar todos los resultados capturados y empezar de cero?')) return;
+    await api.post('/dia-eleccion/reiniciar-simulacion');
+    setMensajeSimulacion('Resultados borrados — listo para simular de nuevo.');
+    cargarTodo();
+  };
+
+  // Si por lo que sea el tab queda apuntando a 'prep' o 'conteo' para
+  // alguien con vista simple (ej. cambió de rol sin recargar), lo
+  // regresa a Captura — nunca debe quedarse mostrando una pantalla
+  // que ya no le toca ver.
+  useEffect(() => {
+    if (vistaSimple && (tab === 'prep' || tab === 'conteo')) setTab('captura');
+  }, [vistaSimple, tab]);
 
   useSocket({
     resultado_actualizado: () => cargarTodo(),
@@ -181,9 +268,13 @@ export default function DiaEleccion() {
 
         <div className="flex gap-2 flex-wrap">
           <button onClick={() => setTab('captura')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'captura' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📝 Captura</button>
-          <button onClick={() => setTab('prep')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'prep' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>✅ Prep</button>
           <button onClick={() => setTab('caceria')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'caceria' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🎯 Cacería ({caceria.length})</button>
-          <button onClick={() => setTab('conteo')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'conteo' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📊 Conteo rápido</button>
+          {!vistaSimple && (
+            <>
+              <button onClick={() => setTab('prep')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'prep' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>✅ Prep</button>
+              <button onClick={() => setTab('conteo')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'conteo' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📊 Avance en vivo</button>
+            </>
+          )}
         </div>
 
         {tab === 'captura' && (
@@ -205,6 +296,24 @@ export default function DiaEleccion() {
 
         {tab === 'prep' && (
           <div className="space-y-3">
+            {esDemo && (
+              <div className="bg-purple-500/10 border border-purple-500/30 rounded-xl p-4 space-y-2">
+                <div className="text-xs font-bold text-purple-300">🤖 Simulador de elección (solo demo)</div>
+                <p className="text-[10px] text-slate-400">
+                  Genera resultados realistas para todas las casillas pendientes, con 53% de participación del padrón,
+                  basados en el histórico real de cada sección — y los va transmitiendo poco a poco (como una noche
+                  de elección real), para que veas la pantalla de "Avance en vivo" funcionando de verdad.
+                </p>
+                {mensajeSimulacion && <div className="text-[10px] text-emerald-400 bg-emerald-500/10 rounded-lg px-2 py-1.5">{mensajeSimulacion}</div>}
+                <div className="flex gap-2">
+                  <button onClick={iniciarSimulacion} disabled={simulando}
+                    className="flex-1 py-2.5 rounded-lg bg-purple-600 text-white text-xs font-bold disabled:opacity-50">
+                    {simulando ? '⏳ Iniciando...' : '▶️ Simular elección completa'}
+                  </button>
+                  <button onClick={reiniciarSimulacion} className="px-3 py-2.5 rounded-lg bg-slate-800 text-slate-300 text-xs font-bold">↻ Reiniciar</button>
+                </div>
+              </div>
+            )}
             <PanelPrep prep={prep} />
             <p className="text-[10px] text-slate-500">Registra la ubicación de tus casillas y asigna representantes desde el botón ➕ en el mapa (tipo "Representante INE"), o dile a tu equipo que confirme asistencia desde aquí unos días antes.</p>
           </div>
@@ -235,27 +344,60 @@ export default function DiaEleccion() {
 
         {tab === 'conteo' && conteoRapido && (
           <div className="space-y-3">
-            <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
-              <div className="flex justify-between items-center mb-2">
-                <span className="text-xs font-bold text-slate-400 uppercase">Avance de reporte</span>
-                <span className="text-sm font-black text-white">{conteoRapido.casillas_reportadas}/{conteoRapido.casillas_esperadas} ({conteoRapido.porcentaje_reportado}%)</span>
+            {/* Medidor grande de avance — lo primero que se ve */}
+            <div className="bg-gradient-to-br from-slate-900 to-indigo-950/40 border border-indigo-800/30 rounded-2xl p-5 text-center">
+              <div className="text-4xl font-black text-white">{conteoRapido.porcentaje_reportado}%</div>
+              <div className="text-xs text-slate-400 mt-1">{conteoRapido.casillas_reportadas} de {conteoRapido.casillas_esperadas} casillas han reportado</div>
+              <div className="h-3 bg-slate-800 rounded-full overflow-hidden mt-3">
+                <div className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 transition-all" style={{ width: `${conteoRapido.porcentaje_reportado}%` }} />
               </div>
-              <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
-                <div className="h-full bg-indigo-500" style={{ width: `${conteoRapido.porcentaje_reportado}%` }} />
-              </div>
-            </div>
-            <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 space-y-2">
-              <div className="text-xs font-bold text-slate-400 uppercase mb-2">Suma de votos en vivo</div>
-              {Object.entries(conteoRapido.votos_por_partido).sort((a, b) => b[1] - a[1]).map(([p, v]) => (
-                <div key={p} className="flex justify-between text-sm">
-                  <span className="font-bold text-white">{p.toUpperCase()}</span>
-                  <span className="text-slate-300">{v.toLocaleString()} ({conteoRapido.total_votos > 0 ? Math.round(v / conteoRapido.total_votos * 100) : 0}%)</span>
-                </div>
-              ))}
               {conteoRapido.participacion_pct != null && (
-                <div className="text-[10px] text-slate-500 pt-2 border-t border-slate-800">Participación estimada: {conteoRapido.participacion_pct}%</div>
+                <div className="text-[10px] text-slate-500 mt-2">Participación estimada: {conteoRapido.participacion_pct}%</div>
               )}
             </div>
+
+            {/* Votos por partido — barras horizontales, el líder resaltado */}
+            <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 space-y-2">
+              <div className="text-xs font-bold text-slate-400 uppercase mb-2">🗳️ Suma de votos en vivo</div>
+              {Object.entries(conteoRapido.votos_por_partido).sort((a, b) => b[1] - a[1]).map(([p, v], i) => {
+                const pct = conteoRapido.total_votos > 0 ? Math.round(v / conteoRapido.total_votos * 100) : 0;
+                return (
+                  <div key={p}>
+                    <div className="flex justify-between text-xs mb-0.5">
+                      <span className={`font-bold ${i === 0 ? 'text-white' : 'text-slate-400'}`}>{i === 0 && '👑 '}{p.toUpperCase()}</span>
+                      <span className="text-slate-300">{v.toLocaleString()} ({pct}%)</span>
+                    </div>
+                    <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
+                      <div className={`h-full ${i === 0 ? 'bg-emerald-500' : 'bg-slate-600'}`} style={{ width: `${pct}%` }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Avance por representante — QUIÉN falta, no solo cuánto falta */}
+            {avanceEstructura && (
+              <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+                <div className="text-xs font-bold text-slate-400 uppercase mb-3">👥 Avance por tu estructura ({avanceEstructura.reportaron}/{avanceEstructura.total})</div>
+                <div className="space-y-1.5 max-h-96 overflow-y-auto">
+                  {avanceEstructura.casillas.map((c, i) => (
+                    <div key={i} className={`flex items-center justify-between rounded-lg px-3 py-2 text-xs ${c.ya_reporto ? 'bg-emerald-500/10' : 'bg-red-500/10'}`}>
+                      <div>
+                        <span className="font-bold text-white">Sección {c.seccion_numero}</span>
+                        <span className="text-slate-500"> ({c.casilla_letra}) — {c.representante_nombre || 'sin asignar'}</span>
+                      </div>
+                      {c.ya_reporto ? (
+                        <span className="text-emerald-400 font-bold flex-shrink-0">✅ {new Date(c.hora_reporte).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}</span>
+                      ) : c.representante_telefono ? (
+                        <a href={`https://wa.me/52${c.representante_telefono.replace(/\D/g, '')}`} target="_blank" rel="noreferrer" className="text-amber-400 font-bold flex-shrink-0">⏳ Recordar 📲</a>
+                      ) : (
+                        <span className="text-amber-400 font-bold flex-shrink-0">⏳ Pendiente</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import api, { descargarArchivo } from '../lib/api';
 import { useSocket } from '../lib/useSocket';
 import SubidaFotos from '../components/SubidaFotos';
+import { guardarEnColaOffline } from '../lib/colaOffline';
 
 const URGENCIA_COLOR = { urgente: 'border-red-500/50 bg-red-500/10', alta: 'border-orange-500/50 bg-orange-500/10', media: 'border-amber-500/50 bg-amber-500/10', baja: 'border-slate-700 bg-slate-800/30' };
 const TIPO_LABEL = { compra_votos: '🚫 Compra de votos', violencia: '⚠️ Violencia', irregularidad: '📋 Irregularidad', logistica: '🔧 Logística', representante: '🗳️ Representante', propaganda: '📢 Propaganda', otro: '📌 Otro' };
@@ -94,10 +95,24 @@ export default function Incidencias() {
   });
 
   const guardar = async () => {
-    await api.post('/incidencias', { ...form, seccion_numero: form.seccion_numero ? parseInt(form.seccion_numero) : undefined });
+    const datos = { ...form, seccion_numero: form.seccion_numero ? parseInt(form.seccion_numero) : undefined };
+    try {
+      await api.post('/incidencias', datos);
+      cargar();
+    } catch (e) {
+      if (!e.response) {
+        // Sin respuesta del servidor = sin señal, no un error de
+        // validación — se guarda local para reintentar solo cuando
+        // regrese la conexión, en vez de perder el reporte.
+        await guardarEnColaOffline('incidencia', '/incidencias', datos);
+        alert('📡 Sin señal — tu reporte se guardó en este celular y se enviará solo en cuanto haya conexión.');
+      } else {
+        alert(e.response?.data?.error || 'Error al guardar la incidencia');
+        return;
+      }
+    }
     setForm({ tipo: 'otro', urgencia: 'media', descripcion: '', seccion_numero: '', testigos: '' });
     setMostrarForm(false);
-    cargar();
   };
 
   return (

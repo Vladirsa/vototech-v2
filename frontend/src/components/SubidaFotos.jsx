@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import imageCompression from 'browser-image-compression';
 import api from '../lib/api';
 
 /**
@@ -15,6 +16,7 @@ export default function SubidaFotos({ contexto, referenciaId, maximo = 5 }) {
   const [subiendo, setSubiendo] = useState(false);
   const [error, setError] = useState('');
   const [fotoAmpliada, setFotoAmpliada] = useState(null);
+  const [comprimiendo, setComprimiendo] = useState(false);
   const inputRef = useRef(null);
 
   const cargar = () => {
@@ -26,8 +28,29 @@ export default function SubidaFotos({ contexto, referenciaId, maximo = 5 }) {
     if (!archivo) return;
     setError('');
     setSubiendo(true);
+
+    // Una foto de acta desde un celular moderno puede pesar 5-12MB —
+    // multiplicado por cientos de casillas el día D, satura datos
+    // móviles en zonas rurales. Se comprime ANTES de mandarla, sin
+    // perder legibilidad (no se toca la resolución agresivamente,
+    // porque luego hace falta poder leer los números del acta).
+    let archivoParaSubir = archivo;
+    if (archivo.size > 1.5 * 1024 * 1024) {
+      setComprimiendo(true);
+      try {
+        archivoParaSubir = await imageCompression(archivo, {
+          maxSizeMB: 1.5,
+          maxWidthOrHeight: 1920,
+          useWebWorker: true,
+        });
+      } catch (e) {
+        console.error('No se pudo comprimir, se sube el original:', e);
+      }
+      setComprimiendo(false);
+    }
+
     const formData = new FormData();
-    formData.append('foto', archivo);
+    formData.append('foto', archivoParaSubir);
     formData.append('contexto', contexto);
     formData.append('referencia_id', referenciaId);
     try {
@@ -52,7 +75,7 @@ export default function SubidaFotos({ contexto, referenciaId, maximo = 5 }) {
         {fotos.length < maximo && (
           <button onClick={() => inputRef.current?.click()} disabled={subiendo}
             className="text-[10px] font-bold text-indigo-400 disabled:opacity-50">
-            {subiendo ? '⏳ Subiendo...' : '+ Tomar/elegir foto'}
+            {comprimiendo ? '📦 Comprimiendo...' : subiendo ? '⏳ Subiendo...' : '+ Tomar/elegir foto'}
           </button>
         )}
       </div>

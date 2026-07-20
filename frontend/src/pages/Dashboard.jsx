@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api, { descargarArchivo } from '../lib/api';
+import Panel2FA from '../components/Panel2FA';
 import { useAuth } from '../lib/authStore';
 
 const ROL_CORTO = { coord_general: 'Coord. General', coord_distrital: 'Coord. Distrital', coord_municipal: 'Coord. Municipal', coord_seccional: 'Coord. Seccional' };
@@ -40,10 +41,15 @@ export default function Dashboard() {
   const [cargando, setCargando] = useState(true);
 
   const [encuestasResumen, setEncuestasResumen] = useState(null);
+  const [alertasInteligentes, setAlertasInteligentes] = useState([]);
+  const [vistaEjecutiva, setVistaEjecutiva] = useState(false);
+  const [ejecutivo, setEjecutivo] = useState(null);
 
   useEffect(() => {
     api.get('/dashboard/resumen').then((r) => { setD(r.data.data); setCargando(false); }).catch(() => setCargando(false));
     api.get('/reportes/encuestas-resumen').then((r) => setEncuestasResumen(r.data.data)).catch(() => {});
+    api.get('/inteligencia/alertas').then((r) => setAlertasInteligentes(r.data.data)).catch(() => {});
+    api.get('/dashboard/ejecutivo').then((r) => setEjecutivo(r.data.data)).catch(() => {});
   }, []);
 
   if (cargando || !d) {
@@ -68,8 +74,66 @@ export default function Dashboard() {
             <h1 className="text-2xl font-black text-white">Hola, {usuario?.nombre?.split(' ')[0] || 'Equipo'} 👋</h1>
             <p className="text-sm text-slate-500">Panel de mando — {d.candidato}</p>
           </div>
-          <Link to="/mapa" className="px-4 py-2 rounded-xl bg-indigo-600 text-white text-sm font-bold">🗺️ Ver mapa</Link>
+          <div className="flex gap-2">
+            <button onClick={() => setVistaEjecutiva((v) => !v)}
+              className={`px-4 py-2 rounded-xl text-sm font-bold ${vistaEjecutiva ? 'bg-purple-600 text-white' : 'bg-slate-800 text-slate-300'}`}>
+              {vistaEjecutiva ? '📊 Vista completa' : '⚡ Vista ejecutiva'}
+            </button>
+            <Link to="/mapa" className="px-4 py-2 rounded-xl bg-indigo-600 text-white text-sm font-bold">🗺️ Ver mapa</Link>
+          </div>
         </div>
+
+        {/* ⚡ VISTA EJECUTIVA — 5 indicadores, nada más, para quien no
+            tiene tiempo de leer veinte gráficas */}
+        {vistaEjecutiva && ejecutivo ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="bg-slate-900/60 border border-indigo-800/30 rounded-2xl p-5">
+              <div className="text-3xl font-black text-indigo-400">{ejecutivo.cobertura_pct}%</div>
+              <div className="text-xs text-slate-400 mt-1">🟢 Cobertura territorial</div>
+              <div className="text-[10px] text-slate-600 mt-1">{ejecutivo.secciones_con_presencia} de {ejecutivo.total_secciones} secciones con presencia</div>
+            </div>
+            <div className="bg-slate-900/60 border border-emerald-800/30 rounded-2xl p-5">
+              <div className="text-3xl font-black text-emerald-400">{ejecutivo.voto_estimado.toLocaleString()}</div>
+              <div className="text-xs text-slate-400 mt-1">🟢 Voto estimado (comprometidos)</div>
+              {ejecutivo.meta_votos && <div className="text-[10px] text-slate-600 mt-1">Meta: {ejecutivo.meta_votos.toLocaleString()}</div>}
+            </div>
+            <div className={`bg-slate-900/60 border rounded-2xl p-5 ${ejecutivo.municipios_riesgo > 0 ? 'border-red-800/40' : 'border-emerald-800/30'}`}>
+              <div className={`text-3xl font-black ${ejecutivo.municipios_riesgo > 0 ? 'text-red-400' : 'text-emerald-400'}`}>{ejecutivo.municipios_riesgo}</div>
+              <div className="text-xs text-slate-400 mt-1">🟢 Municipios en riesgo</div>
+              <div className="text-[10px] text-slate-600 mt-1">de {ejecutivo.total_municipios} en tu territorio</div>
+            </div>
+            <div className="bg-slate-900/60 border border-purple-800/30 rounded-2xl p-5">
+              <div className="text-3xl font-black text-purple-400">{ejecutivo.estructura_activa_pct}%</div>
+              <div className="text-xs text-slate-400 mt-1">🟢 Estructura activa</div>
+              <div className="text-[10px] text-slate-600 mt-1">{ejecutivo.promotores_activos} de {ejecutivo.total_promotores} promotores trabajando esta semana</div>
+            </div>
+            <div className="bg-slate-900/60 border border-amber-800/30 rounded-2xl p-5 md:col-span-2">
+              <div className="text-3xl font-black text-amber-400">{ejecutivo.avance_diario}</div>
+              <div className="text-xs text-slate-400 mt-1">🟢 Avance diario (promedio últimos 7 días)</div>
+            </div>
+          </div>
+        ) : (
+        <>
+
+        {/* 🧠 MOTOR DE INTELIGENCIA ELECTORAL — lo primero que se ve, antes que cualquier gráfica */}
+        {alertasInteligentes.length > 0 && (
+          <div className="bg-gradient-to-br from-slate-900 to-purple-950/40 border border-purple-800/30 rounded-2xl p-4">
+            <h2 className="text-xs font-bold text-purple-300 uppercase mb-3 flex items-center gap-1.5">🧠 Inteligencia Electoral</h2>
+            <div className="space-y-2">
+              {alertasInteligentes.map((a, i) => {
+                const COLOR = { alta: 'border-red-500/40 bg-red-500/5', media: 'border-amber-500/40 bg-amber-500/5', info: 'border-emerald-500/40 bg-emerald-500/5' };
+                return (
+                  <Link key={i} to={a.enlace} className={`block rounded-xl border p-3 hover:brightness-125 transition ${COLOR[a.severidad]}`}>
+                    <div className="flex gap-2 items-start">
+                      <span className="text-lg flex-shrink-0">{a.icono}</span>
+                      <p className="text-xs text-slate-200 leading-relaxed">{a.mensaje}</p>
+                    </div>
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* 🎯 AVANCE HACIA LA META ELECTORAL */}
         <div className="bg-gradient-to-br from-slate-900 to-indigo-950/60 border border-indigo-800/30 rounded-2xl p-5 flex flex-col md:flex-row items-center gap-6">
@@ -266,6 +330,9 @@ export default function Dashboard() {
           </div>
         )}
 
+        {/* 🔐 Verificación en dos pasos — solo altos mandos */}
+        {['candidato', 'jefe_campana', 'coord_general'].includes(usuario?.rol) && <Panel2FA />}
+
         {/* 🔔 Notificaciones push */}
         <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 flex items-center justify-between">
           <div>
@@ -282,12 +349,15 @@ export default function Dashboard() {
           <div className="flex flex-wrap gap-2">
             <button onClick={() => descargarArchivo('/reportes/cierre-campana-pdf', 'reporte_cierre_campana.pdf')} className="px-3 py-2 rounded-lg bg-red-700/40 text-red-300 text-xs font-bold">📄 Cierre de campaña</button>
             <button onClick={() => descargarArchivo('/auth/mi-contrato-pdf', 'contrato_vototech.pdf')} className="px-3 py-2 rounded-lg bg-amber-700/40 text-amber-300 text-xs font-bold">📜 Mi contrato de servicio</button>
+            <button onClick={() => descargarArchivo('/exportar/respaldo-completo', 'respaldo_completo.xlsx')} className="px-3 py-2 rounded-lg bg-emerald-700/40 text-emerald-300 text-xs font-bold">💾 Respaldo completo (Excel)</button>
             <button onClick={() => descargarArchivo('/reportes/pdf/juridico', 'reporte_juridico.pdf')} className="px-3 py-2 rounded-lg bg-slate-800 text-slate-300 text-xs font-bold">📄 Jurídico</button>
             <button onClick={() => descargarArchivo('/reportes/pdf/estructura', 'reporte_estructura.pdf')} className="px-3 py-2 rounded-lg bg-slate-800 text-slate-300 text-xs font-bold">📄 Estructura</button>
             <button onClick={() => descargarArchivo('/reportes/pdf/incidencias', 'reporte_incidencias.pdf')} className="px-3 py-2 rounded-lg bg-slate-800 text-slate-300 text-xs font-bold">📄 Incidencias</button>
             <button onClick={() => descargarArchivo('/reportes/pdf/encuestas', 'reporte_encuestas.pdf')} className="px-3 py-2 rounded-lg bg-slate-800 text-slate-300 text-xs font-bold">📄 Encuestas</button>
           </div>
         </div>
+        </>
+        )}
       </div>
     </div>
   );
