@@ -295,6 +295,10 @@ export default function Reportes() {
 
         {tab === 'estadisticas' && estadisticas && (
           <div className="space-y-4">
+            <div className="bg-indigo-500/5 border border-indigo-500/20 rounded-xl p-3 text-[11px] text-indigo-200 leading-relaxed">
+              <strong>¿Para qué sirve esto?</strong> Es la foto general de TODO tu territorio en una elección histórica — cuántas secciones, tamaño del padrón, participación, votos totales.
+              No compara boletas entre sí (eso lo hace "Comparativa" en Promovidos → Analítica) — aquí ves el panorama completo de una sola elección.
+            </div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 text-center">
                 <div className="text-xl font-black text-white">{estadisticas.total_secciones}</div>

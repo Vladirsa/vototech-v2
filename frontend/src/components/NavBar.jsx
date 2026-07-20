@@ -3,6 +3,7 @@ import { useAuth } from '../lib/authStore';
 import { useTema } from '../lib/temaStore';
 
 const MODULOS = [
+  { ruta: '/mi-avance', ic: '🗳️', label: 'Mi Avance', clave: 'mi-avance' },
   { ruta: '/dashboard', ic: '⚡', label: 'Dashboard', clave: 'dashboard' },
   { ruta: '/mapa', ic: '🗺️', label: 'Mapa', clave: 'mapa' },
   { ruta: '/promovidos', ic: '🤝', label: 'Promovidos', clave: 'promovidos' },
@@ -22,15 +23,32 @@ const MODULOS = [
 // todo; conforme se baja de nivel, se ocultan los módulos más
 // estratégicos (Finanzas, Jurídico, Marketing, Reportes) para no
 // saturar ni exponer información que no le toca a ese nivel.
-const TODOS = MODULOS.map((m) => m.clave);
+const TODOS = MODULOS.map((m) => m.clave).filter((c) => c !== 'mi-avance'); // los roles con acceso completo no necesitan la pantalla simplificada
 const MODULOS_POR_ROL = {
   candidato: TODOS,
   jefe_campana: TODOS,
   coord_general: TODOS,
   coord_distrital: TODOS.filter((c) => !['finanzas', 'juridico'].includes(c)),
   coord_municipal: TODOS.filter((c) => !['finanzas', 'juridico'].includes(c)),
-  coord_seccional: ['dashboard', 'mapa', 'promovidos', 'estructura', 'agenda', 'dia-eleccion', 'incidencias', 'activos'],
-  promotor: ['dashboard', 'mapa', 'promovidos', 'agenda', 'dia-eleccion', 'incidencias', 'activos'],
+  // Coordinador seccional: su gente (no toda la estructura — eso se
+  // filtra solo en el backend, aquí solo se decide qué botones ve),
+  // sus promovidos, Día D, e Incidencias (para reportar, no para ver todas).
+  coord_seccional: ['dashboard', 'mapa', 'promovidos', 'estructura', 'dia-eleccion', 'incidencias'],
+  // El promotor SOLO ve su pantalla de avance — nada de módulos
+  // sueltos que no le sirven para su tarea del día a día. Día D e
+  // Incidencias se quedan porque son necesarios en campo (reportar
+  // un problema urgente, o capturar resultados si le tocó ser
+  // representante de casilla).
+  promotor: ['mi-avance', 'dia-eleccion', 'incidencias'],
+  // Encargado de Jurídico: su área, más lo que necesita para
+  // sustentar quejas/recursos.
+  encargado_juridico: ['dashboard', 'juridico', 'activos', 'incidencias', 'promovidos'],
+  // Encargado de Finanzas: su área, más contexto de promovidos/incidencias.
+  encargado_finanzas: ['dashboard', 'finanzas', 'promovidos', 'incidencias'],
+  // Voluntario: promovidos siempre; Marketing solo si su puesto
+  // específico es de esa área (se valida en el backend, aquí se
+  // muestra el botón de forma optimista).
+  voluntario: ['dashboard', 'promovidos', 'marketing'],
 };
 
 export default function NavBar() {

@@ -26,14 +26,11 @@ export default function MapaConCampana() {
     return <div className="min-h-screen bg-slate-950 flex items-center justify-center text-slate-500">⏳ Cargando tu territorio...</div>;
   }
 
-  const anio = campana.tipo_eleccion === 'ayuntamiento' || campana.tipo_eleccion === 'pres_comunidad' ? 2024 : null;
-
   return (
     <MapaElectoral
       territorioTipo={campana.territorio_tipo}
       territorioId={campana.territorio_id}
       tipoEleccion={campana.tipo_eleccion}
-      anio={anio}
     />
   );
 }

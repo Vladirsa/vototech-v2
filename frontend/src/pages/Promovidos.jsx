@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import api, { descargarArchivo } from '../lib/api';
 import BuscadorCalle from '../components/BuscadorCalle';
+import InsigniaPartido from '../components/InsigniaPartido';
 import Papa from 'papaparse';
 import AnaliticaPromovidos from '../components/AnaliticaPromovidos';
 import TableroPromovidos from '../components/TableroPromovidos';
@@ -13,11 +14,11 @@ const CLASIFICACION_ESTILO = {
   adversario:  { color: 'text-slate-500', bg: 'bg-slate-500/10', label: '⛔ Adversario' },
 };
 
-function ModalAgregar({ onCerrar, onGuardado, seccionInicial }) {
+export function ModalAgregar({ onCerrar, onGuardado, seccionInicial }) {
   const [form, setForm] = useState({
     nombre: '', telefono: '', seccion_numero: seccionInicial || '', partido: '', calle: '', lat: null, lng: null,
     comprometido: false, temperatura: 'tibio', consentimiento: false,
-    necesidad_principal: '', situacion_grave: '',
+    necesidad_principal: '', situacion_grave: '', genero: '', rango_edad: '',
   });
   const [error, setError] = useState('');
   const [guardando, setGuardando] = useState(false);
@@ -62,6 +63,25 @@ function ModalAgregar({ onCerrar, onGuardado, seccionInicial }) {
           <option value="">Partido de preferencia (opcional)</option>
           {['morena','pan','pri','prd','mc','pvem','pt','pac','independiente'].map(p => <option key={p} value={p}>{p.toUpperCase()}</option>)}
         </select>
+
+        <div className="flex gap-2">
+          <select value={form.genero} onChange={(e) => actualizar('genero', e.target.value)}
+            className="flex-1 px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
+            <option value="">Género (opcional)</option>
+            <option value="hombre">Hombre</option>
+            <option value="mujer">Mujer</option>
+            <option value="otro">Otro</option>
+          </select>
+          <select value={form.rango_edad} onChange={(e) => actualizar('rango_edad', e.target.value)}
+            className="flex-1 px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
+            <option value="">Edad aprox. (opcional)</option>
+            <option value="18-29">18-29 años</option>
+            <option value="30-44">30-44 años</option>
+            <option value="45-59">45-59 años</option>
+            <option value="60+">60 años o más</option>
+          </select>
+        </div>
+        <p className="text-[9px] text-slate-500">Estos 2 datos son opcionales — sirven para armar mejores estrategias de reuniones y mensajes con el tiempo. No preguntes ID, solo tu apreciación.</p>
 
         <div className="flex gap-2">
           {['frio','tibio','caliente'].map(t => (
@@ -460,9 +480,10 @@ export default function Promovidos() {
                         {p.nombre}
                         {p.veces_intentado > 1 && <span className="text-[9px] bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded-full">⚠️ {p.veces_intentado}x</span>}
                       </div>
-                      <div className="text-[10px] text-slate-500">
-                        {p.seccion_numero ? `Sección ${String(p.seccion_numero).padStart(3,'0')}` : 'Sin sección'} · {p.partido?.toUpperCase() || 'Sin partido'}
-                        {p.dias_sin_contacto != null && ` · ${p.dias_sin_contacto} días sin contacto`}
+                      <div className="text-[10px] text-slate-500 flex items-center gap-1.5 flex-wrap">
+                        {p.seccion_numero ? `Sección ${String(p.seccion_numero).padStart(3,'0')}` : 'Sin sección'}
+                        {p.partido ? <InsigniaPartido partido={p.partido} tamano="chico" /> : <span className="text-slate-600">Sin partido</span>}
+                        {p.dias_sin_contacto != null && `· ${p.dias_sin_contacto} días sin contacto`}
                       </div>
                     </div>
                     <span className={`text-[10px] font-bold ${est.color}`}>{est.label}</span>

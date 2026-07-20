@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo, useRef } from 'react';
 import { MapContainer, TileLayer, GeoJSON, Marker, Popup, LayersControl, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
+import InsigniaPartido from './InsigniaPartido';
 import 'leaflet.heat';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
@@ -79,8 +80,24 @@ function CapturarRefMapa({ mapRef }) {
   return null;
 }
 
-export default function MapaElectoral({ campanaId, territorioTipo, territorioId, tipoEleccion = 'ayuntamiento', anio = 2024 }) {
+// Qué años de histórico existen de verdad para cada tipo de elección
+// — no todos tienen los mismos (Ayuntamiento y Pdte. Comunidad tienen
+// 2021 Y 2024; Gobernador y Dip. Local solo 2021, por ahora).
+const ANIOS_DISPONIBLES = {
+  ayuntamiento: [2024, 2021],
+  pres_comunidad: [2024, 2021],
+  gobernador: [2021],
+  dip_local: [2021],
+};
+
+export default function MapaElectoral({ campanaId, territorioTipo, territorioId, tipoEleccion = 'ayuntamiento' }) {
   const navigate = useNavigate();
+  const aniosDelTipo = ANIOS_DISPONIBLES[tipoEleccion] || [];
+  const [anio, setAnio] = useState(aniosDelTipo[0] || null);
+  // Si cambia el tipo de elección (otra campaña), reajustar al año
+  // más reciente disponible para ESE tipo — nunca dejarlo en un año
+  // que ya no aplica.
+  useEffect(() => { setAnio((ANIOS_DISPONIBLES[tipoEleccion] || [])[0] || null); }, [tipoEleccion]);
 
   // Detecta si es pantalla de celular — en mobile se usa un menú
   // consolidado en vez de tener 8 paneles flotando sueltos, que ahí
@@ -153,6 +170,7 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
 
   // Cargar resultados reales cada vez que cambia el tipo de elección/año elegido
   useEffect(() => {
+    if (!anio) { setResultados({}); return; } // sin histórico cargado para este tipo de elección todavía
     api.get(`/resultados/${tipoEleccion}/${anio}`)
       .then(r => setResultados(r.data.data))
       .catch(() => setResultados({}));
@@ -856,18 +874,29 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
         )}
       </MapContainer>
 
-      {/* ── LEYENDA DE COLORES — fija arriba del mapa, siempre visible
-          cuando el coloreado por partido está activo. Antes vivía
-          escondida dentro del panel de capas y nadie sabía por qué
-          el mapa estaba pintado así; ahora es lo primero que se ve. ── */}
+      {/* ── LEYENDA DE COLORES + SELECTOR DE AÑO — fija arriba del mapa,
+          siempre visible. Antes el año estaba fijo sin ningún control
+          y sin decir cuál se estaba mostrando; ahora se ve clarísimo. ── */}
       {coloreadoActivo && modoColoreado === 'partido' && (
-        <div className="absolute top-2 left-1/2 -translate-x-1/2 z-[1000] bg-slate-900/95 backdrop-blur border border-slate-700 rounded-xl shadow-xl px-3 py-2 flex flex-wrap gap-x-3 gap-y-1 justify-center max-w-[92%]">
-          {Object.entries(PARTIDOS).map(([id, p]) => (
-            <div key={id} className="flex items-center gap-1 text-[10px] text-slate-200 font-semibold">
-              <span className="w-3 h-3 rounded-full flex-shrink-0 shadow" style={{ background: `linear-gradient(135deg, ${p.color}, ${p.color2})` }} />
-              {p.nombre}
+        <div className="absolute top-2 left-1/2 -translate-x-1/2 z-[1000] bg-slate-900/95 backdrop-blur border border-slate-700 rounded-xl shadow-xl px-3 py-2 flex flex-col items-center gap-1.5 max-w-[92%]">
+          {aniosDelTipo.length > 0 ? (
+            <div className="flex items-center gap-2">
+              <span className="text-[9px] text-slate-500 font-bold uppercase">Mostrando:</span>
+              <div className="flex gap-1">
+                {aniosDelTipo.map((a) => (
+                  <button key={a} onClick={() => setAnio(a)}
+                    className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${anio === a ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
+                    {a}
+                  </button>
+                ))}
+              </div>
             </div>
-          ))}
+          ) : (
+            <span className="text-[9px] text-amber-400 font-bold">⚠️ Sin datos históricos cargados todavía para este tipo de elección</span>
+          )}
+          <div className="flex flex-wrap gap-x-2 gap-y-1 justify-center">
+            {Object.entries(PARTIDOS).map(([id]) => <InsigniaPartido key={id} partido={id} tamano="chico" />)}
+          </div>
         </div>
       )}
 

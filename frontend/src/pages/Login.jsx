@@ -49,7 +49,7 @@ export default function Login() {
       if (data.ok) {
         localStorage.setItem('vototech_ultimo_subdominio', subdominio);
         iniciarSesion(data.token, data.usuario, subdominio, data.refresh_token);
-        navigate('/mapa');
+        navigate(data.usuario?.rol === 'promotor' ? '/mi-avance' : '/mapa');
       }
     } catch (err) {
       setError(err.response?.data?.error || 'Error al iniciar sesión');
@@ -167,6 +167,11 @@ export default function Login() {
             <div>
               <Link to="/registro-invitacion" className="text-xs text-indigo-400 hover:text-indigo-300">
                 ¿Tienes un código de invitación de promotor? →
+              </Link>
+            </div>
+            <div>
+              <Link to="/recuperar-password" className="text-xs text-slate-500 hover:text-slate-300">
+                ¿Olvidaste tu contraseña? →
               </Link>
             </div>
             <div>

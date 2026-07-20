@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import api from '../lib/api';
+import Ayuda from './Ayuda';
 
 const PARTIDOS_COLOR = {
   morena: '#8B0000', pan: '#003DA5', pri: '#006847', pvem: '#2D7D27',
@@ -37,6 +38,7 @@ export default function AnaliticaPromovidos() {
   const [comparativa, setComparativa] = useState(null);
   const [diferenciado, setDiferenciado] = useState(null);
   const [oportunidad, setOportunidad] = useState(null);
+  const [segmentacion, setSegmentacion] = useState(null);
   const [cargando, setCargando] = useState(true);
 
   useEffect(() => {
@@ -45,8 +47,10 @@ export default function AnaliticaPromovidos() {
       api.get('/promovidos-analitica/comparativa'),
       api.get('/promovidos-analitica/voto-diferenciado'),
       api.get('/promovidos-analitica/oportunidad'),
-    ]).then(([p, c, d, o]) => {
+      api.get('/promovidos-analitica/segmentacion'),
+    ]).then(([p, c, d, o, s]) => {
       setPorPartido(p.data.data); setComparativa(c.data.data); setDiferenciado(d.data.data); setOportunidad(o.data.data);
+      setSegmentacion(s.data.data);
       setCargando(false);
     }).catch(() => setCargando(false));
   }, []);
@@ -58,6 +62,7 @@ export default function AnaliticaPromovidos() {
     { id: 'comparativa', ic: '📊', label: 'Comparativa 2024' },
     { id: 'diferenciado', ic: '🔀', label: 'Voto diferenciado' },
     { id: 'oportunidad', ic: '🎯', label: 'Oportunidad de voto' },
+    { id: 'segmentacion', ic: '🧩', label: 'Segmentación' },
   ];
 
   return (
@@ -107,6 +112,11 @@ export default function AnaliticaPromovidos() {
 
       {tab === 'comparativa' && comparativa && (
         <div className="space-y-4">
+          <div className="bg-indigo-500/5 border border-indigo-500/20 rounded-xl p-3 text-[11px] text-indigo-200 leading-relaxed">
+            <strong>¿Para qué sirve esto?</strong> Compara cómo le fue a tu partido en DOS boletas distintas del mismo día de elección (2024): Ayuntamiento y Presidente de Comunidad.
+            Si alguien vota por ti en una boleta pero no en la otra, aquí se ve — te dice qué tan "leal completa" es tu gente, y en cuál boleta se pierde apoyo.
+            No es lo mismo que "Análisis histórico" en Reportes (esa es la foto general de todo tu territorio, no una comparación de boletas).
+          </div>
           {!comparativa.ayuntamiento.length && !comparativa.pres_comunidad.length ? (
             <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-6 text-center text-sm text-amber-300">
               ⚠️ Sin datos históricos 2024 cargados para tu territorio
@@ -244,6 +254,55 @@ export default function AnaliticaPromovidos() {
               </table>
             )}
           </div>
+        </div>
+      )}
+
+      {tab === 'segmentacion' && segmentacion && (
+        <div className="space-y-4">
+          <div className="bg-indigo-500/5 border border-indigo-500/20 rounded-xl p-3 text-[11px] text-indigo-200 leading-relaxed">
+            <strong>¿Para qué sirve esto?</strong> No usa datos del INE (no se pueden conseguir desglosados así) — es lo que tu propio equipo va capturando en campo, opcional, al registrar a alguien.
+            Entre más completa la captura con el tiempo, más útil para decidir qué tipo de reunión organizar y con quién.
+          </div>
+
+          <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 text-center">
+            <div className="text-lg font-black text-white">{segmentacion.total_con_segmentacion} de {segmentacion.total_promovidos}</div>
+            <div className="text-[10px] text-slate-500">promovidos con género o edad capturados ({segmentacion.total_promovidos > 0 ? Math.round(segmentacion.total_con_segmentacion / segmentacion.total_promovidos * 100) : 0}%)</div>
+          </div>
+
+          {segmentacion.total_con_segmentacion === 0 ? (
+            <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-6 text-center text-sm text-amber-300">
+              ⚠️ Todavía no hay datos de género o edad capturados. Pídele a tu equipo que los llene (son opcionales) al registrar nuevos promovidos.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+                <div className="text-xs font-bold text-slate-400 uppercase mb-2">Por género</div>
+                {segmentacion.por_genero.length === 0 ? <p className="text-[10px] text-slate-600">Sin datos todavía</p> : segmentacion.por_genero.map((g) => (
+                  <div key={g.genero} className="flex justify-between text-xs py-1"><span className="text-slate-300 capitalize">{g.genero}</span><span className="text-white font-bold">{g.total}</span></div>
+                ))}
+              </div>
+              <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+                <div className="text-xs font-bold text-slate-400 uppercase mb-2">Por rango de edad</div>
+                {segmentacion.por_edad.length === 0 ? <p className="text-[10px] text-slate-600">Sin datos todavía</p> : segmentacion.por_edad.map((e) => (
+                  <div key={e.rango_edad} className="flex justify-between text-xs py-1"><span className="text-slate-300">{e.rango_edad} años</span><span className="text-white font-bold">{e.total}</span></div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {segmentacion.cruce_seccion_genero.length > 0 && (
+            <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+              <div className="text-xs font-bold text-slate-400 uppercase mb-2">Género por sección — útil para decidir el tipo de reunión</div>
+              <div className="max-h-64 overflow-y-auto space-y-1">
+                {segmentacion.cruce_seccion_genero.map((c, i) => (
+                  <div key={i} className="flex justify-between text-[10px] text-slate-400">
+                    <span>Sección {c.seccion}</span>
+                    <span>{c.genero}: <strong className="text-white">{c.total}</strong></span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

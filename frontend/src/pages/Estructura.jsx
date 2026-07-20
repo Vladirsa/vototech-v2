@@ -18,6 +18,7 @@ const ROL_LABEL = {
   candidato: 'Candidato', jefe_campana: 'Nivel Dirección', coord_general: 'Nivel General',
   coord_distrital: 'Nivel Regional', coord_municipal: 'Nivel Municipal',
   coord_seccional: 'Nivel Territorial', promotor: 'Promotor',
+  encargado_juridico: 'Encargado Jurídico', encargado_finanzas: 'Encargado de Finanzas', voluntario: 'Voluntario',
 };
 
 // Catálogo real de puestos de campaña — investigado de estructuras
@@ -31,6 +32,11 @@ const PUESTOS_POR_ROL = {
   coord_municipal: ['Coordinador Municipal', 'Coordinador de Casillas', 'Coordinador de Representantes'],
   coord_seccional: ['Coordinador Seccional', 'Coordinador de Manzana', 'Enlace Comunitario'],
   promotor: ['Promotor de Campaña', 'Estructura Territorial'],
+  encargado_juridico: ['Abogado de Campaña', 'Asistente Jurídico'],
+  encargado_finanzas: ['Tesorero de Campaña', 'Auxiliar Contable'],
+  // El puesto de voluntario define QUÉ puede hacer, no solo cómo se
+  // llama — "Marketing" es el único que además desbloquea ese módulo.
+  voluntario: ['Marketing', 'Pinta de bardas', 'Reparto de publicidad', 'Apoyo logístico', 'Apoyo en eventos'],
 };
 
 function estaActivoReciente(ultimoAcceso) {
@@ -405,6 +411,9 @@ function PanelCodigosMasivos() {
         <select value={rol} onChange={(e) => setRol(e.target.value)} className="flex-1 px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
           <option value="promotor">🤝 Promotor</option>
           <option value="coord_seccional">📍 Coord. Seccional</option>
+          <option value="voluntario">🙋 Voluntario</option>
+          <option value="encargado_juridico">⚖️ Encargado Jurídico</option>
+          <option value="encargado_finanzas">💰 Encargado de Finanzas</option>
           <option value="coord_municipal">🏘️ Coord. Municipal</option>
         </select>
         <input type="number" min={1} value={usos} onChange={(e) => setUsos(+e.target.value)}

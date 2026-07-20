@@ -6,12 +6,111 @@ import AsistenteIA from '../components/AsistenteIA';
 const TIPO_PLAZO = { plazo_ine: { ic: '🏛️', label: 'Plazo INE', color: 'text-blue-400' }, plazo_ite: { ic: '⚖️', label: 'Plazo ITE', color: 'text-purple-400' }, veda: { ic: '🚫', label: 'Veda Electoral', color: 'text-red-400' }, otro: { ic: '📌', label: 'Otro', color: 'text-slate-400' } };
 const ESTADO_QUEJA = { presentada: 'bg-blue-500/10 text-blue-400', en_proceso: 'bg-amber-500/10 text-amber-400', resuelta: 'bg-emerald-500/10 text-emerald-400' };
 
+/** Cuadrícula de mes clásica — cada día muestra un puntito de color por cada plazo que cae ahí. */
+function VistaMesCalendario({ plazos, mesActivo, setMesActivo, tipoPlazo }) {
+  const anio = mesActivo.getFullYear();
+  const mes = mesActivo.getMonth();
+  const primerDia = new Date(anio, mes, 1);
+  const diasEnMes = new Date(anio, mes + 1, 0).getDate();
+  const diaSemanaInicio = primerDia.getDay(); // 0 = domingo
+
+  const plazosPorDia = {};
+  plazos.forEach((p) => {
+    const f = new Date(p.fecha);
+    if (f.getFullYear() === anio && f.getMonth() === mes) {
+      const dia = f.getDate();
+      if (!plazosPorDia[dia]) plazosPorDia[dia] = [];
+      plazosPorDia[dia].push(p);
+    }
+  });
+
+  const celdas = [];
+  for (let i = 0; i < diaSemanaInicio; i++) celdas.push(null);
+  for (let d = 1; d <= diasEnMes; d++) celdas.push(d);
+
+  const hoy = new Date();
+  const esHoy = (d) => d === hoy.getDate() && mes === hoy.getMonth() && anio === hoy.getFullYear();
+
+  return (
+    <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3">
+      <div className="flex items-center justify-between mb-3">
+        <button onClick={() => setMesActivo(new Date(anio, mes - 1, 1))} className="px-2 py-1 rounded bg-slate-800 text-slate-300 text-xs">←</button>
+        <span className="text-sm font-bold text-white capitalize">{mesActivo.toLocaleDateString('es-MX', { month: 'long', year: 'numeric' })}</span>
+        <button onClick={() => setMesActivo(new Date(anio, mes + 1, 1))} className="px-2 py-1 rounded bg-slate-800 text-slate-300 text-xs">→</button>
+      </div>
+      <div className="grid grid-cols-7 gap-1 text-center">
+        {['D', 'L', 'M', 'M', 'J', 'V', 'S'].map((d, i) => <div key={i} className="text-[9px] text-slate-500 font-bold py-1">{d}</div>)}
+        {celdas.map((d, i) => (
+          <div key={i} className={`aspect-square rounded-lg p-1 ${d ? 'bg-slate-800/50' : ''} ${d && esHoy(d) ? 'ring-1 ring-indigo-500' : ''}`}>
+            {d && (
+              <>
+                <div className="text-[9px] text-slate-400">{d}</div>
+                <div className="flex flex-wrap gap-0.5 justify-center mt-0.5">
+                  {(plazosPorDia[d] || []).slice(0, 3).map((p) => (
+                    <span key={p.id} title={p.titulo} className={`w-1.5 h-1.5 rounded-full ${p.tipo === 'veda' ? 'bg-red-500' : p.tipo === 'plazo_ine' ? 'bg-blue-500' : p.tipo === 'plazo_ite' ? 'bg-purple-500' : 'bg-slate-400'}`} />
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        ))}
+      </div>
+      {/* Detalle de los plazos del mes, debajo de la cuadrícula */}
+      <div className="mt-3 space-y-1.5 border-t border-slate-800 pt-2">
+        {Object.entries(plazosPorDia).sort(([a], [b]) => a - b).map(([dia, lista]) => (
+          <div key={dia} className="text-[10px]">
+            <span className="text-slate-500 font-bold">{dia} — </span>
+            {lista.map((p) => <span key={p.id} className="text-slate-300">{tipoPlazo[p.tipo]?.ic} {p.titulo}  </span>)}
+          </div>
+        ))}
+        {Object.keys(plazosPorDia).length === 0 && <p className="text-[10px] text-slate-600">Sin plazos este mes</p>}
+      </div>
+    </div>
+  );
+}
+
+/** Vista de semana — los próximos 7 días desde hoy, cada uno con sus plazos debajo. */
+function VistaSemanaCalendario({ plazos, tipoPlazo }) {
+  const hoy = new Date();
+  hoy.setHours(0, 0, 0, 0);
+  const dias = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(hoy);
+    d.setDate(hoy.getDate() + i);
+    return d;
+  });
+
+  return (
+    <div className="space-y-2">
+      {dias.map((dia, i) => {
+        const plazosDelDia = plazos.filter((p) => {
+          const f = new Date(p.fecha);
+          return f.getDate() === dia.getDate() && f.getMonth() === dia.getMonth() && f.getFullYear() === dia.getFullYear();
+        });
+        return (
+          <div key={i} className={`bg-slate-900/60 border rounded-xl p-3 ${i === 0 ? 'border-indigo-500/40' : 'border-slate-800'}`}>
+            <div className="text-xs font-bold text-white capitalize mb-1">
+              {i === 0 ? 'Hoy — ' : ''}{dia.toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'short' })}
+            </div>
+            {plazosDelDia.length === 0 ? (
+              <p className="text-[10px] text-slate-600">Sin plazos</p>
+            ) : plazosDelDia.map((p) => (
+              <div key={p.id} className="text-[11px] text-slate-300">{tipoPlazo[p.tipo]?.ic} {p.titulo}</div>
+            ))}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function Juridico() {
   const [tab, setTab] = useState('resumen');
   const [resumen, setResumen] = useState(null);
   const [calendario, setCalendario] = useState([]);
   const [quejas, setQuejas] = useState([]);
   const [mostrarFormPlazo, setMostrarFormPlazo] = useState(false);
+  const [vistaCalendario, setVistaCalendario] = useState('lista'); // 'lista' | 'semana' | 'mes'
+  const [mesActivo, setMesActivo] = useState(new Date());
   const [mostrarFormQueja, setMostrarFormQueja] = useState(false);
   const [formPlazo, setFormPlazo] = useState({ titulo: '', tipo: 'plazo_ite', fecha: '', descripcion: '' });
   const [formQueja, setFormQueja] = useState({ tipo: 'queja', autoridad: 'ite', descripcion: '', numero_expediente: '' });
@@ -158,7 +257,21 @@ export default function Juridico() {
                 <button onClick={guardarPlazo} disabled={!formPlazo.titulo || !formPlazo.fecha} className="w-full py-2 rounded-lg bg-emerald-600 text-white text-xs font-bold disabled:opacity-40">Guardar</button>
               </div>
             )}
-            {calendario.map((p) => {
+
+            <div className="flex gap-2">
+              <button onClick={() => setVistaCalendario('lista')} className={`flex-1 py-1.5 rounded-lg text-xs font-bold ${vistaCalendario === 'lista' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📋 Lista</button>
+              <button onClick={() => setVistaCalendario('semana')} className={`flex-1 py-1.5 rounded-lg text-xs font-bold ${vistaCalendario === 'semana' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🗓️ Semana</button>
+              <button onClick={() => setVistaCalendario('mes')} className={`flex-1 py-1.5 rounded-lg text-xs font-bold ${vistaCalendario === 'mes' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📅 Mes</button>
+            </div>
+
+            {vistaCalendario === 'mes' && (
+              <VistaMesCalendario plazos={calendario} mesActivo={mesActivo} setMesActivo={setMesActivo} tipoPlazo={TIPO_PLAZO} />
+            )}
+            {vistaCalendario === 'semana' && (
+              <VistaSemanaCalendario plazos={calendario} tipoPlazo={TIPO_PLAZO} />
+            )}
+
+            {vistaCalendario === 'lista' && calendario.map((p) => {
               const t = TIPO_PLAZO[p.tipo];
               return (
                 <div key={p.id} className={`rounded-xl border border-slate-800 p-3 ${p.cumplido ? 'opacity-50' : ''}`}>

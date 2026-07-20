@@ -27,6 +27,8 @@ const Juridico = lazy(() => import('./pages/Juridico'));
 const EncuestaPublica = lazy(() => import('./pages/EncuestaPublica'));
 const TerminosPublico = lazy(() => import('./pages/TerminosPublico'));
 const PosturaLegal = lazy(() => import('./pages/PosturaLegal'));
+const RecuperarPassword = lazy(() => import('./pages/RecuperarPassword'));
+const PromotorHome = lazy(() => import('./pages/PromotorHome'));
 const AdminPlataforma = lazy(() => import('./pages/AdminPlataforma'));
 const MapaConCampana = lazy(() => import('./components/MapaConCampana'));
 const ConfirmarVoto = lazy(() => import('./pages/ConfirmarVoto'));
@@ -54,6 +56,15 @@ export default function App() {
           <Route path="/encuesta/:id" element={<EncuestaPublica />} />
           <Route path="/terminos" element={<TerminosPublico />} />
           <Route path="/postura-legal" element={<PosturaLegal />} />
+          <Route path="/recuperar-password" element={<RecuperarPassword />} />
+          <Route
+            path="/mi-avance"
+            element={
+              <RutaProtegida>
+                <PromotorHome />
+              </RutaProtegida>
+            }
+          />
           <Route path="/login" element={<Login />} />
           <Route path="/registro" element={<RegistroCampana />} />
           <Route path="/registro-invitacion" element={<RegistroInvitacion />} />
