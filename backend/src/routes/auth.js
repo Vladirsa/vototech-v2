@@ -18,7 +18,7 @@ const esquemaRegistroCampana = z.object({
   nombre_candidato: z.string().min(3).max(200),
   email: z.string().email(),
   password: z.string().min(8, 'La contraseña debe tener al menos 8 caracteres'),
-  partido: z.string().max(50).optional(),
+  partido: z.string().min(2, 'Debes seleccionar tu partido').max(50),
   tipo_eleccion: z.enum(['ayuntamiento', 'dip_local', 'dip_federal', 'gobernador', 'pres_comunidad', 'senador']),
   estado_id: z.number().int(),
   subdominio: z.string().regex(/^[a-z0-9-]{3,63}$/, 'Solo minúsculas, números y guiones'),

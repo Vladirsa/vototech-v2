@@ -168,6 +168,34 @@ router.patch('/campanas/:id/renovar', async (req, res) => {
 });
 
 /**
+ * PATCH /api/admin/campanas/:id/pausar
+ * Suspende el acceso SIN borrar nada — nadie de esa campaña puede
+ * iniciar sesión mientras esté pausada, pero todos sus datos siguen
+ * intactos. Útil para "no ha pagado este mes" o "pidió una pausa
+ * temporal", sin la irreversibilidad de borrar.
+ */
+router.patch('/campanas/:id/pausar', async (req, res) => {
+  const resultado = await query(`UPDATE campanas SET activa=false WHERE id=$1 RETURNING *`, [req.params.id]);
+  if (!resultado.rows[0]) return res.status(404).json({ ok: false, error: 'No encontrada' });
+  await query(`INSERT INTO admin_bitacora (campana_id, nombre_campana, accion, detalle) VALUES ($1,$2,'pausada',$3)`,
+    [req.params.id, resultado.rows[0].nombre_candidato, req.body.motivo || null]);
+  res.json({ ok: true, data: resultado.rows[0] });
+});
+
+/**
+ * PATCH /api/admin/campanas/:id/reactivar
+ * Levanta la pausa — vuelve a dejar entrar, sin tocar la fecha de
+ * vencimiento (eso es cosa de "renovar", no de "reactivar").
+ */
+router.patch('/campanas/:id/reactivar', async (req, res) => {
+  const resultado = await query(`UPDATE campanas SET activa=true WHERE id=$1 RETURNING *`, [req.params.id]);
+  if (!resultado.rows[0]) return res.status(404).json({ ok: false, error: 'No encontrada' });
+  await query(`INSERT INTO admin_bitacora (campana_id, nombre_campana, accion, detalle) VALUES ($1,$2,'reactivada',NULL)`,
+    [req.params.id, resultado.rows[0].nombre_candidato]);
+  res.json({ ok: true, data: resultado.rows[0] });
+});
+
+/**
  * DELETE /api/admin/campanas/:id
  * Borra la campaña por completo — usuarios, promovidos, todo (el
  * CASCADE en las tablas se encarga). No hay reversa, así que el
