@@ -8,6 +8,7 @@ const TIPO_LABEL = {
   barda: { ic: '🧱', label: 'Barda' },
   manta: { ic: '🎏', label: 'Manta/Lona' },
   ine_representante: { ic: '🗳️', label: 'Representante INE' },
+  utilitario: { ic: '👕', label: 'Utilitario (playeras, gorras, etc.)' },
 };
 const ESTADO_COLOR = { activo: 'text-emerald-400 bg-emerald-500/10', vencido: 'text-red-400 bg-red-500/10', retirado: 'text-slate-500 bg-slate-500/10' };
 
@@ -138,7 +139,7 @@ export default function Activos() {
             <div key={a.id} className="rounded-xl border border-slate-800 bg-slate-900/60 p-3">
               <div className="flex items-center justify-between">
                 <div>
-                  <div className="text-sm font-bold text-white">{TIPO_LABEL[a.tipo].ic} {a.tipo === 'ine_representante' ? a.nombre_rep : (a.direccion || 'Sin dirección')}</div>
+                  <div className="text-sm font-bold text-white">{(TIPO_LABEL[a.tipo]?.ic || '📦')} {a.tipo === 'ine_representante' ? a.nombre_rep : (a.direccion || 'Sin dirección')}</div>
                   <div className="text-[10px] text-slate-500">
                     {a.seccion_numero && `Sección ${a.seccion_numero} · `}
                     {a.tipo === 'ine_representante' ? a.telefono_rep : a.empresa}

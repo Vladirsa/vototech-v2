@@ -15,7 +15,7 @@ const MODULOS = [
   { ruta: '/agenda', ic: '📅', label: 'Agenda', clave: 'agenda' },
   { ruta: '/dia-eleccion', ic: '🗳️', label: 'Día D', clave: 'dia-eleccion' },
   { ruta: '/incidencias', ic: '🚨', label: 'Incidencias', clave: 'incidencias' },
-  { ruta: '/finanzas', ic: '💰', label: 'Finanzas', clave: 'finanzas' },
+  { ruta: '/finanzas', ic: '💰', label: 'Administración', clave: 'finanzas' },
   { ruta: '/activos', ic: '📺', label: 'Activos', clave: 'activos' },
 ];
 

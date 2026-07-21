@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo, useRef } from 'react';
 import { MapContainer, TileLayer, GeoJSON, Marker, Popup, LayersControl, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
-import InsigniaPartido from './InsigniaPartido';
+import InsigniaPartido, { COLOR_PARTIDO as PARTIDOS } from './InsigniaPartido';
 import 'leaflet.heat';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
@@ -37,16 +37,6 @@ function CapaCalor({ puntos, activa }) {
 }
 
 // ── COLORES OFICIALES DE PARTIDOS (con degradado, no plano) ──
-const PARTIDOS = {
-  morena:  { color: '#8B0000', color2: '#B91C1C', nombre: 'MORENA' },
-  pan:     { color: '#003DA5', color2: '#1D4ED8', nombre: 'PAN' },
-  pri:     { color: '#006847', color2: '#059669', nombre: 'PRI' },
-  pvem:    { color: '#2D7D27', color2: '#16A34A', nombre: 'PVEM' },
-  pt:      { color: '#CC0000', color2: '#DC2626', nombre: 'PT' },
-  mc:      { color: '#F26522', color2: '#F97316', nombre: 'MC' },
-  prd:     { color: '#FFCB00', color2: '#EAB308', nombre: 'PRD' },
-  pac:     { color: '#E91E63', color2: '#EC4899', nombre: 'PAC' },
-};
 
 /**
  * Componente que anima el "vuelo" de la cámara del mapa hacia una
@@ -662,11 +652,21 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
     });
   };
 
-  const iconoPromovido = (clasificacion) => new L.DivIcon({
-    className: '',
-    html: `<div style="width:12px;height:12px;border-radius:50%;background:${COLOR_CLASIFICACION[clasificacion]||'#94a3b8'};border:2px solid white;box-shadow:0 1px 4px rgba(0,0,0,.5)"></div>`,
-    iconSize: [12, 12],
-  });
+  // Antes el punto se coloreaba SOLO por clasificación (base/persuadible/
+  // adversario) — nunca reflejaba el partido de afinidad, aunque la
+  // leyenda de arriba SÍ mostraba colores de partido. Ahora el color
+  // principal del punto es el partido (mismo esquema que la leyenda),
+  // y el anillo exterior muestra la clasificación — las dos cosas a
+  // la vez, sin perder ninguna.
+  const iconoPromovido = (partido, clasificacion) => {
+    const colorPartido = PARTIDOS[partido]?.color || '#94a3b8'; // gris si no declaró partido
+    const colorAnillo = COLOR_CLASIFICACION[clasificacion] || '#94a3b8';
+    return new L.DivIcon({
+      className: '',
+      html: `<div style="width:14px;height:14px;border-radius:50%;background:${colorPartido};border:2.5px solid ${colorAnillo};box-shadow:0 1px 4px rgba(0,0,0,.6)"></div>`,
+      iconSize: [14, 14],
+    });
+  };
 
   const centroTlaxcala = [19.32, -98.24];
 
@@ -837,7 +837,7 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
 
         {/* Promovidos reales — coloreados por clasificación estratégica */}
         {capaPromovidos && !capaCalor && promovidosFiltrados.map((p) => (
-          <Marker key={p.id} position={[p._lat, p._lng]} icon={iconoPromovido(p.clasificacion)}>
+          <Marker key={p.id} position={[p._lat, p._lng]} icon={iconoPromovido(p.partido, p.clasificacion)}>
             <Popup>
               <strong>{p.nombre}</strong><br />
               {p.clasificacion === 'base' ? '✅ Base' : p.clasificacion === 'persuadible' ? '🎯 Persuadible' : '⛔ Adversario'}<br />

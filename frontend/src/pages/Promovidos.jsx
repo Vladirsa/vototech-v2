@@ -4,6 +4,9 @@ import api, { descargarArchivo } from '../lib/api';
 import BuscadorCalle from '../components/BuscadorCalle';
 import InsigniaPartido from '../components/InsigniaPartido';
 import Papa from 'papaparse';
+// XLSX (SheetJS) se importa DINÁMICAMENTE dentro de leerArchivo() —
+// es una librería pesada que solo hace falta si alguien de verdad
+// sube un archivo .xlsx/.xls, no en cada visita a Promovidos.
 import AnaliticaPromovidos from '../components/AnaliticaPromovidos';
 import TableroPromovidos from '../components/TableroPromovidos';
 import PanelEncuestas from '../components/PanelEncuestas';
@@ -243,35 +246,72 @@ function ModalImportar({ onCerrar, onImportado }) {
   const [declaroConsentimiento, setDeclaroConsentimiento] = useState(false);
   const [importando, setImportando] = useState(false);
   const [resultado, setResultado] = useState(null);
+  const [errorLectura, setErrorLectura] = useState('');
 
   const leerArchivo = (file) => {
     setArchivo(file);
-    Papa.parse(file, {
-      header: true,
-      skipEmptyLines: true,
-      complete: (res) => {
-        setEncabezados(res.meta.fields || []);
-        setFilas(res.data);
-        // Adivinar el mapeo automático por nombres de columna comunes
-        const adivinar = (opciones) => res.meta.fields?.find((f) => opciones.some((o) => f.toLowerCase().includes(o))) || '';
-        setMapeo({
-          nombre: adivinar(['nombre']),
-          telefono: adivinar(['telefono', 'tel', 'celular']),
-          seccion_numero: adivinar(['seccion', 'secc']),
-          partido: adivinar(['partido']),
-        });
-      },
-    });
+    setErrorLectura('');
+    const esExcel = /\.(xlsx|xls)$/i.test(file.name);
+
+    const procesarFilas = (encabezadosDetectados, filasDetectadas) => {
+      setEncabezados(encabezadosDetectados);
+      setFilas(filasDetectadas);
+      // Adivinar el mapeo automático por nombres de columna comunes
+      const adivinar = (opciones) => encabezadosDetectados.find((f) => opciones.some((o) => f.toLowerCase().includes(o))) || '';
+      setMapeo({
+        nombre: adivinar(['nombre']),
+        telefono: adivinar(['telefono', 'tel', 'celular']),
+        seccion_numero: adivinar(['seccion', 'secc']),
+        partido: adivinar(['partido']),
+      });
+    };
+
+    if (esExcel) {
+      // Antes esto se mandaba (por error) a PapaParse, que SOLO sabe
+      // leer CSV — un archivo .xlsx real es binario, no texto, y se
+      // interpretaba como basura, causando datos corruptos y el
+      // error del servidor. Ahora si de verdad es Excel, se lee como
+      // Excel (con SheetJS, cargado solo aquí), no como si fuera texto.
+      const lector = new FileReader();
+      lector.onload = async (e) => {
+        try {
+          const XLSX = await import('xlsx');
+          const libro = XLSX.read(e.target.result, { type: 'array' });
+          const hoja = libro.Sheets[libro.SheetNames[0]];
+          const datos = XLSX.utils.sheet_to_json(hoja, { defval: '' });
+          if (datos.length === 0) { setErrorLectura('El archivo Excel no tiene filas de datos.'); return; }
+          procesarFilas(Object.keys(datos[0]), datos);
+        } catch (err) {
+          setErrorLectura('No se pudo leer el archivo Excel. Verifica que no esté dañado o protegido con contraseña.');
+        }
+      };
+      lector.onerror = () => setErrorLectura('No se pudo abrir el archivo.');
+      lector.readAsArrayBuffer(file);
+    } else {
+      Papa.parse(file, {
+        header: true,
+        skipEmptyLines: true,
+        complete: (res) => {
+          if (!res.data.length) { setErrorLectura('El archivo no tiene filas de datos, o el formato no se pudo leer.'); return; }
+          procesarFilas(res.meta.fields || [], res.data);
+        },
+        error: () => setErrorLectura('No se pudo leer el archivo CSV.'),
+      });
+    }
   };
 
   const importar = async () => {
     setImportando(true);
-    const filasMapeadas = filas.map((f) => ({
-      nombre: f[mapeo.nombre]?.trim(),
-      telefono: mapeo.telefono ? f[mapeo.telefono]?.trim() : undefined,
-      seccion_numero: mapeo.seccion_numero && f[mapeo.seccion_numero] ? parseInt(f[mapeo.seccion_numero]) : undefined,
-      partido: mapeo.partido ? f[mapeo.partido]?.trim().toLowerCase() : undefined,
-    })).filter((f) => f.nombre);
+    const filasMapeadas = filas.map((f) => {
+      const seccionTexto = mapeo.seccion_numero ? String(f[mapeo.seccion_numero] || '').trim() : '';
+      const seccionParseada = seccionTexto ? parseInt(seccionTexto) : NaN;
+      return {
+        nombre: f[mapeo.nombre]?.trim ? f[mapeo.nombre].trim() : f[mapeo.nombre],
+        telefono: mapeo.telefono ? f[mapeo.telefono]?.trim?.() || f[mapeo.telefono] : undefined,
+        seccion_numero: Number.isInteger(seccionParseada) ? seccionParseada : undefined,
+        partido: mapeo.partido ? (f[mapeo.partido]?.trim?.() || f[mapeo.partido] || '').toLowerCase() || undefined : undefined,
+      };
+    }).filter((f) => f.nombre);
 
     try {
       const { data } = await api.post('/promovidos/importar', { filas: filasMapeadas, declaro_consentimiento: declaroConsentimiento });
@@ -298,8 +338,14 @@ function ModalImportar({ onCerrar, onImportado }) {
             <p className="text-[9px] text-slate-600 mt-2">Formato CSV recomendado (exporta tu Excel como CSV desde Excel/Google Sheets)</p>
           </div>
         )}
+        {errorLectura && (
+          <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 text-xs text-red-300">
+            ⚠️ {errorLectura}
+            <button onClick={() => { setArchivo(null); setErrorLectura(''); }} className="block underline font-bold mt-1">Intentar con otro archivo</button>
+          </div>
+        )}
 
-        {archivo && !resultado && (
+        {archivo && !resultado && !errorLectura && (
           <>
             <div className="text-xs text-emerald-400">✅ {filas.length} filas detectadas en {archivo.name}</div>
             <div className="space-y-2">

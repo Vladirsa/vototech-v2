@@ -81,6 +81,18 @@ export default function AdminPlataforma() {
     cargar();
   };
 
+  const pausar = async (id, nombre) => {
+    const motivo = prompt(`¿Por qué pausas la campaña de "${nombre}"? (opcional, queda en la bitácora)`);
+    if (motivo === null) return; // canceló
+    await axios.patch(`${API_URL}/admin/campanas/${id}/pausar`, { motivo }, { headers });
+    cargar();
+  };
+
+  const reactivar = async (id) => {
+    await axios.patch(`${API_URL}/admin/campanas/${id}/reactivar`, {}, { headers });
+    cargar();
+  };
+
   const borrarCampana = async (id, nombre) => {
     if (!confirm(`¿Borrar la campaña de "${nombre}" POR COMPLETO? Se pierden todos sus promovidos, estructura, todo. Esto NO se puede deshacer.`)) return;
     if (!confirm('Confírmalo una vez más — esto es permanente. ¿Seguro?')) return;
@@ -308,13 +320,20 @@ export default function AdminPlataforma() {
                       </>
                     )}
                     {c.estado_aprobacion === 'aprobada' && !c.es_demo && (
-                      <select onChange={(e) => { if (e.target.value) { renovar(c.id, parseInt(e.target.value)); e.target.value = ''; } }} defaultValue=""
-                        className="text-[10px] bg-slate-700 text-emerald-300 font-bold rounded px-1.5 py-1 border-0">
-                        <option value="" disabled>💳 Renovar...</option>
-                        <option value="1">+1 mes</option>
-                        <option value="3">+3 meses</option>
-                        <option value="12">+12 meses</option>
-                      </select>
+                      <>
+                        <select onChange={(e) => { if (e.target.value) { renovar(c.id, parseInt(e.target.value)); e.target.value = ''; } }} defaultValue=""
+                          className="text-[10px] bg-slate-700 text-emerald-300 font-bold rounded px-1.5 py-1 border-0">
+                          <option value="" disabled>💳 Renovar...</option>
+                          <option value="1">+1 mes</option>
+                          <option value="3">+3 meses</option>
+                          <option value="12">+12 meses</option>
+                        </select>
+                        {c.activa ? (
+                          <button onClick={() => pausar(c.id, c.nombre_candidato)} className="text-[10px] font-bold text-amber-400 px-2 py-1">⏸️ Pausar</button>
+                        ) : (
+                          <button onClick={() => reactivar(c.id)} className="text-[10px] font-bold text-emerald-400 px-2 py-1">▶️ Reactivar</button>
+                        )}
+                      </>
                     )}
                     <button onClick={() => continuarComo(c.id)} className="text-[10px] font-bold text-indigo-400 px-2 py-1">▶️ Continuar</button>
                     <button onClick={() => borrarCampana(c.id, c.nombre_candidato)} className="text-[10px] font-bold text-red-500 px-1">🗑️</button>
