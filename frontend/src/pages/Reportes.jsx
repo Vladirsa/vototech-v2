@@ -417,8 +417,10 @@ export default function Reportes() {
         {tab === 'ficha-estado' && fichaEstado && (
           <div className="space-y-4">
             <div className="bg-indigo-500/5 border border-indigo-500/20 rounded-xl p-3 text-[11px] text-indigo-200 leading-relaxed">
-              La foto completa del ESTADO, no solo tu municipio o distrito — para saber dónde queda tu territorio dentro del panorama general de Tlaxcala.
+              <strong>Diferencia con "Análisis histórico":</strong> esa pestaña usa SOLO los resultados que ya cargamos en el sistema, filtrados a tu territorio.
+              Esta ficha es información de referencia general del estado completo — geografía electoral, demografía, autoridades — para dar contexto amplio, no solo lo que hay en la base de datos.
             </div>
+
             <div className="grid grid-cols-3 gap-3">
               <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 text-center">
                 <div className="text-2xl font-black text-white">{fichaEstado.total_secciones}</div>
@@ -430,14 +432,78 @@ export default function Reportes() {
               </div>
               <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 text-center">
                 <div className="text-2xl font-black text-white">{fichaEstado.lista_nominal_estado.toLocaleString()}</div>
-                <div className="text-[10px] text-slate-500">Lista nominal estatal</div>
+                <div className="text-[10px] text-slate-500">Lista nominal (nuestra BD)</div>
               </div>
             </div>
 
-            {fichaEstado.historico ? (
+            {/* ── Demografía electoral (referencia INE) ── */}
+            <details className="bg-slate-900/60 border border-slate-800 rounded-xl p-4" open>
+              <summary className="text-xs font-bold text-indigo-300 uppercase cursor-pointer">🗳️ Demografía Electoral</summary>
+              <div className="mt-3 space-y-2 text-[11px] text-slate-300 leading-relaxed">
+                <p>Lista Nominal: <strong className="text-white">1,035,742 electores</strong> (1.1% del total nacional). Mujeres: <strong className="text-white">52.5%</strong> (544,118) · Hombres: <strong className="text-white">47.5%</strong> (491,621). Voto desde el extranjero: 4,618 registrados.</p>
+                <p><strong className="text-white">Municipios con mayor peso electoral:</strong> Tlaxcala Capital (80,240) · Huamantla (73,323) · Apizaco (68,406).</p>
+              </div>
+            </details>
+
+            {/* ── Distritación ── */}
+            <details className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+              <summary className="text-xs font-bold text-indigo-300 uppercase cursor-pointer">🗺️ Geografía y Distritación</summary>
+              <div className="mt-3 space-y-2 text-[11px] text-slate-300 leading-relaxed">
+                <p><strong className="text-white">3 Distritos Federales:</strong> Distrito 01 (cabecera Apizaco, 19 municipios) · Distrito 02 (cabecera Tlaxcala, 24 municipios) · Distrito 03 (cabecera Zacatelco, 17 municipios). Circunscripción: 4ta (cabecera Ciudad de México).</p>
+                <p><strong className="text-white">15 Distritos Locales</strong> — el congreso local se compone de 15 diputaciones de mayoría relativa.</p>
+                <p><strong className="text-white">Presidencias de Comunidad (Usos y Costumbres):</strong> de más de 290 comunidades, 94 eligen autoridades por asamblea/mano alzada, el resto por voto en urna.</p>
+              </div>
+            </details>
+
+            {/* ── Autoridades ── */}
+            <details className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+              <summary className="text-xs font-bold text-indigo-300 uppercase cursor-pointer">🏢 Autoridades Electorales</summary>
+              <div className="mt-3 space-y-1.5 text-[11px] text-slate-300 leading-relaxed">
+                <p><strong className="text-white">INE Junta Local Ejecutiva</strong> (federal) — Tlaxcala de Xicohténcatl. 3 Juntas Distritales: 01 Apizaco, 02 Tlaxcala, 03 Zacatelco.</p>
+                <p><strong className="text-white">Instituto Tlaxcalteca de Elecciones (ITE)</strong> — organiza elecciones de Gobernador, Diputados Locales y Ayuntamientos.</p>
+                <p><strong className="text-white">Tribunal Electoral de Tlaxcala (TET)</strong> — resuelve impugnaciones y controversias locales.</p>
+              </div>
+            </details>
+
+            {/* ── Segmentación por edad ── */}
+            <details className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+              <summary className="text-xs font-bold text-indigo-300 uppercase cursor-pointer">📊 Lista Nominal por Edad (referencia estatal)</summary>
+              <div className="mt-3 space-y-1.5">
+                {[['18-24', 16.8], ['25-29', 11.4], ['30-34', 11.1], ['35-39', 10.1], ['40-44', 9.4], ['45-49', 8.9], ['50-54', 8.1], ['55-59', 6.6], ['60-64', 5.6], ['65+', 12.0]].map(([rango, pct]) => (
+                  <div key={rango} className="flex items-center gap-2">
+                    <span className="text-[10px] text-slate-400 w-14">{rango} años</span>
+                    <div className="flex-1 h-2 bg-slate-800 rounded-full overflow-hidden"><div className="h-full bg-indigo-500" style={{ width: `${pct * 5}%` }} /></div>
+                    <span className="text-[10px] text-slate-300 w-10">{pct}%</span>
+                  </div>
+                ))}
+              </div>
+            </details>
+
+            {/* ── Participación histórica ── */}
+            <details className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+              <summary className="text-xs font-bold text-indigo-300 uppercase cursor-pointer">📉 Participación Ciudadana Histórica</summary>
+              <div className="mt-3 space-y-2 text-[11px] text-slate-300 leading-relaxed">
+                <p>Tlaxcala se sitúa entre los 3 estados con mayor participación de México — habitualmente 5 a 10 puntos por arriba de la media nacional.</p>
+                <p><strong className="text-white">2016:</strong> 65.6% · <strong className="text-white">2021:</strong> 64.7%-67.2% · <strong className="text-white">2024:</strong> 70.1% (récord histórico, 2° lugar nacional).</p>
+                <p><strong className="text-white">Por género:</strong> mujeres 66%-68% de participación vs. hombres 56%-58% — la brecha se explica en parte por movilidad laboral/migración masculina fuera del estado.</p>
+              </div>
+            </details>
+
+            {/* ── Comportamiento electoral / particularidades ── */}
+            <details className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+              <summary className="text-xs font-bold text-indigo-300 uppercase cursor-pointer">🔍 Particularidades del Voto en Tlaxcala</summary>
+              <div className="mt-3 space-y-2 text-[11px] text-slate-300 leading-relaxed">
+                <p><strong className="text-white">Votos nulos altos (4.5%-5.5%):</strong> de los más elevados de México — la boleta especial de Presidencia de Comunidad genera confusión al elector.</p>
+                <p><strong className="text-white">Voto cruzado (18%-22%):</strong> en elecciones concurrentes, buena parte del electorado vota distinto para cargos federales vs. locales/municipales.</p>
+                <p><strong className="text-white">Umbral de registro local (3%):</strong> los partidos locales deben sacar al menos 3% en diputaciones locales para conservar registro — esto hace que el mapa de partidos cambie cada 3 años.</p>
+                <p><strong className="text-white">Fuerzas actuales:</strong> Morena y aliados 47%-49% · Oposición (PRI-PAN-PRD) 34%-37% · Partidos locales y minorías 14%-16%.</p>
+              </div>
+            </details>
+
+            {fichaEstado.historico && (
               <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
                 <div className="text-xs font-bold text-slate-400 uppercase mb-3">
-                  Resultado estatal agregado — {fichaEstado.historico.anio} ({fichaEstado.tipo_eleccion.replace('_', ' ')})
+                  Resultado estatal agregado en nuestra base — {fichaEstado.historico.anio} ({fichaEstado.tipo_eleccion.replace('_', ' ')})
                 </div>
                 <div className="space-y-2">
                   {fichaEstado.historico.por_partido.map((p, i) => (
@@ -452,17 +518,13 @@ export default function Reportes() {
                     </div>
                   ))}
                 </div>
-                <div className="text-[10px] text-slate-500 mt-3">Total de votos estatales: {fichaEstado.historico.total_votos.toLocaleString()} · Años disponibles: {fichaEstado.historico.anios_disponibles.join(', ')}</div>
-              </div>
-            ) : (
-              <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-6 text-center text-sm text-amber-300">
-                ⚠️ Sin histórico estatal cargado todavía para "{fichaEstado.tipo_eleccion}"
               </div>
             )}
 
             <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl px-3 py-2 text-[11px] text-emerald-300">
               📊 Tu campaña lleva {fichaEstado.tus_promovidos_totales} promovidos capturados en tu territorio.
             </div>
+            <p className="text-[9px] text-slate-600">Fuentes de referencia: INE, ITE Tlaxcala. Los porcentajes de demografía/participación son de contexto general del estado, no se recalculan en vivo desde nuestra base de datos.</p>
           </div>
         )}
 

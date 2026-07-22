@@ -459,29 +459,29 @@ export default function Promovidos() {
           </div>
         )}
 
-        <div className="flex gap-2">
+        <div className="flex gap-2 overflow-x-auto pb-1 -mx-4 px-4 md:mx-0 md:px-0" style={{ scrollbarWidth: 'thin' }}>
           <button onClick={() => { setModoSeguimiento(false); setTab('lista'); }}
-            className={`px-3 py-1.5 rounded-full text-xs font-bold ${!modoSeguimiento && tab === 'lista' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
+            className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-bold ${!modoSeguimiento && tab === 'lista' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
             Todos
           </button>
           <button onClick={() => { setModoSeguimiento(true); setTab('lista'); }}
-            className={`px-3 py-1.5 rounded-full text-xs font-bold ${modoSeguimiento && tab === 'lista' ? 'bg-amber-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
+            className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-bold ${modoSeguimiento && tab === 'lista' ? 'bg-amber-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
             🎯 Seguimiento prioritario
           </button>
           <Link to="/marketing"
-            className="px-3 py-1.5 rounded-full text-xs font-bold bg-purple-600/80 text-white flex items-center">
+            className="flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-bold bg-purple-600/80 text-white flex items-center">
             📢 Enviar por Marketing →
           </Link>
           <button onClick={() => setTab('analitica')}
-            className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'analitica' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
+            className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'analitica' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
             📊 Analítica
           </button>
           <button onClick={() => setTab('encuestas')}
-            className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'encuestas' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
+            className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'encuestas' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
             📋 Encuestas
           </button>
           <button onClick={() => setTab('seguimiento-persuadibles')}
-            className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'seguimiento-persuadibles' ? 'bg-amber-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
+            className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'seguimiento-persuadibles' ? 'bg-amber-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
             📅 Agenda de Persuadibles
           </button>
         </div>

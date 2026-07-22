@@ -962,22 +962,22 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
       {coloreadoActivo && modoColoreado === 'partido' && (
         <div className="absolute top-2 left-1/2 -translate-x-1/2 z-[1000] bg-slate-900/95 backdrop-blur border border-slate-700 rounded-xl shadow-xl px-3 py-2 flex flex-col items-center gap-1.5 max-w-[92%]">
           {aniosDelTipo.length > 0 ? (
-            <div className="flex items-center gap-2">
-              <span className="text-[9px] text-slate-500 font-bold uppercase">Mostrando:</span>
+            <div className="flex items-center gap-1.5">
+              <span className="text-[7px] md:text-[9px] text-slate-500 font-bold uppercase">Ver:</span>
               <div className="flex gap-1">
                 {aniosDelTipo.map((a) => (
                   <button key={a} onClick={() => setAnio(a)}
-                    className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${anio === a ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
+                    className={`px-1.5 md:px-2.5 py-0.5 md:py-1 rounded-full text-[8px] md:text-[10px] font-bold ${anio === a ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
                     {a}
                   </button>
                 ))}
               </div>
             </div>
           ) : (
-            <span className="text-[9px] text-amber-400 font-bold">⚠️ Sin datos históricos cargados todavía para este tipo de elección</span>
+            <span className="text-[8px] md:text-[9px] text-amber-400 font-bold">⚠️ Sin datos históricos para este tipo de elección</span>
           )}
-          <div className="flex flex-wrap gap-x-2 gap-y-1 justify-center">
-            {Object.entries(PARTIDOS).map(([id]) => <InsigniaPartido key={id} partido={id} tamano="chico" />)}
+          <div className="flex flex-wrap gap-x-1 md:gap-x-2 gap-y-1 justify-center max-w-[280px] md:max-w-none">
+            {Object.entries(PARTIDOS).map(([id]) => <InsigniaPartido key={id} partido={id} tamano="mini" />)}
           </div>
         </div>
       )}

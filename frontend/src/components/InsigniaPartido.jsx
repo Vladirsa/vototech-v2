@@ -26,7 +26,7 @@ export const COLOR_PARTIDO = {
  */
 export default function InsigniaPartido({ partido, tamano = 'normal' }) {
   const p = COLOR_PARTIDO[partido] || { color: '#475569', color2: '#64748B', nombre: partido?.toUpperCase() || '?' };
-  const clases = tamano === 'chico' ? 'text-[9px] px-1.5 py-0.5' : tamano === 'grande' ? 'text-xs px-3 py-1.5' : 'text-[10px] px-2 py-1';
+  const clases = tamano === 'mini' ? 'text-[7px] px-1 py-0.5' : tamano === 'chico' ? 'text-[9px] px-1.5 py-0.5' : tamano === 'grande' ? 'text-xs px-3 py-1.5' : 'text-[10px] px-2 py-1';
 
   return (
     <span
