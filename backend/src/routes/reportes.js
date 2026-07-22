@@ -222,6 +222,59 @@ function intervaloWilson(exitos, n, z = 1.96) {
  *    (mismo día, mismo electorado) como muestra empírica de cuánto
  *    puede moverse el resultado entre una boleta y otra.
  */
+
+/**
+ * GET /api/reportes/ficha-estado
+ * La foto completa del ESTADO, no solo tu municipio/distrito — para
+ * dar contexto de dónde queda tu territorio dentro del panorama
+ * general. Histórico agregado + tu avance actual como campaña.
+ */
+router.get('/ficha-estado', async (req, res) => {
+  const campanaId = req.usuario.campana_id;
+  const estadoId = req.usuario.estado_id;
+
+  const campanaRes = await query('SELECT partido, tipo_eleccion FROM campanas WHERE id=$1', [campanaId]);
+  const campana = campanaRes.rows[0];
+
+  const [totales, aniosDisponibles, promovidosPropios] = await Promise.all([
+    query(`SELECT COUNT(*) as secciones, COUNT(DISTINCT municipio_id) as municipios, SUM(lista_nominal) as lista_nominal FROM secciones WHERE estado_id=$1`, [estadoId]),
+    query(`SELECT DISTINCT anio FROM resultados_historicos WHERE tipo_eleccion=$1 ORDER BY anio DESC`, [campana.tipo_eleccion]),
+    query(`SELECT COUNT(*) as total FROM promovidos WHERE campana_id=$1`, [campanaId]),
+  ]);
+
+  const anioReciente = aniosDisponibles.rows[0]?.anio;
+  let historico = null;
+  if (anioReciente) {
+    const votosEstado = await query(
+      `SELECT rh.partido, SUM(rh.votos) as votos
+       FROM resultados_historicos rh JOIN secciones s ON s.id=rh.seccion_id
+       WHERE s.estado_id=$1 AND rh.tipo_eleccion=$2 AND rh.anio=$3
+       GROUP BY rh.partido ORDER BY votos DESC`,
+      [estadoId, campana.tipo_eleccion, anioReciente]
+    );
+    const totalVotos = votosEstado.rows.reduce((s, r) => s + parseInt(r.votos), 0);
+    historico = {
+      anio: anioReciente,
+      total_votos: totalVotos,
+      por_partido: votosEstado.rows.map((r) => ({ partido: r.partido, votos: parseInt(r.votos), pct: totalVotos > 0 ? +((r.votos / totalVotos) * 100).toFixed(1) : 0 })),
+      anios_disponibles: aniosDisponibles.rows.map((r) => r.anio),
+    };
+  }
+
+  res.json({
+    ok: true,
+    data: {
+      total_secciones: parseInt(totales.rows[0].secciones),
+      total_municipios: parseInt(totales.rows[0].municipios),
+      lista_nominal_estado: parseInt(totales.rows[0].lista_nominal || 0),
+      tipo_eleccion: campana.tipo_eleccion,
+      partido_campana: campana.partido,
+      historico,
+      tus_promovidos_totales: parseInt(promovidosPropios.rows[0].total),
+    },
+  });
+});
+
 router.get('/probabilidad', async (req, res) => {
   const campanaId = req.usuario.campana_id;
   const campanaRes = await query('SELECT partido, tipo_eleccion, territorio_tipo, territorio_id, fecha_eleccion FROM campanas WHERE id=$1', [campanaId]);

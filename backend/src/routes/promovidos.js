@@ -144,6 +144,62 @@ const esquemaPromovido = z.object({
  */
 const META_MINIMA_PROMOTOR = 5;
 
+/**
+ * GET /api/promovidos/seguimiento
+ * Los persuadibles que necesitan que alguien vuelva por ellos —
+ * ordenados con los vencidos primero (nadie los ha contactado a
+ * tiempo), luego por fecha de próximo contacto más próxima.
+ */
+router.get('/seguimiento', async (req, res) => {
+  const soloMios = req.query.solo_mios === 'true';
+  const filtroAsignado = soloMios ? 'AND (p.asignado_seguimiento_a=$2 OR p.registrado_por=$2)' : '';
+  const params = soloMios ? [req.usuario.campana_id, req.usuario.sub] : [req.usuario.campana_id];
+
+  const resultado = await query(
+    `SELECT p.id, p.nombre, p.telefono, p.veces_contactado, p.proximo_seguimiento, p.notas_seguimiento,
+            s.numero as seccion_numero, u.nombre as asignado_a_nombre, p.asignado_seguimiento_a,
+            (p.proximo_seguimiento IS NOT NULL AND p.proximo_seguimiento < CURRENT_DATE) as vencido
+     FROM promovidos p
+     LEFT JOIN secciones s ON s.id = p.seccion_id
+     LEFT JOIN usuarios u ON u.id = p.asignado_seguimiento_a
+     WHERE p.campana_id=$1 AND p.clasificacion='persuadible' ${filtroAsignado}
+     ORDER BY (p.proximo_seguimiento IS NULL) ASC, p.proximo_seguimiento ASC NULLS LAST`,
+    params
+  );
+  res.json({ ok: true, data: resultado.rows });
+});
+
+/**
+ * PATCH /api/promovidos/:id/seguimiento
+ * Registrar un intento de contacto: qué pasó, cuándo volver a
+ * intentarlo, y a quién se le asigna esa siguiente vuelta. Si en el
+ * mismo movimiento la persona ya se convenció, se actualiza directo
+ * a comprometido — no hace falta un paso aparte.
+ */
+router.patch('/:id/seguimiento', async (req, res) => {
+  const { notas, proximo_seguimiento, asignado_a, se_convencio } = req.body;
+
+  const actual = await query('SELECT veces_contactado FROM promovidos WHERE id=$1 AND campana_id=$2', [req.params.id, req.usuario.campana_id]);
+  if (!actual.rows[0]) return res.status(404).json({ ok: false, error: 'No encontrado' });
+
+  if (se_convencio) {
+    const resultado = await query(
+      `UPDATE promovidos SET comprometido=true, clasificacion='base', notas_seguimiento=$1,
+              veces_contactado=veces_contactado+1, proximo_seguimiento=NULL
+       WHERE id=$2 AND campana_id=$3 RETURNING *`,
+      [notas || null, req.params.id, req.usuario.campana_id]
+    );
+    return res.json({ ok: true, data: resultado.rows[0], mensaje: '🎉 ¡Se convenció! Movido a Base.' });
+  }
+
+  const resultado = await query(
+    `UPDATE promovidos SET notas_seguimiento=$1, proximo_seguimiento=$2, asignado_seguimiento_a=$3, veces_contactado=veces_contactado+1
+     WHERE id=$4 AND campana_id=$5 RETURNING *`,
+    [notas || null, proximo_seguimiento || null, asignado_a || null, req.params.id, req.usuario.campana_id]
+  );
+  res.json({ ok: true, data: resultado.rows[0] });
+});
+
 router.get('/mi-resumen', async (req, res) => {
   const misPromovidos = await query(
     `SELECT p.id, p.nombre, p.comprometido, s.numero as seccion_numero, p.creado_en

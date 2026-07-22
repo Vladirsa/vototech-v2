@@ -56,6 +56,45 @@ router.get('/por-partido', async (req, res) => {
 });
 
 /**
+ * GET /api/promovidos-analitica/concentrado-mapa
+ * El "de un vistazo" que el candidato necesita ver GRANDE, no
+ * escondido en una pestaña — cuántos promovidos totales, por
+ * partido, y cuántas secciones de tu territorio ya tienen cobertura.
+ */
+router.get('/concentrado-mapa', async (req, res) => {
+  const campanaId = req.usuario.campana_id;
+  const campana = await territorioDeCampana(campanaId);
+  const campanaEstado = await query('SELECT estado_id FROM campanas WHERE id=$1', [campanaId]);
+  const estadoId = campanaEstado.rows[0]?.estado_id || 29;
+
+  const [porPartido, comprometidos, seccionesCubiertas, seccionesTotal] = await Promise.all([
+    query(`SELECT partido, COUNT(*) as total FROM promovidos WHERE campana_id=$1 AND partido IS NOT NULL GROUP BY partido ORDER BY total DESC`, [campanaId]),
+    query(`SELECT COUNT(*) as total FROM promovidos WHERE campana_id=$1 AND comprometido=true`, [campanaId]),
+    query(`SELECT COUNT(DISTINCT seccion_id) as total FROM promovidos WHERE campana_id=$1 AND seccion_id IS NOT NULL`, [campanaId]),
+    query(
+      campana.territorio_tipo === 'municipio' && campana.territorio_id
+        ? `SELECT COUNT(*) as total FROM secciones s WHERE s.municipio_id=(SELECT id FROM municipios WHERE estado_id=$1 AND clave_ine=$2)`
+        : `SELECT COUNT(*) as total FROM secciones WHERE estado_id=$1`,
+      campana.territorio_tipo === 'municipio' && campana.territorio_id ? [estadoId, campana.territorio_id] : [estadoId]
+    ),
+  ]);
+
+  const totalPromovidos = porPartido.rows.reduce((s, r) => s + parseInt(r.total), 0);
+
+  res.json({
+    ok: true,
+    data: {
+      total_promovidos: totalPromovidos,
+      total_comprometidos: parseInt(comprometidos.rows[0].total),
+      secciones_cubiertas: parseInt(seccionesCubiertas.rows[0].total),
+      secciones_total: parseInt(seccionesTotal.rows[0].total),
+      por_partido: porPartido.rows,
+      partido_campana: campana.partido,
+    },
+  });
+});
+
+/**
  * GET /api/promovidos-analitica/comparativa
  * Pestaña 2: Ayuntamiento 2024 vs Presidente de Comunidad 2024 —
  * las dos elecciones concurrentes reales que sí tenemos, comparadas.

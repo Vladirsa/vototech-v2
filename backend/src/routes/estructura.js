@@ -147,7 +147,7 @@ const esquemaMiembro = z.object({
   email: z.string().email(),
   telefono: z.string().max(20).optional(),
   password: z.string().min(8),
-  rol: z.enum(['jefe_campana', 'coord_general', 'coord_distrital', 'coord_municipal', 'coord_seccional', 'promotor']),
+  rol: z.enum(['jefe_campana', 'coord_general', 'coord_distrital', 'coord_municipal', 'coord_seccional', 'promotor', 'encargado_juridico', 'encargado_finanzas', 'voluntario']),
   puesto: z.string().max(100).optional(),
   parent_id: z.string().uuid().optional(),
   territorio_tipo: z.string().optional(),
@@ -208,9 +208,10 @@ router.post('/', async (req, res) => {
 const esquemaEditar = z.object({
   nombre: z.string().min(2).max(200).optional(),
   telefono: z.string().max(20).optional(),
-  rol: z.enum(['jefe_campana', 'coord_general', 'coord_distrital', 'coord_municipal', 'coord_seccional', 'promotor']).optional(),
+  rol: z.enum(['jefe_campana', 'coord_general', 'coord_distrital', 'coord_municipal', 'coord_seccional', 'promotor', 'encargado_juridico', 'encargado_finanzas', 'voluntario']).optional(),
   puesto: z.string().max(100).nullable().optional(),
   parent_id: z.string().uuid().nullable().optional(),
+  territorio_tipo: z.string().nullable().optional(),
   territorio_id: z.number().int().nullable().optional(),
   meta_diaria: z.number().int().optional(),
   activo: z.boolean().optional(),
@@ -478,6 +479,25 @@ router.get('/:id/rendimiento-rama', async (req, res) => {
       mejor_promotor: mejorRes.rows[0] || null,
     },
   });
+});
+
+/**
+ * GET /api/estructura/representantes-ine
+ * Los representantes ante el INE viven técnicamente en Activos (por
+ * su fecha de vigencia, igual que una barda o espectacular), pero
+ * son PARTE de tu estructura humana — aquí se ven en el contexto
+ * correcto, junto al resto de tu gente.
+ */
+router.get('/representantes-ine', async (req, res) => {
+  const resultado = await query(
+    `SELECT a.id, a.nombre_rep, a.telefono_rep, a.estado, a.fecha_ini, a.fecha_vence, a.notas,
+            s.numero as seccion_numero
+     FROM activos a LEFT JOIN secciones s ON s.id = a.seccion_id
+     WHERE a.campana_id=$1 AND a.tipo='ine_representante'
+     ORDER BY s.numero`,
+    [req.usuario.campana_id]
+  );
+  res.json({ ok: true, data: resultado.rows });
 });
 
 export default router;
