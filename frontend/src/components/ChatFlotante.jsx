@@ -3,8 +3,8 @@ import api from '../lib/api';
 import { useSocket } from '../lib/useSocket';
 import { useAuth } from '../lib/authStore';
 
-const ROL_ICONO = { candidato: '👑', jefe_campana: '👑', coord_general: '⭐', coord_distrital: '🗺️', coord_municipal: '🏘️', coord_seccional: '📍', promotor: '🤝' };
-const ROL_LABEL_CORTO = { candidato: 'Candidato', jefe_campana: 'Jefe Campaña', coord_general: 'Coord. General', coord_distrital: 'Coord. Distrital', coord_municipal: 'Coord. Municipal', coord_seccional: 'Coord. Seccional', promotor: 'Promotor' };
+const ROL_ICONO = { candidato: '👑', jefe_campana: '👑', coord_general: '⭐', coord_distrital: '🗺️', coord_municipal: '🏘️', coord_seccional: '📍', promotor: '🤝', encargado_juridico: '⚖️', encargado_finanzas: '💰', voluntario: '🙋' };
+const ROL_LABEL_CORTO = { candidato: 'Candidato', jefe_campana: 'Jefe Campaña', coord_general: 'Coord. General', coord_distrital: 'Coord. Distrital', coord_municipal: 'Coord. Municipal', coord_seccional: 'Coord. Seccional', promotor: 'Promotor', encargado_juridico: 'Jurídico', encargado_finanzas: 'Finanzas', voluntario: 'Voluntario' };
 
 function nombreCanalDM(idA, idB) {
   // Si falta cualquiera de los dos IDs, no se debe ni intentar — es
@@ -193,7 +193,7 @@ export default function ChatFlotante() {
                 <div className="text-xs font-bold text-white truncate">{tituloConversacion}</div>
                 {contactoActivo && (
                   <div className="text-[9px] text-slate-500">
-                    {enLinea.has(contactoActivo.id) ? <span className="text-emerald-400">● En línea</span> : '○ Desconectado'} · {contactoActivo.puesto || ROL_LABEL_CORTO[contactoActivo.rol]}
+                    {enLinea.has(contactoActivo.id) ? <span className="text-emerald-400">● En línea</span> : '○ Desconectado'} · {contactoActivo.puesto || ROL_LABEL_CORTO[contactoActivo.rol] || contactoActivo.rol}
                   </div>
                 )}
               </div>

@@ -1,6 +1,34 @@
 import { Component } from 'react';
 
 /**
+ * Versión silenciosa — para widgets secundarios que viven en TODAS
+ * las pantallas (el chat flotante, el aviso de vencimiento, el aviso
+ * offline). Si alguno de estos truena, NO debe tumbar el módulo
+ * completo que la persona está viendo — simplemente desaparece ese
+ * widget en particular, y todo lo demás sigue funcionando normal.
+ * Antes, un error en cualquiera de estos widgets (montados una sola
+ * vez en App.jsx, fuera de las rutas) tumbaba TODA la aplicación,
+ * en cualquier pantalla, porque el ErrorBoundary principal envuelve
+ * todo de un jalón.
+ */
+export class ErrorBoundarySilencioso extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+  componentDidCatch(error, info) {
+    console.error('Widget secundario falló (aislado, no afecta el resto de la app):', error, info?.componentStack);
+  }
+  render() {
+    if (this.state.error) return null; // desaparece en silencio, el resto de la app sigue viva
+    return this.props.children;
+  }
+}
+
+/**
  * Sin esto, cuando falla la carga de un módulo (lazy import) — por
  * ejemplo, porque se hizo un despliegue nuevo mientras la persona
  * tenía la app abierta, y el navegador intenta pedir un archivo que

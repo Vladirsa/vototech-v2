@@ -4,7 +4,7 @@ import Login from './pages/Login';
 import RutaProtegida from './components/RutaProtegida';
 import ChatFlotante from './components/ChatFlotante';
 import AvisoOffline from './components/AvisoOffline';
-import ErrorBoundary from './components/ErrorBoundary';
+import ErrorBoundary, { ErrorBoundarySilencioso } from './components/ErrorBoundary';
 import { useSuscripcionPush } from './lib/useSuscripcionPush';
 
 // Carga diferida: cada módulo se descarga SOLO cuando alguien lo
@@ -92,8 +92,8 @@ export default function App() {
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </Suspense>
-      <ChatFlotante />
-      <AvisoOffline />
+      <ErrorBoundarySilencioso><ChatFlotante /></ErrorBoundarySilencioso>
+      <ErrorBoundarySilencioso><AvisoOffline /></ErrorBoundarySilencioso>
     </BrowserRouter>
     </ErrorBoundary>
   );
