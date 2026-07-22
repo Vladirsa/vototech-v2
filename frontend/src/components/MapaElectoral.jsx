@@ -16,22 +16,31 @@ const COLOR_CLASIFICACION = {
 /**
  * Capa de mapa de calor — usa leaflet.heat directamente sobre el mapa
  * (no hay wrapper de react-leaflet para esto, así que se maneja con
- * useMap + efecto manual).
+ * useMap + efecto manual). El color ahora refleja el partido que
+ * estés filtrando — si ves "solo MORENA", el calor se pinta en rojo
+ * oscuro de MORENA, no en un morado genérico que no dice nada. Y se
+ * subió la intensidad para que de verdad se note, no solo se insinúe.
  */
-function CapaCalor({ puntos, activa }) {
+function CapaCalor({ puntos, activa, colorPartido }) {
   const map = useMap();
   const capaRef = useRef(null);
 
   useEffect(() => {
     if (capaRef.current) { map.removeLayer(capaRef.current); capaRef.current = null; }
     if (activa && puntos.length > 0) {
-      capaRef.current = L.heatLayer(puntos.map(p => [p.lat, p.lng, 0.6]), {
-        radius: 28, blur: 20, maxZoom: 16,
-        gradient: { 0.2: '#312e81', 0.5: '#7c3aed', 0.8: '#ec4899', 1: '#f43f5e' },
+      // Degradado de 3 pasos hacia el color del partido — se ve el
+      // "calentamiento" progresivo, no solo un bloque plano de color.
+      const gradiente = colorPartido
+        ? { 0.3: '#1e1b4b', 0.6: colorPartido, 1: colorPartido }
+        : { 0.2: '#312e81', 0.5: '#7c3aed', 0.8: '#ec4899', 1: '#f43f5e' };
+
+      capaRef.current = L.heatLayer(puntos.map(p => [p.lat, p.lng, 1]), {
+        radius: 38, blur: 26, maxZoom: 16, minOpacity: 0.45,
+        gradient: gradiente,
       }).addTo(map);
     }
     return () => { if (capaRef.current) map.removeLayer(capaRef.current); };
-  }, [activa, puntos, map]);
+  }, [activa, puntos, map, colorPartido]);
 
   return null;
 }
@@ -156,6 +165,7 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
     api.get('/promovidos')
       .then(r => setPromovidos(r.data.data))
       .catch(() => setPromovidos([]));
+    api.get('/promovidos-analitica/concentrado-mapa').then(r => setConcentrado(r.data.data)).catch(() => setConcentrado(null));
   }, []);
 
   // Cargar resultados reales cada vez que cambia el tipo de elección/año elegido
@@ -194,6 +204,8 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
 
   // ── FICHA TÉCNICA DE SECCIÓN (padrón, históricos, promovidos, déficit) ──
   const [fichaTecnica, setFichaTecnica] = useState(null);
+  const [concentrado, setConcentrado] = useState(null);
+  const [mostrarConcentrado, setMostrarConcentrado] = useState(false);
   const [cargandoFicha, setCargandoFicha] = useState(false);
 
   useEffect(() => {
@@ -847,7 +859,11 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
           </Marker>
         ))}
 
-        <CapaCalor puntos={promovidosConPosicion.map(p => ({ lat: p._lat, lng: p._lng }))} activa={capaCalor} />
+        <CapaCalor
+          puntos={promovidosFiltrados.map(p => ({ lat: p._lat, lng: p._lng }))}
+          activa={capaCalor}
+          colorPartido={filtroPartido !== 'todos' && filtroPartido !== 'independiente' ? PARTIDOS[filtroPartido]?.color : null}
+        />
         {vueloDestino && <VueloCamara key={vueloDestino.key} centro={vueloDestino.centro} zoom={vueloDestino.zoom} />}
         <CapturarRefMapa mapRef={mapRef} />
         <CapturaClicMapa activo={!!tipoColocando} onClick={(lat, lng) => setPuntoNuevo({ lat, lng })} />
@@ -873,6 +889,72 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
           />
         )}
       </MapContainer>
+
+      {/* ── BOTÓN DE CONCENTRADO GENERAL — grande y siempre visible,
+          para que el candidato no tenga que ir a buscar sus números
+          a otra pantalla. ── */}
+      {concentrado && (
+        <button onClick={() => setMostrarConcentrado(true)}
+          className="absolute top-2 right-2 z-[1000] bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl shadow-xl px-3 py-2 flex items-center gap-2">
+          <span className="text-lg">📊</span>
+          <div className="text-left">
+            <div className="text-sm font-black leading-none">{concentrado.total_promovidos}</div>
+            <div className="text-[8px] opacity-80 leading-none mt-0.5">promovidos · ver todo</div>
+          </div>
+        </button>
+      )}
+
+      {mostrarConcentrado && concentrado && (
+        <div className="fixed inset-0 bg-black/70 z-[2000] flex items-center justify-center p-4" onClick={() => setMostrarConcentrado(false)}>
+          <div className="bg-slate-950 border border-slate-700 rounded-2xl max-w-md w-full p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-between items-center">
+              <h2 className="text-lg font-black text-white">📊 Concentrado General de Campaña</h2>
+              <button onClick={() => setMostrarConcentrado(false)} className="text-slate-500 text-xl">✕</button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="bg-indigo-950/60 border border-indigo-700/30 rounded-xl p-4 text-center">
+                <div className="text-3xl font-black text-white">{concentrado.total_promovidos}</div>
+                <div className="text-[10px] text-slate-400 mt-1">Promovidos totales</div>
+              </div>
+              <div className="bg-emerald-950/60 border border-emerald-700/30 rounded-xl p-4 text-center">
+                <div className="text-3xl font-black text-emerald-400">{concentrado.total_comprometidos}</div>
+                <div className="text-[10px] text-slate-400 mt-1">Comprometidos a votar</div>
+              </div>
+              <div className="bg-slate-900/60 border border-slate-700/30 rounded-xl p-4 text-center col-span-2">
+                <div className="text-2xl font-black text-white">{concentrado.secciones_cubiertas} <span className="text-slate-500 text-base">de {concentrado.secciones_total}</span></div>
+                <div className="text-[10px] text-slate-400 mt-1">Secciones de tu territorio con al menos 1 promovido</div>
+                <div className="h-2 bg-slate-800 rounded-full overflow-hidden mt-2">
+                  <div className="h-full bg-indigo-500" style={{ width: `${concentrado.secciones_total > 0 ? Math.round(concentrado.secciones_cubiertas / concentrado.secciones_total * 100) : 0}%` }} />
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <div className="text-xs font-bold text-slate-400 uppercase mb-2">Promovidos por partido</div>
+              <div className="space-y-2">
+                {concentrado.por_partido.map((p) => {
+                  const pct = concentrado.total_promovidos > 0 ? Math.round(p.total / concentrado.total_promovidos * 100) : 0;
+                  const esPropio = p.partido === concentrado.partido_campana;
+                  return (
+                    <div key={p.partido}>
+                      <div className="flex justify-between text-xs mb-0.5">
+                        <span className={`font-bold flex items-center gap-1 ${esPropio ? 'text-white' : 'text-slate-400'}`}>
+                          {esPropio && '⭐'} {p.partido.toUpperCase()}
+                        </span>
+                        <span className="text-slate-300">{p.total} ({pct}%)</span>
+                      </div>
+                      <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
+                        <div className="h-full" style={{ width: `${pct}%`, background: PARTIDOS[p.partido]?.color || '#64748b' }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── LEYENDA DE COLORES + SELECTOR DE AÑO — fija arriba del mapa,
           siempre visible. Antes el año estaba fijo sin ningún control

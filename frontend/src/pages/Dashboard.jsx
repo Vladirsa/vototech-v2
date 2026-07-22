@@ -140,10 +140,13 @@ export default function Dashboard() {
         <div className="bg-gradient-to-br from-slate-900 to-indigo-950/60 border border-indigo-800/30 rounded-2xl p-5 flex flex-col md:flex-row items-center gap-6">
           <Gauge porcentaje={d.meta_electoral.porcentaje} />
           <div className="flex-1 w-full">
-            <div className="flex items-center gap-2 mb-3">
+            <div className="flex items-center gap-2 mb-1">
               <span className="text-lg">🎯</span>
               <h2 className="font-black text-white">Avance hacia la meta electoral</h2>
             </div>
+            <p className="text-[10px] text-indigo-300 mb-3">
+              Cuantifica <strong>promovidos</strong>, no votos — verificar por quién vota alguien es ilegal (coacción de voto), así que no se puede medir. Los promovidos comprometidos son el indicador más honesto disponible del avance real hacia tu meta.
+            </p>
             <div className="space-y-1.5 text-sm">
               <div className="flex justify-between"><span className="flex items-center gap-2 text-slate-400"><span className="w-2 h-2 rounded-full bg-purple-500" />Promovidos registrados</span><strong className="text-purple-400">{d.meta_electoral.promovidos_registrados}</strong></div>
               <div className="flex justify-between"><span className="flex items-center gap-2 text-slate-400"><span className="w-2 h-2 rounded-full bg-emerald-500" />Meta de votos</span><strong className="text-emerald-400">{d.meta_electoral.meta_votos.toLocaleString()}</strong></div>

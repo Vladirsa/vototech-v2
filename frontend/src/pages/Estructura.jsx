@@ -49,14 +49,14 @@ function estaActivoReciente(ultimoAcceso) {
 const PUNTO_ACTIVIDAD = { reciente: 'bg-emerald-400', medio: 'bg-amber-400', inactivo: 'bg-red-400' };
 
 function ModalAgregarMiembro({ miembros, onCerrar, onGuardado }) {
-  const [form, setForm] = useState({ nombre: '', email: '', password: '', rol: 'coord_seccional', puesto: '', parent_id: '', territorio_id: '' });
+  const [form, setForm] = useState({ nombre: '', email: '', password: '', telefono: '', rol: 'coord_seccional', puesto: '', parent_id: '', territorio_tipo: 'seccion', territorio_id: '' });
   const [error, setError] = useState('');
   const guardar = async () => {
     try {
       await api.post('/estructura', {
         ...form,
         parent_id: form.parent_id || undefined,
-        territorio_tipo: form.territorio_id ? 'seccion' : undefined,
+        territorio_tipo: form.territorio_id ? form.territorio_tipo : undefined,
         territorio_id: form.territorio_id ? parseInt(form.territorio_id) : undefined,
       });
       onGuardado();
@@ -73,6 +73,8 @@ function ModalAgregarMiembro({ miembros, onCerrar, onGuardado }) {
         <input placeholder="Correo" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })}
           className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
         <input placeholder="Contraseña temporal" type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })}
+          className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+        <input placeholder="Teléfono (para contactarlo por WhatsApp)" value={form.telefono} onChange={(e) => setForm({ ...form, telefono: e.target.value })}
           className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
 
         <div>
@@ -93,10 +95,19 @@ function ModalAgregarMiembro({ miembros, onCerrar, onGuardado }) {
           </datalist>
         </div>
 
-        {(form.rol === 'coord_seccional' || form.rol === 'coord_municipal') && (
-          <input placeholder="Sección que le asignas (ej: 12)" type="number" value={form.territorio_id}
-            onChange={(e) => setForm({ ...form, territorio_id: e.target.value })}
-            className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+        {(form.rol === 'coord_seccional' || form.rol === 'coord_municipal' || form.rol === 'coord_distrital' || form.rol === 'coord_general') && (
+          <div className="flex gap-2">
+            <select value={form.territorio_tipo} onChange={(e) => setForm({ ...form, territorio_tipo: e.target.value })}
+              className="px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
+              <option value="seccion">Sección</option>
+              <option value="municipio">Municipio</option>
+              <option value="distrito_local">Distrito Local</option>
+              <option value="distrito_federal">Distrito Federal</option>
+            </select>
+            <input placeholder="Número (ej: 12)" type="number" value={form.territorio_id}
+              onChange={(e) => setForm({ ...form, territorio_id: e.target.value })}
+              className="flex-1 px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+          </div>
         )}
 
         <div>
@@ -128,7 +139,7 @@ function ModalDetalleMiembro({ miembro, miembros, onCerrar, onActualizado }) {
   const [reasignando, setReasignando] = useState(false);
   const [nuevoDestino, setNuevoDestino] = useState('');
   const [editando, setEditando] = useState(false);
-  const [form, setForm] = useState({ nombre: miembro.nombre, rol: miembro.rol, puesto: miembro.puesto || '', parent_id: miembro.parent_id || '', meta_diaria: miembro.meta_diaria || '' });
+  const [form, setForm] = useState({ nombre: miembro.nombre, telefono: miembro.telefono || '', rol: miembro.rol, puesto: miembro.puesto || '', parent_id: miembro.parent_id || '', meta_diaria: miembro.meta_diaria || '', territorio_tipo: miembro.territorio_tipo || 'seccion', territorio_id: miembro.territorio_id || '' });
 
   const hijosDirectos = miembros.filter((m) => m.parent_id === miembro.id);
 
@@ -157,9 +168,11 @@ function ModalDetalleMiembro({ miembro, miembros, onCerrar, onActualizado }) {
 
   const guardarCambios = async () => {
     await api.patch(`/estructura/${miembro.id}`, {
-      nombre: form.nombre, rol: form.rol, puesto: form.puesto || null,
+      nombre: form.nombre, telefono: form.telefono || null, rol: form.rol, puesto: form.puesto || null,
       parent_id: form.parent_id || null,
       meta_diaria: form.meta_diaria ? parseInt(form.meta_diaria) : undefined,
+      territorio_tipo: form.territorio_id ? form.territorio_tipo : undefined,
+      territorio_id: form.territorio_id ? parseInt(form.territorio_id) : undefined,
     });
     setEditando(false);
     onActualizado();
@@ -324,6 +337,8 @@ function ModalDetalleMiembro({ miembro, miembros, onCerrar, onActualizado }) {
           <>
             <input value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })}
               className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+            <input placeholder="Teléfono" value={form.telefono} onChange={(e) => setForm({ ...form, telefono: e.target.value })}
+              className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
             <select value={form.rol} onChange={(e) => setForm({ ...form, rol: e.target.value })}
               className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
               {Object.entries(ROL_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
@@ -333,6 +348,18 @@ function ModalDetalleMiembro({ miembro, miembros, onCerrar, onActualizado }) {
             <datalist id="lista-puestos-editar">
               {PUESTOS_POR_ROL[form.rol]?.map((p) => <option key={p} value={p} />)}
             </datalist>
+            <div className="flex gap-2">
+              <select value={form.territorio_tipo} onChange={(e) => setForm({ ...form, territorio_tipo: e.target.value })}
+                className="px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
+                <option value="seccion">Sección</option>
+                <option value="municipio">Municipio</option>
+                <option value="distrito_local">Distrito Local</option>
+                <option value="distrito_federal">Distrito Federal</option>
+              </select>
+              <input placeholder="Número" type="number" value={form.territorio_id}
+                onChange={(e) => setForm({ ...form, territorio_id: e.target.value })}
+                className="flex-1 px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+            </div>
             <select value={form.parent_id} onChange={(e) => setForm({ ...form, parent_id: e.target.value })}
               className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
               <option value="">Directo al Candidato</option>
@@ -452,6 +479,7 @@ export default function Estructura() {
   const [vacantes, setVacantes] = useState([]);
   const [alertasRama, setAlertasRama] = useState([]);
   const [ranking, setRanking] = useState([]);
+  const [representantesIne, setRepresentantesIne] = useState([]);
   const [exportando, setExportando] = useState(false);
   const refOrganigrama = useRef(null);
 
@@ -471,6 +499,7 @@ export default function Estructura() {
     api.get('/estructura/vacantes/catalogo').then((r) => setVacantes(r.data.data)).catch(() => setVacantes([]));
     api.get('/estructura/alertas/rama-dormida').then((r) => setAlertasRama(r.data.data)).catch(() => setAlertasRama([]));
     api.get('/estructura/ranking/coordinadores').then((r) => setRanking(r.data.data)).catch(() => setRanking([]));
+    api.get('/estructura/representantes-ine').then((r) => setRepresentantesIne(r.data.data)).catch(() => setRepresentantesIne([]));
   };
   useEffect(cargar, []);
 
@@ -567,6 +596,7 @@ export default function Estructura() {
             <button onClick={() => setVista('lista')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'lista' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📋 Lista</button>
             <button onClick={() => setVista('ranking')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'ranking' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🏆 Ranking</button>
             <button onClick={() => setVista('codigos')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'codigos' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🎟️ Códigos masivos</button>
+            <button onClick={() => setVista('representantes-ine')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'representantes-ine' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🗳️ Representantes INE</button>
           </div>
           {vista === 'organigrama' && (
             <div className="flex gap-2 items-center">
@@ -614,6 +644,27 @@ export default function Estructura() {
                 ))}
               </tbody>
             </table>
+          </div>
+        ) : vista === 'representantes-ine' ? (
+          <div className="space-y-2">
+            <p className="text-[11px] text-slate-500">Viven técnicamente en Activos (por su fecha de vigencia), pero aquí los ves en el contexto de tu estructura humana.</p>
+            {representantesIne.length === 0 ? (
+              <div className="text-center text-slate-500 text-sm py-10">Sin representantes INE registrados — agrégalos desde el botón ➕ en el Mapa (tipo "Representante INE")</div>
+            ) : representantesIne.map((r) => (
+              <div key={r.id} className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex items-center justify-between">
+                <div>
+                  <div className="text-sm font-bold text-white">🗳️ {r.nombre_rep || 'Sin nombre'}</div>
+                  <div className="text-[10px] text-slate-500">
+                    {r.seccion_numero ? `Sección ${r.seccion_numero}` : 'Sin sección'}
+                    {r.telefono_rep && ` · ${r.telefono_rep}`}
+                    {r.fecha_vence && ` · Vigente hasta ${new Date(r.fecha_vence).toLocaleDateString('es-MX')}`}
+                  </div>
+                </div>
+                {r.telefono_rep && (
+                  <a href={`https://wa.me/52${r.telefono_rep.replace(/\D/g, '')}`} target="_blank" rel="noreferrer" className="text-[10px] font-bold text-emerald-400">📲 WhatsApp</a>
+                )}
+              </div>
+            ))}
           </div>
         ) : (
           <div className="space-y-2">

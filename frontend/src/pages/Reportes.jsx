@@ -17,6 +17,7 @@ export default function Reportes() {
   const [diario, setDiario] = useState([]);
   const [tendencia, setTendencia] = useState([]);
   const [estadisticas, setEstadisticas] = useState(null);
+  const [fichaEstado, setFichaEstado] = useState(null);
   const [probabilidad, setProbabilidad] = useState(null);
   const [regresion, setRegresion] = useState(null);
   const [pruebaRitmo, setPruebaRitmo] = useState(null);
@@ -35,6 +36,7 @@ export default function Reportes() {
   useEffect(() => {
     api.get('/reportes/tendencia').then((r) => setTendencia(r.data.data));
     api.get('/reportes/estadisticas').then((r) => setEstadisticas(r.data.data));
+    api.get('/reportes/ficha-estado').then((r) => setFichaEstado(r.data.data)).catch(() => setFichaEstado(null));
     api.get('/reportes/probabilidad').then((r) => setProbabilidad(r.data.data));
     api.get('/reportes/regresion-cobertura').then((r) => setRegresion(r.data.data));
     api.get('/reportes/prueba-ritmo').then((r) => setPruebaRitmo(r.data.data));
@@ -81,6 +83,7 @@ export default function Reportes() {
           <button onClick={() => setTab('diario')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'diario' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📋 Bitácora diaria</button>
           <button onClick={() => setTab('tendencia')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'tendencia' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📈 Tendencia</button>
           <button onClick={() => setTab('estadisticas')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'estadisticas' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🗺️ Análisis histórico</button>
+          <button onClick={() => setTab('ficha-estado')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'ficha-estado' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🏛️ Ficha del Estado</button>
           <button onClick={() => setTab('probabilidad')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'probabilidad' ? 'bg-purple-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🎲 Estadística y Probabilidad</button>
           <button onClick={() => setTab('actividad')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'actividad' ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🎯 Actividad de Campo</button>
           <button onClick={() => setTab('encuestas')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'encuestas' ? 'bg-pink-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📋 Encuestas</button>
@@ -408,6 +411,58 @@ export default function Reportes() {
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {tab === 'ficha-estado' && fichaEstado && (
+          <div className="space-y-4">
+            <div className="bg-indigo-500/5 border border-indigo-500/20 rounded-xl p-3 text-[11px] text-indigo-200 leading-relaxed">
+              La foto completa del ESTADO, no solo tu municipio o distrito — para saber dónde queda tu territorio dentro del panorama general de Tlaxcala.
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 text-center">
+                <div className="text-2xl font-black text-white">{fichaEstado.total_secciones}</div>
+                <div className="text-[10px] text-slate-500">Secciones en el estado</div>
+              </div>
+              <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 text-center">
+                <div className="text-2xl font-black text-white">{fichaEstado.total_municipios}</div>
+                <div className="text-[10px] text-slate-500">Municipios</div>
+              </div>
+              <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 text-center">
+                <div className="text-2xl font-black text-white">{fichaEstado.lista_nominal_estado.toLocaleString()}</div>
+                <div className="text-[10px] text-slate-500">Lista nominal estatal</div>
+              </div>
+            </div>
+
+            {fichaEstado.historico ? (
+              <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+                <div className="text-xs font-bold text-slate-400 uppercase mb-3">
+                  Resultado estatal agregado — {fichaEstado.historico.anio} ({fichaEstado.tipo_eleccion.replace('_', ' ')})
+                </div>
+                <div className="space-y-2">
+                  {fichaEstado.historico.por_partido.map((p, i) => (
+                    <div key={p.partido}>
+                      <div className="flex justify-between text-xs mb-0.5">
+                        <span className={`font-bold ${i === 0 ? 'text-white' : 'text-slate-400'}`}>{i === 0 && '👑 '}{p.partido.toUpperCase()}</span>
+                        <span className="text-slate-300">{p.votos.toLocaleString()} ({p.pct}%)</span>
+                      </div>
+                      <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
+                        <div className={`h-full ${i === 0 ? 'bg-emerald-500' : 'bg-slate-600'}`} style={{ width: `${p.pct}%` }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="text-[10px] text-slate-500 mt-3">Total de votos estatales: {fichaEstado.historico.total_votos.toLocaleString()} · Años disponibles: {fichaEstado.historico.anios_disponibles.join(', ')}</div>
+              </div>
+            ) : (
+              <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-6 text-center text-sm text-amber-300">
+                ⚠️ Sin histórico estatal cargado todavía para "{fichaEstado.tipo_eleccion}"
+              </div>
+            )}
+
+            <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl px-3 py-2 text-[11px] text-emerald-300">
+              📊 Tu campaña lleva {fichaEstado.tus_promovidos_totales} promovidos capturados en tu territorio.
+            </div>
           </div>
         )}
 

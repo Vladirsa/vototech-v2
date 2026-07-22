@@ -86,6 +86,36 @@ export default function Priorizacion() {
           </div>
         )}
 
+        {/* Manual del Motor de Priorización — para que el equipo sepa
+            qué hacer, no solo qué está viendo */}
+        <details className="bg-indigo-500/5 border border-indigo-500/20 rounded-xl p-3">
+          <summary className="text-xs font-bold text-indigo-300 cursor-pointer">📖 ¿Qué es esto y qué debo hacer con cada categoría? (toca para ver)</summary>
+          <div className="mt-3 space-y-3 text-[11px] text-slate-300 leading-relaxed">
+            <p>El Motor de Priorización cruza el histórico real de cada sección (quién ha ganado, por cuánto margen) con tu estructura actual, y te dice <strong>dónde de verdad vale la pena invertir tiempo y recursos</strong> — no todas las secciones merecen el mismo esfuerzo.</p>
+            <div>
+              <p className="font-bold text-red-400">🔴 Crítica — margen de 8% o menos, y vas perdiendo</p>
+              <p className="text-slate-400">Aquí se gana o se pierde la elección. Prioridad máxima: manda a tu mejor gente, organiza reuniones, revisa que SÍ tengas promotores asignados.</p>
+            </div>
+            <div>
+              <p className="font-bold text-orange-400">🟠 Recuperable — margen de 8% a 20%, vas perdiendo</p>
+              <p className="text-slate-400">Se puede voltear con trabajo sostenido, pero no es la urgencia del día. Segunda prioridad de recursos.</p>
+            </div>
+            <div>
+              <p className="font-bold text-yellow-400">🟡 Disputa — margen muy cerrado, resultado histórico inestable</p>
+              <p className="text-slate-400">Ha cambiado de color entre elecciones — nadie tiene la ventaja asegurada. Vale la pena vigilar de cerca.</p>
+            </div>
+            <div>
+              <p className="font-bold text-emerald-400">🟢 Consolidar — vas ganando</p>
+              <p className="text-slate-400">No la descuides del todo (si el margen es chico, un descuido la pierde), pero no es donde debes concentrar el esfuerzo nuevo — ya la tienes.</p>
+            </div>
+            <div>
+              <p className="font-bold text-slate-500">⚫ Sin esperanza — margen mayor a 20%, vas muy abajo</p>
+              <p className="text-slate-400">Con los recursos de una campaña real, no es rentable pelearla. Mejor invertir ese esfuerzo en las críticas y recuperables.</p>
+            </div>
+            <p className="border-t border-slate-800 pt-2"><strong className="text-white">Déficit de votos:</strong> cuántos votos te faltan para empatar en esa sección, según el histórico. <strong className="text-white">⚠️ Sin nadie asignado:</strong> aviso extra cuando una sección prioritaria no tiene NINGÚN promotor o coordinador cubriéndola — eso es una alarma para resolver antes que nada.</p>
+          </div>
+        </details>
+
         {/* Controles */}
         <div className="flex flex-wrap items-center gap-2">
           <input placeholder="🔍 Buscar sección..." value={busqueda} onChange={(e) => setBusqueda(e.target.value)}
