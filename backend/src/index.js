@@ -44,6 +44,7 @@ import encuestasRoutes from './routes/encuestas.js';
 import juridicoRoutes from './routes/juridico.js';
 import chatRoutes from './routes/chat.js';
 import pushRoutes, { enviarPush } from './routes/push.js';
+import { respaldarTodasLasCampanas } from './lib/respaldoAutomatico.js';
 import inteligenciaRoutes from './routes/inteligencia.js';
 import documentosRoutes from './routes/documentos.js';
 import adminRoutes from './routes/admin.js';
@@ -263,4 +264,13 @@ httpServer.listen(PORT, async () => {
   };
   revisarVencimientos();
   setInterval(revisarVencimientos, 24 * 60 * 60 * 1000);
+
+  // Respaldo automático diario de cada campaña — para que nunca se
+  // pierda información aunque algo salga mal. Se corre unas horas
+  // después del arranque (no de inmediato) para no competir por
+  // recursos con el arranque normal del servidor.
+  setTimeout(() => {
+    respaldarTodasLasCampanas();
+    setInterval(respaldarTodasLasCampanas, 24 * 60 * 60 * 1000);
+  }, 5 * 60 * 1000);
 });
