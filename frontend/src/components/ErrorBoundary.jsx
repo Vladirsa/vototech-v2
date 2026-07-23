@@ -94,14 +94,21 @@ export default class ErrorBoundary extends Component {
       // Error real, no de red — mensaje honesto, no "ya casi".
       return (
         <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
-          <div className="text-center max-w-sm">
+          <div className="text-center max-w-md">
             <div className="text-4xl mb-3">⚠️</div>
             <h1 className="text-lg font-bold text-white mb-2">Algo salió mal en esta pantalla</h1>
             <p className="text-sm text-slate-400 mb-4">No es un problema de conexión — es un error real que hay que reportar. Recargar puede no arreglarlo, pero puedes intentar volver al inicio.</p>
-            <div className="flex gap-2 justify-center">
+            <div className="flex gap-2 justify-center mb-4">
               <button onClick={() => window.location.reload()} className="px-4 py-2.5 rounded-xl bg-slate-800 text-slate-300 font-bold text-sm">Recargar</button>
               <button onClick={() => { window.location.href = '/dashboard'; }} className="px-4 py-2.5 rounded-xl bg-indigo-600 text-white font-bold text-sm">Ir al inicio</button>
             </div>
+            <details className="text-left bg-slate-900 border border-slate-800 rounded-lg p-3">
+              <summary className="text-[10px] text-slate-500 cursor-pointer">Detalle técnico (compártelo con soporte si esto se repite)</summary>
+              <div className="mt-2 text-[10px] text-red-400 font-mono break-words">
+                {this.state.error?.message || 'Sin mensaje'}
+                {this.state.error?.stack && <div className="mt-1 text-slate-600 whitespace-pre-wrap">{this.state.error.stack.split('\n').slice(0, 4).join('\n')}</div>}
+              </div>
+            </details>
           </div>
         </div>
       );

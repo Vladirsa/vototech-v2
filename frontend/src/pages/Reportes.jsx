@@ -18,6 +18,8 @@ export default function Reportes() {
   const [tendencia, setTendencia] = useState([]);
   const [estadisticas, setEstadisticas] = useState(null);
   const [fichaEstado, setFichaEstado] = useState(null);
+  const [tipoAgregado, setTipoAgregado] = useState('dip_federal');
+  const [agregados, setAgregados] = useState(null);
   const [probabilidad, setProbabilidad] = useState(null);
   const [regresion, setRegresion] = useState(null);
   const [pruebaRitmo, setPruebaRitmo] = useState(null);
@@ -27,6 +29,10 @@ export default function Reportes() {
   const [actividadSecciones, setActividadSecciones] = useState([]);
   const [encuestasResumen, setEncuestasResumen] = useState(null);
   const [cargando, setCargando] = useState(true);
+
+  useEffect(() => {
+    api.get(`/reportes/agregados/${tipoAgregado}`).then((r) => setAgregados(r.data.data)).catch(() => setAgregados(null));
+  }, [tipoAgregado]);
 
   useEffect(() => {
     setCargando(true);
@@ -84,6 +90,7 @@ export default function Reportes() {
           <button onClick={() => setTab('tendencia')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'tendencia' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📈 Tendencia</button>
           <button onClick={() => setTab('estadisticas')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'estadisticas' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🗺️ Análisis histórico</button>
           <button onClick={() => setTab('ficha-estado')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'ficha-estado' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🏛️ Ficha del Estado</button>
+          <button onClick={() => setTab('otros-cargos')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'otros-cargos' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🗳️ Senado / Dip. Federal / Dip. Local</button>
           <button onClick={() => setTab('probabilidad')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'probabilidad' ? 'bg-purple-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🎲 Estadística y Probabilidad</button>
           <button onClick={() => setTab('actividad')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'actividad' ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🎯 Actividad de Campo</button>
           <button onClick={() => setTab('encuestas')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'encuestas' ? 'bg-pink-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📋 Encuestas</button>
@@ -525,6 +532,50 @@ export default function Reportes() {
               📊 Tu campaña lleva {fichaEstado.tus_promovidos_totales} promovidos capturados en tu territorio.
             </div>
             <p className="text-[9px] text-slate-600">Fuentes de referencia: INE, ITE Tlaxcala. Los porcentajes de demografía/participación son de contexto general del estado, no se recalculan en vivo desde nuestra base de datos.</p>
+          </div>
+        )}
+
+        {tab === 'otros-cargos' && (
+          <div className="space-y-4">
+            <div className="bg-indigo-500/5 border border-indigo-500/20 rounded-xl p-3 text-[11px] text-indigo-200 leading-relaxed">
+              Estos cargos no se reportan sección por sección como Ayuntamiento — aquí están los resultados 2024 por distrito y a nivel estatal.
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => setTipoAgregado('senaduria')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tipoAgregado === 'senaduria' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>Senadurías</button>
+              <button onClick={() => setTipoAgregado('dip_federal')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tipoAgregado === 'dip_federal' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>Dip. Federal</button>
+              <button onClick={() => setTipoAgregado('dip_local')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tipoAgregado === 'dip_local' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>Dip. Local</button>
+            </div>
+
+            {!agregados?.disponible ? (
+              <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-6 text-center text-sm text-amber-300">⚠️ Sin datos cargados todavía para este cargo</div>
+            ) : (
+              <div className="space-y-3">
+                {agregados.grupos.map((g, i) => (
+                  <div key={i} className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+                    <div className="text-xs font-bold text-slate-400 uppercase mb-2">
+                      {g.nivel === 'estado' ? `Consolidado estatal ${agregados.anio}` : `Distrito ${g.distrito_numero} — ${g.distrito_cabecera} (${agregados.anio})`}
+                    </div>
+                    <div className="space-y-2">
+                      {g.resultados.map((r, j) => (
+                        <div key={j}>
+                          <div className="flex justify-between text-xs mb-0.5">
+                            <span className={`font-bold flex items-center gap-1 ${r.gano ? 'text-white' : 'text-slate-400'}`}>
+                              {r.gano && '👑 '}{r.partido === 'nulos' ? 'NULOS' : r.partido.toUpperCase()}
+                              {r.candidato && <span className="font-normal text-slate-500">— {r.candidato}</span>}
+                            </span>
+                            <span className="text-slate-300">{r.votos ? `${parseInt(r.votos).toLocaleString()} · ` : ''}{r.porcentaje}%{r.alcaldias_ganadas ? ` · ${r.alcaldias_ganadas} alcaldías` : ''}</span>
+                          </div>
+                          <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                            <div className={`h-full ${r.gano ? 'bg-emerald-500' : 'bg-slate-600'}`} style={{ width: `${r.porcentaje}%` }} />
+                          </div>
+                          {r.notas && <p className="text-[9px] text-slate-500 mt-0.5">{r.notas}</p>}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 

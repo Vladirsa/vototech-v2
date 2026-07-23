@@ -91,6 +91,14 @@ const ANIOS_DISPONIBLES = {
 
 export default function MapaElectoral({ campanaId, territorioTipo, territorioId, tipoEleccion = 'ayuntamiento' }) {
   const navigate = useNavigate();
+  // Leaflet a veces truena con "Map container is already initialized"
+  // si el componente se desmonta y se vuelve a montar rápido (por
+  // ejemplo, navegando fuera del mapa y regresando) — el DOM viejo
+  // se queda "marcado" como inicializado aunque React ya lo haya
+  // reemplazado. Esta key única por montaje obliga a React a crear
+  // un nodo del DOM totalmente nuevo cada vez, nunca reutilizar uno
+  // que Leaflet todavía cree que es suyo.
+  const idMontajeMapa = useRef(`mapa-${Date.now()}-${Math.random().toString(36).slice(2)}`).current;
   const aniosDelTipo = ANIOS_DISPONIBLES[tipoEleccion] || [];
   const [anio, setAnio] = useState(aniosDelTipo[0] || null);
   // Si cambia el tipo de elección (otra campaña), reajustar al año
@@ -684,7 +692,7 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
 
   return (
     <div className="relative w-full h-[calc(100vh-45px)] bg-slate-950">
-      <MapContainer center={centroTlaxcala} zoom={11} className="w-full h-full" zoomControl={false}>
+      <MapContainer key={idMontajeMapa} center={centroTlaxcala} zoom={11} className="w-full h-full" zoomControl={false}>
 
         {/* SORPRESA 1: selector de tipo de mapa (satelital, oscuro, calles) — la v1 no tenía NINGÚN mapa base real */}
         <LayersControl position="topright">

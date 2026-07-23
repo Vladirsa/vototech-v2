@@ -2,7 +2,6 @@ import { lazy, Suspense, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Login from './pages/Login';
 import RutaProtegida from './components/RutaProtegida';
-import ChatFlotante from './components/ChatFlotante';
 import AvisoOffline from './components/AvisoOffline';
 import ErrorBoundary, { ErrorBoundarySilencioso } from './components/ErrorBoundary';
 import { useSuscripcionPush } from './lib/useSuscripcionPush';
@@ -92,7 +91,6 @@ export default function App() {
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </Suspense>
-      <ErrorBoundarySilencioso><ChatFlotante /></ErrorBoundarySilencioso>
       <ErrorBoundarySilencioso><AvisoOffline /></ErrorBoundarySilencioso>
     </BrowserRouter>
     </ErrorBoundary>
