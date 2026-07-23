@@ -49,7 +49,15 @@ function estaActivoReciente(ultimoAcceso) {
 const PUNTO_ACTIVIDAD = { reciente: 'bg-emerald-400', medio: 'bg-amber-400', inactivo: 'bg-red-400' };
 
 function ModalAgregarMiembro({ miembros, onCerrar, onGuardado }) {
-  const [form, setForm] = useState({ nombre: '', email: '', password: '', telefono: '', rol: 'coord_seccional', puesto: '', parent_id: '', territorio_tipo: 'seccion', territorio_id: '' });
+  const [form, setForm] = useState({ nombre: '', email: '', password: '', telefono: '', rol: 'coord_seccional', puesto: '', parent_id: '', territorio_tipo: 'seccion', territorio_id: '', meta_diaria: '' });
+  const [sugerencia, setSugerencia] = useState(null);
+
+  useEffect(() => {
+    if (!form.territorio_id) { setSugerencia(null); return; }
+    api.get(`/estructura/sugerir-meta?territorio_tipo=${form.territorio_tipo}&territorio_id=${form.territorio_id}`)
+      .then((r) => setSugerencia(r.data.data))
+      .catch(() => setSugerencia(null));
+  }, [form.territorio_tipo, form.territorio_id]);
   const [error, setError] = useState('');
   const guardar = async () => {
     try {
@@ -58,6 +66,7 @@ function ModalAgregarMiembro({ miembros, onCerrar, onGuardado }) {
         parent_id: form.parent_id || undefined,
         territorio_tipo: form.territorio_id ? form.territorio_tipo : undefined,
         territorio_id: form.territorio_id ? parseInt(form.territorio_id) : undefined,
+        meta_diaria: form.meta_diaria ? parseInt(form.meta_diaria) : undefined,
       });
       onGuardado();
     } catch (err) { setError(err.response?.data?.error || 'Error al guardar'); }
@@ -109,6 +118,16 @@ function ModalAgregarMiembro({ miembros, onCerrar, onGuardado }) {
               className="flex-1 px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
           </div>
         )}
+
+        {sugerencia && (
+          <div className="bg-indigo-500/10 border border-indigo-500/30 rounded-lg p-2.5 text-[10px] text-indigo-200">
+            📊 Su territorio tiene {sugerencia.lista_nominal.toLocaleString()} electores en lista nominal. Con {sugerencia.dias_restantes} días para la elección, la meta sugerida es <strong className="text-white">{sugerencia.meta_diaria_sugerida} promovidos/día</strong> ({sugerencia.meta_total_sugerida.toLocaleString()} en total — 8% del padrón de su zona).
+            <button onClick={() => setForm({ ...form, meta_diaria: String(sugerencia.meta_diaria_sugerida) })} className="block mt-1 font-bold text-indigo-300 underline">Usar esta meta</button>
+          </div>
+        )}
+        <input placeholder="Meta diaria de promovidos (puedes ajustarla)" type="number" value={form.meta_diaria}
+          onChange={(e) => setForm({ ...form, meta_diaria: e.target.value })}
+          className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
 
         <div>
           <label className="block text-[10px] text-slate-500 font-bold mb-1">¿A quién le reporta? (de ahí cuelga en el organigrama)</label>
@@ -480,6 +499,12 @@ export default function Estructura() {
   const [alertasRama, setAlertasRama] = useState([]);
   const [ranking, setRanking] = useState([]);
   const [representantesIne, setRepresentantesIne] = useState([]);
+  const [gamificacion, setGamificacion] = useState([]);
+  const [cobertura, setCobertura] = useState(null);
+  const [seccionExpandida, setSeccionExpandida] = useState(null);
+  const [soloIncompletas, setSoloIncompletas] = useState(true);
+  const [nuevaCasilla, setNuevaCasilla] = useState({ tipo: 'especial', electores_estimados: '' });
+  const [expandido, setExpandido] = useState(null);
   const [exportando, setExportando] = useState(false);
   const refOrganigrama = useRef(null);
 
@@ -500,8 +525,25 @@ export default function Estructura() {
     api.get('/estructura/alertas/rama-dormida').then((r) => setAlertasRama(r.data.data)).catch(() => setAlertasRama([]));
     api.get('/estructura/ranking/coordinadores').then((r) => setRanking(r.data.data)).catch(() => setRanking([]));
     api.get('/estructura/representantes-ine').then((r) => setRepresentantesIne(r.data.data)).catch(() => setRepresentantesIne([]));
+    api.get('/estructura/gamificacion').then((r) => setGamificacion(r.data.data)).catch(() => setGamificacion([]));
+    api.get('/estructura/cobertura-casillas').then((r) => setCobertura(r.data.data)).catch(() => setCobertura(null));
   };
   useEffect(cargar, []);
+
+  const agregarCasillaOficial = async (seccionNumero) => {
+    if (!nuevaCasilla.tipo) return;
+    await api.post('/estructura/casillas-oficiales', {
+      seccion_numero: seccionNumero, tipo: nuevaCasilla.tipo,
+      electores_estimados: nuevaCasilla.electores_estimados ? parseInt(nuevaCasilla.electores_estimados) : undefined,
+    });
+    setNuevaCasilla({ tipo: 'especial', electores_estimados: '' });
+    cargar();
+  };
+  const quitarCasillaOficial = async (id) => {
+    if (!confirm('¿Quitar esta casilla de la base oficial?')) return;
+    await api.delete(`/estructura/casillas-oficiales/${id}`);
+    cargar();
+  };
 
   const exportarImagen = async () => {
     if (!refOrganigrama.current) return;
@@ -597,6 +639,8 @@ export default function Estructura() {
             <button onClick={() => setVista('ranking')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'ranking' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🏆 Ranking</button>
             <button onClick={() => setVista('codigos')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'codigos' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🎟️ Códigos masivos</button>
             <button onClick={() => setVista('representantes-ine')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'representantes-ine' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🗳️ Representantes INE</button>
+            <button onClick={() => setVista('gamificacion')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'gamificacion' ? 'bg-amber-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🏆 Ranking del Equipo</button>
+            <button onClick={() => setVista('cobertura-casillas')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'cobertura-casillas' ? 'bg-red-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🗳️ Cobertura de Casillas</button>
           </div>
           {vista === 'organigrama' && (
             <div className="flex gap-2 items-center">
@@ -665,6 +709,83 @@ export default function Estructura() {
                 )}
               </div>
             ))}
+          </div>
+        ) : vista === 'gamificacion' ? (
+          <div className="space-y-2">
+            <p className="text-[11px] text-slate-500">Puntos por actividad real: 10 por promovido capturado, 25 si se compromete, 5 por cada seguimiento a un persuadible, 40 si lo convences, 50 por reportar en Día D, 5 por reportar una incidencia.</p>
+            {gamificacion.map((p) => (
+              <div key={p.id} className={`rounded-xl border p-3 ${p.posicion <= 3 ? 'bg-amber-500/5 border-amber-500/30' : 'bg-slate-900/60 border-slate-800'}`}>
+                <div className="flex items-center justify-between cursor-pointer" onClick={() => setExpandido(expandido === p.id ? null : p.id)}>
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg font-black text-slate-600 w-6">#{p.posicion}</span>
+                    <span className="text-xl">{p.nivel.ic}</span>
+                    <div>
+                      <div className="text-sm font-bold text-white">{p.nombre}</div>
+                      <div className="text-[9px] text-slate-500">{p.puesto || p.rol} · Nivel {p.nivel.nombre}</div>
+                    </div>
+                  </div>
+                  <span className="text-lg font-black text-amber-400">{p.puntos} pts</span>
+                </div>
+                {expandido === p.id && (
+                  <div className="mt-2 pt-2 border-t border-slate-800 grid grid-cols-3 gap-1.5 text-[9px] text-slate-400">
+                    <div>👥 Promovidos: {p.desglose.promovidos}</div>
+                    <div>✅ Comprometidos: {p.desglose.comprometidos}</div>
+                    <div>📅 Seguimientos: {p.desglose.seguimientos}</div>
+                    <div>🎉 Convertidos: {p.desglose.convertidos}</div>
+                    <div>🗳️ Día D: {p.desglose.dia_d}</div>
+                    <div>🚨 Incidencias: {p.desglose.incidencias}</div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        ) : vista === 'cobertura-casillas' && cobertura ? (
+          <div className="space-y-3">
+            <p className="text-[11px] text-slate-500">Estimado con la regla oficial del INE (máximo ~750 electores por casilla básica) — no es el listado exacto del INE, así que se puede corregir a mano si tu realidad es distinta.</p>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 text-center">
+                <div className="text-xl font-black text-white">{cobertura.secciones_completas} <span className="text-slate-500 text-sm">de {cobertura.total_secciones}</span></div>
+                <div className="text-[9px] text-slate-500">Secciones con TODAS sus casillas cubiertas</div>
+              </div>
+              <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-3 text-center">
+                <div className="text-xl font-black text-red-400">{cobertura.secciones_incompletas}</div>
+                <div className="text-[9px] text-slate-500">Secciones con representantes faltantes</div>
+              </div>
+            </div>
+            <div className="bg-slate-900/60 border border-slate-800 rounded-xl px-3 py-2 text-[11px] text-slate-300">
+              🗳️ {cobertura.total_casillas_cubiertas} de {cobertura.total_casillas_oficiales} casillas oficiales estimadas tienen representante asignado
+            </div>
+            <label className="flex items-center gap-2 text-xs text-slate-400">
+              <input type="checkbox" checked={soloIncompletas} onChange={(e) => setSoloIncompletas(e.target.checked)} />
+              Mostrar solo secciones incompletas
+            </label>
+            <div className="space-y-1.5">
+              {cobertura.detalle.filter((s) => !soloIncompletas || !s.completa).map((s) => (
+                <div key={s.seccion_id} className={`rounded-lg border p-2.5 ${s.completa ? 'bg-emerald-500/5 border-emerald-500/20' : 'bg-red-500/5 border-red-500/20'}`}>
+                  <div className="flex items-center justify-between cursor-pointer" onClick={() => setSeccionExpandida(seccionExpandida === s.seccion_id ? null : s.seccion_id)}>
+                    <span className="text-xs font-bold text-white">{s.completa ? '✅' : '⚠️'} Sección {s.seccion_numero}</span>
+                    <span className={`text-xs font-bold ${s.completa ? 'text-emerald-400' : 'text-red-400'}`}>{s.cubiertas}/{s.total_oficiales}</span>
+                  </div>
+                  {seccionExpandida === s.seccion_id && (
+                    <div className="mt-2 pt-2 border-t border-slate-800 space-y-1">
+                      {s.casillas_oficiales.map((c) => (
+                        <div key={c.id} className="flex justify-between text-[10px] text-slate-400">
+                          <span>{c.tipo} {c.electores_estimados ? `(~${c.electores_estimados} electores)` : ''}</span>
+                          <button onClick={() => quitarCasillaOficial(c.id)} className="text-red-400 font-bold">Quitar</button>
+                        </div>
+                      ))}
+                      <div className="flex gap-1.5 pt-1.5">
+                        <input placeholder="tipo (ej. especial)" value={nuevaCasilla.tipo} onChange={(e) => setNuevaCasilla({ ...nuevaCasilla, tipo: e.target.value })}
+                          className="flex-1 px-2 py-1 rounded bg-slate-800 border border-slate-700 text-white text-[10px]" />
+                        <input placeholder="electores" type="number" value={nuevaCasilla.electores_estimados} onChange={(e) => setNuevaCasilla({ ...nuevaCasilla, electores_estimados: e.target.value })}
+                          className="w-20 px-2 py-1 rounded bg-slate-800 border border-slate-700 text-white text-[10px]" />
+                        <button onClick={() => agregarCasillaOficial(s.seccion_numero)} className="px-2 py-1 rounded bg-indigo-600 text-white text-[10px] font-bold">+ Agregar</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
         ) : (
           <div className="space-y-2">

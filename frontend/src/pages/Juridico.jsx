@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../lib/api';
-import AsistenteIA from '../components/AsistenteIA';
 
 const TIPO_PLAZO = { plazo_ine: { ic: '🏛️', label: 'Plazo INE', color: 'text-blue-400' }, plazo_ite: { ic: '⚖️', label: 'Plazo ITE', color: 'text-purple-400' }, veda: { ic: '🚫', label: 'Veda Electoral', color: 'text-red-400' }, otro: { ic: '📌', label: 'Otro', color: 'text-slate-400' } };
 const ESTADO_QUEJA = { presentada: 'bg-blue-500/10 text-blue-400', en_proceso: 'bg-amber-500/10 text-amber-400', resuelta: 'bg-emerald-500/10 text-emerald-400' };
@@ -311,7 +310,7 @@ export default function Juridico() {
                   className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] font-bold text-slate-500 uppercase">Descripción del caso</span>
-                  <AsistenteIA contexto="redactar_queja" onTextoGenerado={(t) => setFormQueja({ ...formQueja, descripcion: t })} />
+                  
                 </div>
                 <textarea placeholder="Describe los hechos brevemente, la IA te ayuda a redactarlo formal" value={formQueja.descripcion} onChange={(e) => setFormQueja({ ...formQueja, descripcion: e.target.value })}
                   className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm min-h-20" />

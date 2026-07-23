@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../lib/api';
-import AsistenteIA from '../components/AsistenteIA';
 import Ayuda from '../components/Ayuda';
 
 const CATEGORIA_ESTILO = {
@@ -219,7 +218,7 @@ function PanelNuevoEnvio({ onEnviado }) {
 
       <div className="flex items-center justify-between">
         <span className="text-[10px] font-bold text-slate-500 uppercase">Mensaje</span>
-        <AsistenteIA contexto="convocatoria_whatsapp" onTextoGenerado={setMensaje} />
+        
       </div>
       <textarea placeholder="Mensaje — usa {nombre} para personalizar" value={mensaje} onChange={(e) => setMensaje(e.target.value)}
         className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm min-h-24" />
