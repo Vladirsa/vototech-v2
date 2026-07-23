@@ -275,6 +275,32 @@ router.get('/ficha-estado', async (req, res) => {
   });
 });
 
+/**
+ * GET /api/reportes/agregados/:tipo
+ * Fichas técnicas de Senadurías, Diputación Federal, y Diputación
+ * Local — resultados por distrito/estado 2024, no por sección (esos
+ * cargos no se reportan a nivel sección de la misma forma que
+ * Ayuntamiento/Pdte. Comunidad).
+ */
+router.get('/agregados/:tipo', async (req, res) => {
+  const resultado = await query(
+    `SELECT * FROM resultados_agregados WHERE estado_id=$1 AND tipo_eleccion=$2 ORDER BY anio DESC, nivel, distrito_numero NULLS FIRST, votos DESC NULLS LAST, porcentaje DESC NULLS LAST`,
+    [req.usuario.estado_id, req.params.tipo]
+  );
+  if (resultado.rows.length === 0) {
+    return res.json({ ok: true, data: { disponible: false } });
+  }
+
+  const porNivel = {};
+  resultado.rows.forEach((r) => {
+    const clave = r.nivel === 'estado' ? 'estado' : `${r.nivel}_${r.distrito_numero}`;
+    if (!porNivel[clave]) porNivel[clave] = { nivel: r.nivel, distrito_numero: r.distrito_numero, distrito_cabecera: r.distrito_cabecera, resultados: [] };
+    porNivel[clave].resultados.push(r);
+  });
+
+  res.json({ ok: true, data: { disponible: true, anio: resultado.rows[0].anio, grupos: Object.values(porNivel) } });
+});
+
 router.get('/probabilidad', async (req, res) => {
   const campanaId = req.usuario.campana_id;
   const campanaRes = await query('SELECT partido, tipo_eleccion, territorio_tipo, territorio_id, fecha_eleccion FROM campanas WHERE id=$1', [campanaId]);
