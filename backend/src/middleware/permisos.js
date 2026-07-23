@@ -26,6 +26,29 @@ const MODULOS_POR_ROL = {
   // "solo ver las que él creó" se resuelve dentro de incidencias.js,
   // no aquí — este middleware solo controla el módulo completo).
   coord_seccional: ['promovidos', 'estructura', 'dia-eleccion', 'incidencias'],
+
+  // ── Cadena jerárquica territorial nueva ── Cada nivel puede
+  // construir SU PROPIA sub-estructura (por eso 'estructura'), ver
+  // sus promovidos, y lo básico de campo. El filtro de "solo su
+  // propia rama, no toda la campaña" ya vive dentro de cada endpoint
+  // (estructura.js, incidencias.js), no aquí — este middleware solo
+  // decide qué MÓDULOS completos puede tocar cada rol.
+  coordinador_territorial: TODOS_LOS_MODULOS.filter((m) => !['finanzas', 'juridico'].includes(m)),
+  enlace_distrital_federal: ['promovidos', 'estructura', 'dia-eleccion', 'incidencias', 'reportes', 'priorizacion'],
+  enlace_distrital_local: ['promovidos', 'estructura', 'dia-eleccion', 'incidencias', 'reportes', 'priorizacion'],
+  enlace_municipal: ['promovidos', 'estructura', 'dia-eleccion', 'incidencias'],
+  enlace_seccional: ['promovidos', 'estructura', 'dia-eleccion', 'incidencias'],
+  // Enlaces temáticos — su tarea es más específica, pero también
+  // arman su propio equipo dentro de su especialidad.
+  enlace_jovenes: ['promovidos', 'estructura', 'dia-eleccion', 'incidencias'],
+  enlace_mujeres: ['promovidos', 'estructura', 'dia-eleccion', 'incidencias'],
+  enlace_brigadas: ['promovidos', 'estructura', 'activos', 'incidencias'],
+  enlace_activos: ['activos', 'estructura', 'incidencias'],
+  // Coordinador Político: platica con partidos, lleva su propio
+  // padrón (promovidos) y arma su propia gente (estructura), pero no
+  // necesita Día D ni Incidencias — su trabajo es antes de la elección.
+  coordinador_politico: ['promovidos', 'estructura', 'marketing'],
+
   // Promotor: solo su pantalla de avance (no pasa por este
   // middleware de módulos — vive en /promovidos/mi-resumen, que sí
   // cae bajo 'promovidos') + Día D si le toca ser representante +

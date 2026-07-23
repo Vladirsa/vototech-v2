@@ -124,7 +124,7 @@ router.post('/login', async (req, res) => {
 
   try {
     const resultado = await query(
-      `SELECT u.id, u.nombre, u.email, u.password_hash, u.rol, u.activo, u.puesto,
+      `SELECT u.id, u.nombre, u.email, u.password_hash, u.rol, u.activo, u.puesto, u.aprobado,
               u.dos_factores_activo, u.dos_factores_secreto,
               c.id as campana_id, c.activa as campana_activa, c.estado_aprobacion,
               c.fecha_vencimiento, c.es_demo, c.estado_id
@@ -141,6 +141,9 @@ router.post('/login', async (req, res) => {
 
     if (!usuario.activo) {
       return res.status(403).json({ ok: false, error: 'Tu cuenta está desactivada. Contacta al Jefe de Campaña.' });
+    }
+    if (usuario.aprobado === false) {
+      return res.status(403).json({ ok: false, error: '⏳ Tu alta todavía está pendiente de aprobación por tu jefe directo. Te avisaremos en cuanto puedas entrar.' });
     }
 
     // La campaña completa puede estar pendiente de aprobación o

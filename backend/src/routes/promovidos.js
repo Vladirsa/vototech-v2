@@ -317,6 +317,40 @@ const esquemaContacto = z.object({
   notas: z.string().max(500).optional(),
 });
 
+/**
+ * GET /api/promovidos/:id/cadena-invitacion
+ * De qué rama de la estructura vino este promovido — sube desde
+ * quien lo capturó (promotor) hasta el candidato, mostrando cada
+ * nivel de la cadena (¿fue un Enlace de Jóvenes? ¿de Mujeres? ¿qué
+ * distrito?). Responde exactamente "¿quién invitó a quién?" sin
+ * tener que adivinar buscando en el organigrama a mano.
+ */
+router.get('/:id/cadena-invitacion', async (req, res) => {
+  const promovido = await query(
+    `SELECT p.id, p.nombre, p.registrado_por, u.nombre as registrado_por_nombre
+     FROM promovidos p LEFT JOIN usuarios u ON u.id = p.registrado_por
+     WHERE p.id=$1 AND p.campana_id=$2`,
+    [req.params.id, req.usuario.campana_id]
+  );
+  if (!promovido.rows[0]) return res.status(404).json({ ok: false, error: 'No encontrado' });
+  if (!promovido.rows[0].registrado_por) {
+    return res.json({ ok: true, data: { promovido: promovido.rows[0].nombre, cadena: [] } });
+  }
+
+  const cadena = await query(
+    `WITH RECURSIVE ascendientes AS (
+       SELECT id, nombre, rol, puesto, parent_id, 0 as nivel FROM usuarios WHERE id=$1
+       UNION ALL
+       SELECT u.id, u.nombre, u.rol, u.puesto, u.parent_id, a.nivel+1
+       FROM usuarios u JOIN ascendientes a ON u.id = a.parent_id
+     )
+     SELECT id, nombre, rol, puesto, nivel FROM ascendientes ORDER BY nivel`,
+    [promovido.rows[0].registrado_por]
+  );
+
+  res.json({ ok: true, data: { promovido: promovido.rows[0].nombre, cadena: cadena.rows } });
+});
+
 router.post('/:id/contacto', async (req, res) => {
   const parseado = esquemaContacto.safeParse(req.body);
   if (!parseado.success) {
