@@ -5,6 +5,8 @@ import 'express-async-errors'; // ⚠️ CRÍTICO: sin esto, un error en cualqui
 // campaña con datos relacionados. Esto lo arregla para TODAS las rutas
 // de una vez, no una por una.
 import express from 'express';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
@@ -49,6 +51,7 @@ import inteligenciaRoutes from './routes/inteligencia.js';
 import documentosRoutes from './routes/documentos.js';
 import adminRoutes from './routes/admin.js';
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = process.env.PORT || 4000;
 
@@ -57,6 +60,13 @@ const PORT = process.env.PORT || 4000;
 // contra XSS, clickjacking, sniffing de tipo MIME, etc.) — esto es
 // exactamente lo que NO teníamos control fino en el hosting compartido.
 app.use(helmet());
+
+// ── SITIO DE MARKETING (www.vototech.com.mx) ─────────────────
+// Página de ventas del sistema, completamente estática — no pasa
+// por el CSP estricto de la API porque solo sirve archivos, no
+// procesa datos. Vive en su propia carpeta, aparte del sistema
+// electoral real (que sigue siendo solo API + frontend en Vercel).
+app.use(express.static(path.join(__dirname, '../public-marketing')));
 
 // CORS: solo se permite acceso desde los dominios de VotoTech
 // (los subdominios de cada candidato + dominios propios que registren)
