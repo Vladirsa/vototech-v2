@@ -19,6 +19,12 @@ const ROL_LABEL = {
   coord_distrital: 'Nivel Regional', coord_municipal: 'Nivel Municipal',
   coord_seccional: 'Nivel Territorial', promotor: 'Promotor',
   encargado_juridico: 'Encargado Jurídico', encargado_finanzas: 'Encargado de Finanzas', voluntario: 'Voluntario',
+  // Cadena jerárquica territorial completa
+  coordinador_territorial: 'Coordinador Territorial', coordinador_politico: 'Coordinador Político',
+  enlace_distrital_federal: 'Enlace Distrital Federal', enlace_distrital_local: 'Enlace Distrital Local',
+  enlace_municipal: 'Enlace Municipal', enlace_seccional: 'Enlace Seccional',
+  enlace_jovenes: 'Enlace de Jóvenes', enlace_mujeres: 'Enlace de Mujeres',
+  enlace_brigadas: 'Enlace de Brigadas', enlace_activos: 'Enlace de Activos',
 };
 
 // Catálogo real de puestos de campaña — investigado de estructuras
@@ -37,6 +43,16 @@ const PUESTOS_POR_ROL = {
   // El puesto de voluntario define QUÉ puede hacer, no solo cómo se
   // llama — "Marketing" es el único que además desbloquea ese módulo.
   voluntario: ['Marketing', 'Pinta de bardas', 'Reparto de publicidad', 'Apoyo logístico', 'Apoyo en eventos'],
+  coordinador_territorial: ['Coordinador Territorial'],
+  coordinador_politico: ['Coordinador Político', 'Enlace con Partidos'],
+  enlace_distrital_federal: ['Enlace Distrital Federal'],
+  enlace_distrital_local: ['Enlace Distrital Local'],
+  enlace_municipal: ['Enlace Municipal'],
+  enlace_seccional: ['Enlace Seccional'],
+  enlace_jovenes: ['Enlace de Jóvenes'],
+  enlace_mujeres: ['Enlace de Mujeres'],
+  enlace_brigadas: ['Enlace de Brigadas (pinta de bardas, reparto)'],
+  enlace_activos: ['Enlace de Activos'],
 };
 
 function estaActivoReciente(ultimoAcceso) {
@@ -501,6 +517,7 @@ export default function Estructura() {
   const [representantesIne, setRepresentantesIne] = useState([]);
   const [gamificacion, setGamificacion] = useState([]);
   const [cobertura, setCobertura] = useState(null);
+  const [pendientes, setPendientes] = useState([]);
   const [seccionExpandida, setSeccionExpandida] = useState(null);
   const [soloIncompletas, setSoloIncompletas] = useState(true);
   const [nuevaCasilla, setNuevaCasilla] = useState({ tipo: 'especial', electores_estimados: '' });
@@ -527,6 +544,7 @@ export default function Estructura() {
     api.get('/estructura/representantes-ine').then((r) => setRepresentantesIne(r.data.data)).catch(() => setRepresentantesIne([]));
     api.get('/estructura/gamificacion').then((r) => setGamificacion(r.data.data)).catch(() => setGamificacion([]));
     api.get('/estructura/cobertura-casillas').then((r) => setCobertura(r.data.data)).catch(() => setCobertura(null));
+    api.get('/estructura/pendientes-aprobacion').then((r) => setPendientes(r.data.data)).catch(() => setPendientes([]));
   };
   useEffect(cargar, []);
 
@@ -542,6 +560,16 @@ export default function Estructura() {
   const quitarCasillaOficial = async (id) => {
     if (!confirm('¿Quitar esta casilla de la base oficial?')) return;
     await api.delete(`/estructura/casillas-oficiales/${id}`);
+    cargar();
+  };
+
+  const aprobarPendiente = async (id) => {
+    await api.patch(`/estructura/${id}/aprobar`);
+    cargar();
+  };
+  const rechazarPendiente = async (id, nombre) => {
+    if (!confirm(`¿Rechazar el alta de "${nombre}"? Se borra por completo, no se puede deshacer.`)) return;
+    await api.delete(`/estructura/${id}/rechazar`);
     cargar();
   };
 
@@ -641,6 +669,9 @@ export default function Estructura() {
             <button onClick={() => setVista('representantes-ine')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'representantes-ine' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🗳️ Representantes INE</button>
             <button onClick={() => setVista('gamificacion')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'gamificacion' ? 'bg-amber-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🏆 Ranking del Equipo</button>
             <button onClick={() => setVista('cobertura-casillas')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'cobertura-casillas' ? 'bg-red-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🗳️ Cobertura de Casillas</button>
+            <button onClick={() => setVista('pendientes-aprobacion')} className={`px-3 py-1.5 rounded-full text-xs font-bold relative ${vista === 'pendientes-aprobacion' ? 'bg-amber-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
+              ⏳ Pendientes de Aprobar {pendientes.length > 0 && <span className="ml-1 bg-red-500 text-white rounded-full px-1.5 text-[9px]">{pendientes.length}</span>}
+            </button>
           </div>
           {vista === 'organigrama' && (
             <div className="flex gap-2 items-center">
@@ -786,6 +817,24 @@ export default function Estructura() {
                 </div>
               ))}
             </div>
+          </div>
+        ) : vista === 'pendientes-aprobacion' ? (
+          <div className="space-y-2">
+            <p className="text-[11px] text-slate-500">Solo tú puedes aprobar o rechazar a la gente que TÚ diste de alta directamente (o, si eres candidato/jefe, a cualquier Enlace Distrital Federal pendiente — ese nivel siempre pasa por ustedes).</p>
+            {pendientes.length === 0 ? (
+              <div className="text-center text-slate-500 text-sm py-10">🎉 Sin nadie pendiente de tu aprobación</div>
+            ) : pendientes.map((p) => (
+              <div key={p.id} className="bg-amber-500/5 border border-amber-500/30 rounded-xl p-3">
+                <div className="text-sm font-bold text-white">{p.nombre}</div>
+                <div className="text-[10px] text-slate-500 mb-2">
+                  {ROL_LABEL[p.rol] || p.rol} · {p.territorio_tipo && `${p.territorio_tipo.replace('_', ' ')} ${p.territorio_id}`} · dado de alta {new Date(p.creado_en).toLocaleDateString('es-MX')}
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => aprobarPendiente(p.id)} className="flex-1 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-bold">✅ Aprobar</button>
+                  <button onClick={() => rechazarPendiente(p.id, p.nombre)} className="flex-1 py-1.5 rounded-lg bg-red-600/80 text-white text-xs font-bold">✕ Rechazar</button>
+                </div>
+              </div>
+            ))}
           </div>
         ) : (
           <div className="space-y-2">
