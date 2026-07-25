@@ -6,7 +6,7 @@
 -- plataforma — los generas tú (el dueño de VotoTech) para decidir
 -- quién puede siquiera registrar una campaña nueva.
 
-CREATE TABLE codigos_acceso_campana (
+CREATE TABLE IF NOT EXISTS codigos_acceso_campana (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   codigo          VARCHAR(20) UNIQUE NOT NULL,
   nota            VARCHAR(200),          -- ej: "Para Andrea - Apizaco 2027"
