@@ -130,6 +130,8 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
   const [territorioActivo, setTerritorioActivo] = useState(null);
   const [fichaTerritorio, setFichaTerritorio] = useState(null);
   const [cargandoFichaTerritorio, setCargandoFichaTerritorio] = useState(false);
+  const [nombresMunicipios, setNombresMunicipios] = useState({});
+  const [cabecerasDistritoFederal, setCabecerasDistritoFederal] = useState({});
   const [coloreadoActivo, setColoreadoActivo] = useState(true);
   const [capaCalor, setCapaCalor] = useState(false);
   const [buscarTexto, setBuscarTexto] = useState('');
@@ -177,6 +179,14 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
 
   useEffect(() => {
     api.get('/geo/secciones/29').then(r => setGeoSecciones(r.data.data));
+    api.get('/geo/municipios/29').then(r => {
+      const mapa = {};
+      r.data.data.forEach(m => { mapa[m.clave_ine] = m.nombre; });
+      setNombresMunicipios(mapa);
+    }).catch(() => {});
+    // Cabeceras de los 3 distritos federales — dato fijo conocido de
+    // Tlaxcala; cuando se cargue otro estado, esto se vuelve dinámico.
+    setCabecerasDistritoFederal({ 1: 'Apizaco', 2: 'Tlaxcala de Xicohténcatl', 3: 'Zacatelco' });
     api.get('/promovidos')
       .then(r => setPromovidos(r.data.data))
       .catch(() => setPromovidos([]));
@@ -222,7 +232,10 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
     if (!territorioActivo) { setFichaTerritorio(null); return; }
     setCargandoFichaTerritorio(true);
     setFichaTerritorio(null);
-    api.get(`/reportes/ficha-territorio/${territorioActivo.tipo}/${territorioActivo.numero}`)
+    const url = territorioActivo.tipo === 'senaduria'
+      ? '/reportes/ficha-territorio/senaduria/estado'
+      : `/reportes/ficha-territorio/${territorioActivo.tipo}/${territorioActivo.numero}`;
+    api.get(url)
       .then((r) => setFichaTerritorio(r.data.data))
       .catch(() => setFichaTerritorio(null))
       .finally(() => setCargandoFichaTerritorio(false));
@@ -632,6 +645,13 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
     // Modo capa territorial — cada distrito/municipio con su propio
     // color (por hash del número), para que las fronteras se vean
     // claras de un vistazo sin necesitar disolver polígonos.
+    if (modoCapa === 'senaduria') {
+      const esActivo = territorioActivo?.tipo === 'senaduria';
+      return {
+        color: esActivo ? '#ffffff' : '#7c3aed', weight: esActivo ? 2.5 : 0.8,
+        fillColor: '#7c3aed', fillOpacity: esActivo ? 0.6 : 0.35,
+      };
+    }
     if (modoCapa !== 'secciones') {
       const numTerritorio = feature.properties[modoCapa];
       const hue = numTerritorio != null ? (numTerritorio * 47) % 360 : 0;
@@ -692,18 +712,33 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
       },
       click: () => {
         if (modoCapa === 'secciones') { alClickSeccion(feature.properties.seccion); return; }
+        if (modoCapa === 'senaduria') { setTerritorioActivo({ tipo: 'senaduria', numero: null }); return; }
         const numero = feature.properties[modoCapa];
         if (numero != null) setTerritorioActivo({ tipo: modoCapa, numero });
       },
     });
-    // Etiqueta: número de sección normalmente, o "quién ya la tiene" si
-    // estamos en modo Sectorización — antes esto era invisible hasta
-    // después de asignar, ahora se ve ANTES de seleccionar.
+    // Etiqueta: número de sección normalmente, "quién ya la tiene" en
+    // modo Sectorización, o el NOMBRE del territorio (distrito con su
+    // cabecera, o municipio) cuando se está viendo una capa territorial.
     const numero = feature.properties.seccion;
     const asignadaA = seccionAsignadaA[numero];
-    const textoTooltip = modoSectorizacion
-      ? (asignadaA ? `Sección ${String(numero).padStart(3, '0')} — ya es de ${asignadaA}` : `Sección ${String(numero).padStart(3, '0')} — sin asignar`)
-      : String(numero).padStart(3, '0');
+    let textoTooltip;
+    if (modoCapa === 'senaduria') {
+      textoTooltip = '🏅 Senaduría — Tlaxcala (todo el estado)';
+    } else if (modoCapa === 'municipio') {
+      const numMuni = feature.properties.municipio;
+      textoTooltip = `🏘️ ${nombresMunicipios[numMuni] || `Municipio ${numMuni}`}`;
+    } else if (modoCapa === 'distrito_federal') {
+      const numDF = feature.properties.distrito_federal;
+      const cabecera = cabecerasDistritoFederal[numDF];
+      textoTooltip = `🏛️ Distrito Federal ${numDF}${cabecera ? ` — ${cabecera}` : ''}`;
+    } else if (modoCapa === 'distrito_local') {
+      textoTooltip = `🏢 Distrito Local ${feature.properties.distrito_local}`;
+    } else if (modoSectorizacion) {
+      textoTooltip = asignadaA ? `Sección ${String(numero).padStart(3, '0')} — ya es de ${asignadaA}` : `Sección ${String(numero).padStart(3, '0')} — sin asignar`;
+    } else {
+      textoTooltip = String(numero).padStart(3, '0');
+    }
     capa.bindTooltip(textoTooltip, {
       permanent: false, direction: 'center', className: 'etiqueta-seccion',
     });
@@ -1007,7 +1042,7 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
           <div className="bg-slate-950 border border-slate-700 rounded-2xl max-w-md w-full p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
             <div className="flex justify-between items-center">
               <h2 className="text-lg font-black text-white">
-                🗺️ {territorioActivo.tipo === 'municipio' ? 'Municipio' : territorioActivo.tipo === 'distrito_federal' ? 'Distrito Federal' : 'Distrito Local'} {territorioActivo.numero}
+                🗺️ {territorioActivo.tipo === 'senaduria' ? '🏅 Senaduría — Todo el Estado' : territorioActivo.tipo === 'municipio' ? (nombresMunicipios[territorioActivo.numero] || `Municipio ${territorioActivo.numero}`) : territorioActivo.tipo === 'distrito_federal' ? `Distrito Federal ${territorioActivo.numero}${cabecerasDistritoFederal[territorioActivo.numero] ? ` — ${cabecerasDistritoFederal[territorioActivo.numero]}` : ''}` : `Distrito Local ${territorioActivo.numero}`}
               </h2>
               <button onClick={() => setTerritorioActivo(null)} className="text-slate-500 text-xl">✕</button>
             </div>
@@ -1135,6 +1170,8 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
               className={`py-1.5 rounded-lg text-[10px] font-bold ${modoCapa === 'distrito_local' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>Dist. Local</button>
             <button onClick={() => { setModoCapa('municipio'); setTerritorioActivo(null); }}
               className={`py-1.5 rounded-lg text-[10px] font-bold ${modoCapa === 'municipio' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>Municipio</button>
+            <button onClick={() => { setModoCapa('senaduria'); setTerritorioActivo(null); }}
+              className={`py-1.5 rounded-lg text-[10px] font-bold col-span-2 ${modoCapa === 'senaduria' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🏅 Senaduría (todo el estado)</button>
           </div>
           {modoCapa !== 'secciones' && <p className="text-[9px] text-slate-500 mt-1.5">Toca cualquier sección para ver la ficha completa de su {modoCapa === 'municipio' ? 'municipio' : modoCapa === 'distrito_federal' ? 'distrito federal' : 'distrito local'}.</p>}
         </div>

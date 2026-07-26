@@ -171,6 +171,59 @@ export default function AdminPlataforma() {
 
   const [cargandoAgregados, setCargandoAgregados] = useState(false);
   const [mensajeAgregados, setMensajeAgregados] = useState('');
+  const [estadoCarga, setEstadoCarga] = useState(29);
+  const [tipoEleccionCarga, setTipoEleccionCarga] = useState('senador');
+  const [anioCarga, setAnioCarga] = useState(2024);
+  const [archivoResultados, setArchivoResultados] = useState(null);
+  const [archivoAfiliados, setArchivoAfiliados] = useState(null);
+  const [subiendoResultados, setSubiendoResultados] = useState(false);
+  const [subiendoAfiliados, setSubiendoAfiliados] = useState(false);
+  const [mensajeCargaResultados, setMensajeCargaResultados] = useState('');
+  const [mensajeCargaAfiliados, setMensajeCargaAfiliados] = useState('');
+  const [resumenDatos, setResumenDatos] = useState(null);
+
+  const cargarResumenDatos = async (estId) => {
+    const { data } = await axios.get(`${API_URL}/admin/resumen-datos/${estId}`, { headers });
+    setResumenDatos(data.data);
+  };
+  useEffect(() => { cargarResumenDatos(estadoCarga); }, [estadoCarga]);
+
+  const subirResultados = async () => {
+    if (!archivoResultados) return;
+    setSubiendoResultados(true);
+    setMensajeCargaResultados('');
+    const fd = new FormData();
+    fd.append('archivo', archivoResultados);
+    fd.append('estado_id', estadoCarga);
+    fd.append('tipo_eleccion', tipoEleccionCarga);
+    fd.append('anio', anioCarga);
+    try {
+      const { data } = await axios.post(`${API_URL}/admin/subir-resultados-historicos`, fd, { headers: { ...headers, 'Content-Type': 'multipart/form-data' } });
+      setMensajeCargaResultados(data.mensaje);
+      cargarResumenDatos(estadoCarga);
+    } catch (e) {
+      setMensajeCargaResultados('⚠️ ' + (e.response?.data?.error || e.message));
+    }
+    setSubiendoResultados(false);
+  };
+
+  const subirAfiliados = async () => {
+    if (!archivoAfiliados) return;
+    setSubiendoAfiliados(true);
+    setMensajeCargaAfiliados('');
+    const fd = new FormData();
+    fd.append('archivo', archivoAfiliados);
+    fd.append('estado_id', estadoCarga);
+    try {
+      const { data } = await axios.post(`${API_URL}/admin/subir-afiliados`, fd, { headers: { ...headers, 'Content-Type': 'multipart/form-data' } });
+      setMensajeCargaAfiliados(data.mensaje);
+      cargarResumenDatos(estadoCarga);
+    } catch (e) {
+      setMensajeCargaAfiliados('⚠️ ' + (e.response?.data?.error || e.message));
+    }
+    setSubiendoAfiliados(false);
+  };
+
   const cargarAgregados2024 = async () => {
     setCargandoAgregados(true);
     setMensajeAgregados('');
@@ -245,6 +298,85 @@ export default function AdminPlataforma() {
           </button>
         </div>
         {mensajeAgregados && <div className="text-xs text-slate-300 bg-slate-900/50 rounded-lg p-2">{mensajeAgregados}</div>}
+
+        {/* ── CARGA DE DATOS POR ESTADO — resultados y afiliados vía CSV ── */}
+        <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 space-y-4">
+          <div>
+            <h3 className="text-sm font-bold text-white mb-1">📂 Carga de Datos por Estado</h3>
+            <p className="text-[10px] text-slate-500">Sube archivos CSV para llenar resultados históricos o afiliados de cualquier estado — sin necesitar código.</p>
+          </div>
+
+          <div className="flex gap-2">
+            <select value={estadoCarga} onChange={(e) => setEstadoCarga(parseInt(e.target.value))}
+              className="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs">
+              <option value={29}>Tlaxcala (29)</option>
+            </select>
+            {resumenDatos && (
+              <div className="flex-1 flex items-center gap-3 text-[10px] text-slate-400">
+                <span>{resumenDatos.total_secciones} secciones</span>
+                <span>·</span>
+                <span>{resumenDatos.total_afiliados} afiliados</span>
+              </div>
+            )}
+          </div>
+
+          {resumenDatos?.resultados_por_tipo?.length > 0 && (
+            <div className="bg-slate-800/60 rounded-lg p-2.5">
+              <p className="text-[9px] text-slate-500 font-bold uppercase mb-1.5">Cobertura actual de resultados</p>
+              <div className="flex flex-wrap gap-1.5">
+                {resumenDatos.resultados_por_tipo.map((r, i) => (
+                  <span key={i} className="text-[9px] bg-slate-900 text-slate-300 rounded-full px-2 py-1">
+                    {r.tipo_eleccion} {r.anio}: {r.secciones_con_dato} secc.
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Resultados históricos por sección */}
+          <div className="border-t border-slate-800 pt-3">
+            <p className="text-xs font-bold text-slate-300 mb-2">Resultados históricos por sección</p>
+            <p className="text-[9px] text-slate-500 mb-2">CSV con columnas: <code className="text-indigo-300">seccion,partido,votos</code> (lista_nominal opcional)</p>
+            <div className="flex gap-2 mb-2">
+              <select value={tipoEleccionCarga} onChange={(e) => setTipoEleccionCarga(e.target.value)}
+                className="px-2 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-[10px]">
+                <option value="senador">Senador</option>
+                <option value="dip_federal">Dip. Federal</option>
+                <option value="dip_local">Dip. Local</option>
+                <option value="ayuntamiento">Ayuntamiento</option>
+                <option value="pres_comunidad">Pdte. Comunidad</option>
+                <option value="gobernador">Gobernador</option>
+                <option value="presidencial">Presidencial</option>
+              </select>
+              <input type="number" value={anioCarga} onChange={(e) => setAnioCarga(parseInt(e.target.value))}
+                className="w-20 px-2 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-[10px]" />
+            </div>
+            <div className="flex gap-2">
+              <input type="file" accept=".csv" onChange={(e) => setArchivoResultados(e.target.files[0])}
+                className="flex-1 text-[10px] text-slate-300" />
+              <button onClick={subirResultados} disabled={!archivoResultados || subiendoResultados}
+                className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-[10px] font-bold disabled:opacity-40 flex-shrink-0">
+                {subiendoResultados ? '⏳...' : 'Subir'}
+              </button>
+            </div>
+            {mensajeCargaResultados && <p className="text-[10px] text-slate-300 mt-2">{mensajeCargaResultados}</p>}
+          </div>
+
+          {/* Afiliados */}
+          <div className="border-t border-slate-800 pt-3">
+            <p className="text-xs font-bold text-slate-300 mb-2">Lista de afiliados</p>
+            <p className="text-[9px] text-slate-500 mb-2">CSV con columnas: <code className="text-indigo-300">nombre,seccion,telefono,direccion,partido</code> (solo nombre es obligatorio)</p>
+            <div className="flex gap-2">
+              <input type="file" accept=".csv" onChange={(e) => setArchivoAfiliados(e.target.files[0])}
+                className="flex-1 text-[10px] text-slate-300" />
+              <button onClick={subirAfiliados} disabled={!archivoAfiliados || subiendoAfiliados}
+                className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-[10px] font-bold disabled:opacity-40 flex-shrink-0">
+                {subiendoAfiliados ? '⏳...' : 'Subir'}
+              </button>
+            </div>
+            {mensajeCargaAfiliados && <p className="text-[10px] text-slate-300 mt-2">{mensajeCargaAfiliados}</p>}
+          </div>
+        </div>
 
         <div>
           <button onClick={() => setMostrarBitacora((v) => !v)} className="text-xs font-bold text-slate-400">
