@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import api, { descargarArchivo } from '../lib/api';
+import { COLOR_PARTIDO } from '../components/InsigniaPartido';
 import Ayuda from '../components/Ayuda';
 
 const PARTIDOS_COLOR = {
@@ -26,6 +28,7 @@ export default function Reportes() {
   const [tendencia, setTendencia] = useState([]);
   const [estadisticas, setEstadisticas] = useState(null);
   const [fichaEstado, setFichaEstado] = useState(null);
+  const [porPartido, setPorPartido] = useState(null);
   const [riesgos, setRiesgos] = useState(null);
   const [tipoAgregado, setTipoAgregado] = useState('dip_federal');
   const [agregados, setAgregados] = useState(null);
@@ -52,6 +55,7 @@ export default function Reportes() {
     api.get('/reportes/tendencia').then((r) => setTendencia(r.data.data));
     api.get('/reportes/estadisticas').then((r) => setEstadisticas(r.data.data));
     api.get('/reportes/ficha-estado').then((r) => setFichaEstado(r.data.data)).catch(() => setFichaEstado(null));
+    api.get('/promovidos-analitica/concentrado-mapa').then((r) => setPorPartido(r.data.data.por_partido)).catch(() => setPorPartido(null));
     api.get('/reportes/motor-riesgos').then((r) => setRiesgos(r.data.data)).catch(() => setRiesgos(null));
     api.get('/reportes/probabilidad').then((r) => setProbabilidad(r.data.data));
     api.get('/reportes/regresion-cobertura').then((r) => setRegresion(r.data.data));
@@ -95,19 +99,19 @@ export default function Reportes() {
           <button onClick={() => descargarArchivo('/reportes/pdf/encuestas', 'reporte_encuestas.pdf')} className="text-[10px] font-bold text-slate-400 hover:text-white bg-slate-800/60 px-2.5 py-1.5 rounded-lg">📄 Encuestas</button>
         </div>
 
-        <div className="flex gap-2">
-          <button onClick={() => setTab('ejecutivo')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'ejecutivo' ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'}`}>⚡ Resumen Ejecutivo</button>
-          <button onClick={() => setTab('riesgos')} className={`px-3 py-1.5 rounded-full text-xs font-bold relative ${tab === 'riesgos' ? 'bg-red-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
+        <div className="flex gap-2 overflow-x-auto pb-1 -mx-4 px-4 md:mx-0 md:px-0" style={{ scrollbarWidth: 'thin' }}>
+          <button onClick={() => setTab('ejecutivo')} className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'ejecutivo' ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'}`}>⚡ Resumen Ejecutivo</button>
+          <button onClick={() => setTab('riesgos')} className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-bold relative ${tab === 'riesgos' ? 'bg-red-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
             🚨 Motor de Riesgos {riesgos && riesgos.total_riesgos > 0 && <span className="ml-1 bg-red-500 text-white rounded-full px-1.5 text-[9px]">{riesgos.total_riesgos}</span>}
           </button>
-          <button onClick={() => setTab('diario')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'diario' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📋 Bitácora diaria</button>
-          <button onClick={() => setTab('tendencia')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'tendencia' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📈 Tendencia</button>
-          <button onClick={() => setTab('estadisticas')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'estadisticas' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🗺️ Análisis histórico</button>
-          <button onClick={() => setTab('ficha-estado')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'ficha-estado' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🏛️ Ficha del Estado</button>
-          <button onClick={() => setTab('otros-cargos')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'otros-cargos' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🗳️ Senado / Dip. Federal / Dip. Local</button>
-          <button onClick={() => setTab('probabilidad')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'probabilidad' ? 'bg-purple-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🎲 Estadística y Probabilidad</button>
-          <button onClick={() => setTab('actividad')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'actividad' ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🎯 Actividad de Campo</button>
-          <button onClick={() => setTab('encuestas')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'encuestas' ? 'bg-pink-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📋 Encuestas</button>
+          <button onClick={() => setTab('diario')} className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'diario' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📋 Bitácora diaria</button>
+          <button onClick={() => setTab('tendencia')} className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'tendencia' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📈 Tendencia</button>
+          <button onClick={() => setTab('estadisticas')} className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'estadisticas' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🗺️ Análisis histórico</button>
+          <button onClick={() => setTab('ficha-estado')} className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'ficha-estado' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🏛️ Ficha del Estado</button>
+          <button onClick={() => setTab('otros-cargos')} className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'otros-cargos' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🗳️ Senado / Dip. Federal / Dip. Local</button>
+          <button onClick={() => setTab('probabilidad')} className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'probabilidad' ? 'bg-purple-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🎲 Estadística y Probabilidad</button>
+          <button onClick={() => setTab('actividad')} className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'actividad' ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🎯 Actividad de Campo</button>
+          <button onClick={() => setTab('encuestas')} className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'encuestas' ? 'bg-pink-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📋 Encuestas</button>
         </div>
 
         {tab === 'probabilidad' && probabilidad && (
@@ -276,6 +280,54 @@ export default function Reportes() {
                 <div className="text-[10px] text-slate-400 mt-1">Secciones que faltan por voltear</div>
               </div>
             </div>
+
+            {/* Gráfica de tendencia real — antes esto era solo un
+                número estático, ahora se ve el movimiento de los
+                últimos 14 días de un vistazo */}
+            <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4">
+              <div className="text-xs font-bold text-slate-400 uppercase mb-3">📈 Promovidos captados — últimos 14 días</div>
+              {tendencia.length === 0 ? (
+                <div className="text-xs text-slate-500 text-center py-8">Aún no hay suficiente actividad para mostrar tendencia</div>
+              ) : (
+                <ResponsiveContainer width="100%" height={180}>
+                  <LineChart data={tendencia.map(t => ({ ...t, fechaCorta: new Date(t.fecha).toLocaleDateString('es-MX', { day: 'numeric', month: 'short' }) }))}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                    <XAxis dataKey="fechaCorta" tick={{ fontSize: 9, fill: '#64748b' }} axisLine={{ stroke: '#334155' }} />
+                    <YAxis tick={{ fontSize: 9, fill: '#64748b' }} axisLine={{ stroke: '#334155' }} allowDecimals={false} />
+                    <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8, fontSize: 11 }} labelStyle={{ color: '#fff' }} />
+                    <Line type="monotone" dataKey="promovidos" name="Promovidos" stroke="#6366f1" strokeWidth={2} dot={{ r: 3 }} />
+                    <Line type="monotone" dataKey="comprometidos" name="Comprometidos" stroke="#10b981" strokeWidth={2} dot={{ r: 3 }} />
+                  </LineChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+
+            {porPartido && porPartido.length > 0 && (
+              <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4">
+                <div className="text-xs font-bold text-slate-400 uppercase mb-3">🥧 Tus promovidos por partido</div>
+                <div className="flex items-center gap-4">
+                  <ResponsiveContainer width="45%" height={160}>
+                    <PieChart>
+                      <Pie data={porPartido} dataKey="total" nameKey="partido" cx="50%" cy="50%" innerRadius={35} outerRadius={65} paddingAngle={2}>
+                        {porPartido.map((p, i) => <Cell key={i} fill={COLOR_PARTIDO[p.partido]?.color || '#64748b'} />)}
+                      </Pie>
+                      <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8, fontSize: 11 }} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                  <div className="flex-1 space-y-1.5">
+                    {porPartido.map((p, i) => (
+                      <div key={i} className="flex items-center justify-between text-[11px]">
+                        <span className="flex items-center gap-1.5 text-slate-300">
+                          <span className="w-2.5 h-2.5 rounded-full" style={{ background: COLOR_PARTIDO[p.partido]?.color || '#64748b' }} />
+                          {p.partido.toUpperCase()}
+                        </span>
+                        <span className="text-slate-400 font-bold">{p.total}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Semáforo de salud de la campaña — 4 focos, sin texto de más */}
             <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4">

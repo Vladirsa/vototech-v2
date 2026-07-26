@@ -123,6 +123,13 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
   const [promovidos, setPromovidos] = useState([]);
   const [capaPromovidos, setCapaPromovidos] = useState(true);
   const [seccionActiva, setSeccionActiva] = useState(null);
+  // Capa territorial: en vez de ver secciones sueltas, agrupar por
+  // Distrito Federal, Distrito Local, o Municipio — cada uno con su
+  // propio color, y al hacer clic, su ficha técnica agregada.
+  const [modoCapa, setModoCapa] = useState('secciones'); // 'secciones' | 'distrito_federal' | 'distrito_local' | 'municipio'
+  const [territorioActivo, setTerritorioActivo] = useState(null);
+  const [fichaTerritorio, setFichaTerritorio] = useState(null);
+  const [cargandoFichaTerritorio, setCargandoFichaTerritorio] = useState(false);
   const [coloreadoActivo, setColoreadoActivo] = useState(true);
   const [capaCalor, setCapaCalor] = useState(false);
   const [buscarTexto, setBuscarTexto] = useState('');
@@ -209,6 +216,17 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
       .then(r => setCasas(r.data.data))
       .catch(() => setCasas([]));
   }, [seccionActiva, manzanaActiva]);
+
+  // ── FICHA TÉCNICA TERRITORIAL (distrito federal/local, municipio) ──
+  useEffect(() => {
+    if (!territorioActivo) { setFichaTerritorio(null); return; }
+    setCargandoFichaTerritorio(true);
+    setFichaTerritorio(null);
+    api.get(`/reportes/ficha-territorio/${territorioActivo.tipo}/${territorioActivo.numero}`)
+      .then((r) => setFichaTerritorio(r.data.data))
+      .catch(() => setFichaTerritorio(null))
+      .finally(() => setCargandoFichaTerritorio(false));
+  }, [territorioActivo]);
 
   // ── FICHA TÉCNICA DE SECCIÓN (padrón, históricos, promovidos, déficit) ──
   const [fichaTecnica, setFichaTecnica] = useState(null);
@@ -611,6 +629,21 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
     let colorRelleno = '#3730a3';   // color por defecto (índigo neutral, no rojo/guinda)
     let opacidad = 0.35;
 
+    // Modo capa territorial — cada distrito/municipio con su propio
+    // color (por hash del número), para que las fronteras se vean
+    // claras de un vistazo sin necesitar disolver polígonos.
+    if (modoCapa !== 'secciones') {
+      const numTerritorio = feature.properties[modoCapa];
+      const hue = numTerritorio != null ? (numTerritorio * 47) % 360 : 0;
+      const esTerritorioActivo = territorioActivo?.tipo === modoCapa && territorioActivo?.numero === numTerritorio;
+      return {
+        color: esTerritorioActivo ? '#ffffff' : `hsl(${hue}, 65%, 45%)`,
+        weight: esTerritorioActivo ? 2.5 : 0.8,
+        fillColor: `hsl(${hue}, 65%, 45%)`,
+        fillOpacity: esTerritorioActivo ? 0.75 : 0.45,
+      };
+    }
+
     if (coloreadoActivo && modoColoreado === 'prioridad') {
       const prio = prioridadPorSeccion[num];
       if (prio) { colorRelleno = COLOR_PRIORIDAD[prio.prioridad] || colorRelleno; opacidad = 0.55; }
@@ -657,7 +690,11 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
       mouseout: (e) => {
         e.target.setStyle(estiloSeccion(feature));
       },
-      click: () => alClickSeccion(feature.properties.seccion),
+      click: () => {
+        if (modoCapa === 'secciones') { alClickSeccion(feature.properties.seccion); return; }
+        const numero = feature.properties[modoCapa];
+        if (numero != null) setTerritorioActivo({ tipo: modoCapa, numero });
+      },
     });
     // Etiqueta: número de sección normalmente, o "quién ya la tiene" si
     // estamos en modo Sectorización — antes esto era invisible hasta
@@ -965,6 +1002,64 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
         </div>
       )}
 
+      {territorioActivo && (
+        <div className="fixed inset-0 bg-black/70 z-[2000] flex items-center justify-center p-4" onClick={() => setTerritorioActivo(null)}>
+          <div className="bg-slate-950 border border-slate-700 rounded-2xl max-w-md w-full p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-between items-center">
+              <h2 className="text-lg font-black text-white">
+                🗺️ {territorioActivo.tipo === 'municipio' ? 'Municipio' : territorioActivo.tipo === 'distrito_federal' ? 'Distrito Federal' : 'Distrito Local'} {territorioActivo.numero}
+              </h2>
+              <button onClick={() => setTerritorioActivo(null)} className="text-slate-500 text-xl">✕</button>
+            </div>
+
+            {cargandoFichaTerritorio ? (
+              <div className="text-center text-slate-500 py-8">⏳ Cargando...</div>
+            ) : !fichaTerritorio?.existe ? (
+              <div className="text-center text-slate-500 py-8">Sin datos para este territorio</div>
+            ) : (
+              <>
+                {fichaTerritorio.nombre_municipio && <p className="text-sm text-slate-300 font-bold">{fichaTerritorio.nombre_municipio}</p>}
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 text-center">
+                    <div className="text-xl font-black text-white">{fichaTerritorio.total_secciones}</div>
+                    <div className="text-[9px] text-slate-500">Secciones</div>
+                  </div>
+                  <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 text-center">
+                    <div className="text-xl font-black text-white">{fichaTerritorio.total_lista_nominal.toLocaleString()}</div>
+                    <div className="text-[9px] text-slate-500">Lista nominal</div>
+                  </div>
+                  <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 text-center">
+                    <div className="text-xl font-black text-white">{fichaTerritorio.municipios_incluidos}</div>
+                    <div className="text-[9px] text-slate-500">Municipio(s)</div>
+                  </div>
+                </div>
+
+                {fichaTerritorio.historico ? (
+                  <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+                    <div className="text-xs font-bold text-slate-400 uppercase mb-2">Resultado {fichaTerritorio.historico.anio} — cabecera {fichaTerritorio.historico.cabecera}</div>
+                    <div className="space-y-2">
+                      {fichaTerritorio.historico.resultados.map((r, i) => (
+                        <div key={i}>
+                          <div className="flex justify-between text-xs mb-0.5">
+                            <span className={`font-bold ${r.gano ? 'text-white' : 'text-slate-400'}`}>{r.gano && '👑 '}{r.partido.toUpperCase()}</span>
+                            <span className="text-slate-300">{parseInt(r.votos).toLocaleString()} · {r.porcentaje}%</span>
+                          </div>
+                          <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                            <div className={`h-full ${r.gano ? 'bg-emerald-500' : 'bg-slate-600'}`} style={{ width: `${r.porcentaje}%` }} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-amber-400 bg-amber-500/10 rounded-lg px-3 py-2">⚠️ Sin histórico cargado todavía para este territorio</p>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* ── LEYENDA DE COLORES + SELECTOR DE AÑO — fija arriba del mapa,
           siempre visible. Antes el año estaba fijo sin ningún control
           y sin decir cuál se estaba mostrando; ahora se ve clarísimo. ── */}
@@ -1028,6 +1123,21 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
             </button>
           </div>
         )}
+
+        <div className="p-3 border-t border-slate-800">
+          <p className="text-[10px] text-slate-500 font-bold uppercase mb-1.5">🗺️ Ver por territorio</p>
+          <div className="grid grid-cols-2 gap-1.5">
+            <button onClick={() => { setModoCapa('secciones'); setTerritorioActivo(null); }}
+              className={`py-1.5 rounded-lg text-[10px] font-bold ${modoCapa === 'secciones' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>Secciones</button>
+            <button onClick={() => { setModoCapa('distrito_federal'); setTerritorioActivo(null); }}
+              className={`py-1.5 rounded-lg text-[10px] font-bold ${modoCapa === 'distrito_federal' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>Dist. Federal</button>
+            <button onClick={() => { setModoCapa('distrito_local'); setTerritorioActivo(null); }}
+              className={`py-1.5 rounded-lg text-[10px] font-bold ${modoCapa === 'distrito_local' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>Dist. Local</button>
+            <button onClick={() => { setModoCapa('municipio'); setTerritorioActivo(null); }}
+              className={`py-1.5 rounded-lg text-[10px] font-bold ${modoCapa === 'municipio' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>Municipio</button>
+          </div>
+          {modoCapa !== 'secciones' && <p className="text-[9px] text-slate-500 mt-1.5">Toca cualquier sección para ver la ficha completa de su {modoCapa === 'municipio' ? 'municipio' : modoCapa === 'distrito_federal' ? 'distrito federal' : 'distrito local'}.</p>}
+        </div>
 
         <div className="p-3 space-y-2">
           <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">

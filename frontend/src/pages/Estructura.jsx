@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../lib/api';
+import { useAuth } from '../lib/authStore';
 // html2canvas se importa DINÁMICAMENTE dentro de exportarImagen() —
 // es una librería pesada que solo hace falta si alguien de verdad
 // toca "Exportar imagen", no en cada visita a Estructura.
@@ -503,6 +504,10 @@ function PanelCodigosMasivos() {
 }
 
 export default function Estructura() {
+  const usuario = useAuth((s) => s.usuario);
+  const esMandoMaximo = ['candidato', 'jefe_campana', 'coord_general'].includes(usuario?.rol);
+  const [permisos, setPermisos] = useState(null);
+  const [guardandoPermiso, setGuardandoPermiso] = useState('');
   const [miembros, setMiembros] = useState([]);
   const [salud, setSalud] = useState(null);
   const [mostrarModal, setMostrarModal] = useState(false);
@@ -543,6 +548,7 @@ export default function Estructura() {
     api.get('/estructura/ranking/coordinadores').then((r) => setRanking(r.data.data)).catch(() => setRanking([]));
     api.get('/estructura/representantes-ine').then((r) => setRepresentantesIne(r.data.data)).catch(() => setRepresentantesIne([]));
     api.get('/estructura/gamificacion').then((r) => setGamificacion(r.data.data)).catch(() => setGamificacion([]));
+    if (esMandoMaximo) api.get('/estructura/permisos').then((r) => setPermisos(r.data.data)).catch(() => setPermisos(null));
     api.get('/estructura/cobertura-casillas').then((r) => setCobertura(r.data.data)).catch(() => setCobertura(null));
     api.get('/estructura/pendientes-aprobacion').then((r) => setPendientes(r.data.data)).catch(() => setPendientes([]));
   };
@@ -561,6 +567,25 @@ export default function Estructura() {
     if (!confirm('¿Quitar esta casilla de la base oficial?')) return;
     await api.delete(`/estructura/casillas-oficiales/${id}`);
     cargar();
+  };
+
+  const alternarPermiso = async (rol, modulo, valorActual) => {
+    setGuardandoPermiso(`${rol}-${modulo}`);
+    try {
+      await api.put('/estructura/permisos', { rol, modulo, permitido: !valorActual });
+      const r = await api.get('/estructura/permisos');
+      setPermisos(r.data.data);
+    } catch (e) {
+      alert(e.response?.data?.error || 'No se pudo cambiar el permiso');
+    }
+    setGuardandoPermiso('');
+  };
+  const restaurarDefaultPermiso = async (rol, modulo) => {
+    setGuardandoPermiso(`${rol}-${modulo}`);
+    await api.delete(`/estructura/permisos/${rol}/${modulo}`);
+    const r = await api.get('/estructura/permisos');
+    setPermisos(r.data.data);
+    setGuardandoPermiso('');
   };
 
   const aprobarPendiente = async (id) => {
@@ -669,6 +694,9 @@ export default function Estructura() {
             <button onClick={() => setVista('representantes-ine')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'representantes-ine' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🗳️ Representantes INE</button>
             <button onClick={() => setVista('gamificacion')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'gamificacion' ? 'bg-amber-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🏆 Ranking del Equipo</button>
             <button onClick={() => setVista('cobertura-casillas')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'cobertura-casillas' ? 'bg-red-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🗳️ Cobertura de Casillas</button>
+            {esMandoMaximo && (
+              <button onClick={() => setVista('permisos')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'permisos' ? 'bg-purple-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🔐 Permisos por Rol</button>
+            )}
             <button onClick={() => setVista('pendientes-aprobacion')} className={`px-3 py-1.5 rounded-full text-xs font-bold relative ${vista === 'pendientes-aprobacion' ? 'bg-amber-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
               ⏳ Pendientes de Aprobar {pendientes.length > 0 && <span className="ml-1 bg-red-500 text-white rounded-full px-1.5 text-[9px]">{pendientes.length}</span>}
             </button>
@@ -835,6 +863,50 @@ export default function Estructura() {
                 </div>
               </div>
             ))}
+          </div>
+        ) : vista === 'permisos' ? (
+          <div className="space-y-3">
+            <p className="text-[11px] text-slate-500">Toca cualquier interruptor para cambiar qué módulos ve cada rol — se aplica de inmediato en todo el sistema. El punto morado marca lo que TÚ personalizaste (distinto al default de fábrica); toca ✕ para regresarlo al default.</p>
+            {!permisos ? (
+              <div className="text-center text-slate-500 py-10">⏳ Cargando...</div>
+            ) : (
+              <div className="overflow-x-auto -mx-4 px-4">
+                <table className="text-[10px] border-collapse min-w-[900px]">
+                  <thead>
+                    <tr>
+                      <th className="text-left text-slate-400 font-bold uppercase p-2 sticky left-0 bg-slate-950">Rol</th>
+                      {permisos[0]?.modulos.map((m) => (
+                        <th key={m.modulo} className="text-slate-400 font-bold uppercase p-2 text-center whitespace-nowrap">{m.modulo.replace('-', ' ')}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {permisos.filter((r) => r.rol !== 'candidato').map((r) => (
+                      <tr key={r.rol} className="border-t border-slate-800">
+                        <td className="p-2 font-bold text-white sticky left-0 bg-slate-950 whitespace-nowrap">{ROL_LABEL[r.rol] || r.rol}</td>
+                        {r.modulos.map((m) => {
+                          const clave = `${r.rol}-${m.modulo}`;
+                          const cargando = guardandoPermiso === clave;
+                          return (
+                            <td key={m.modulo} className="p-2 text-center">
+                              <div className="flex items-center justify-center gap-1">
+                                <button disabled={cargando} onClick={() => alternarPermiso(r.rol, m.modulo, m.permitido)}
+                                  className={`w-8 h-[18px] rounded-full relative transition-colors ${m.permitido ? 'bg-emerald-600' : 'bg-slate-700'}`}>
+                                  <span className={`absolute top-0.5 w-3.5 h-3.5 rounded-full bg-white transition-all ${m.permitido ? 'left-4' : 'left-0.5'}`} />
+                                </button>
+                                {m.esPersonalizado && (
+                                  <button onClick={() => restaurarDefaultPermiso(r.rol, m.modulo)} title="Regresar al default" className="text-purple-400 text-[9px]">●</button>
+                                )}
+                              </div>
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         ) : (
           <div className="space-y-2">
