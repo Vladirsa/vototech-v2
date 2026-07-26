@@ -43,9 +43,11 @@ nav{display:flex; align-items:center; justify-content:space-between; padding:16p
 .hero-note{font-size:12px; color:#8583B0; font-family:'IBM Plex Mono',monospace;}
 .map-stage{position:relative; height:520px; margin-top:8px;}
 .map-stage svg{width:100%; height:100%;}
-.map-stage path{fill:rgba(0,212,184,0.10); stroke:rgba(0,212,184,0.55); stroke-width:0.6;}
-.map-stage path.pulse{animation:pulse 3.6s ease-in-out infinite;}
-@keyframes pulse{0%,100%{fill:rgba(0,212,184,0.10);}50%{fill:rgba(0,212,184,0.65);}}
+.map-stage path{fill:rgba(255,255,255,0.04); stroke:rgba(255,255,255,0.12); stroke-width:0.6;}
+.map-stage path.estado-proximamente{fill:rgba(255,255,255,0.035); stroke:rgba(255,255,255,0.14);}
+.map-stage path.estado-activo{fill:rgba(0,212,184,0.28); stroke:var(--teal); stroke-width:1.4; cursor:pointer;}
+.map-stage path.pulse{animation:pulseTlax 2.8s ease-in-out infinite;}
+@keyframes pulseTlax{0%,100%{fill:rgba(0,212,184,0.28);}50%{fill:rgba(0,212,184,0.75);}}
 .hero-stats{position:absolute; bottom:0; left:0; right:0; display:flex; gap:0; border-top:1px solid rgba(255,255,255,0.12); background:rgba(20,18,61,0.6); backdrop-filter:blur(6px);}
 .hstat{flex:1; padding:18px 20px; border-right:1px solid rgba(255,255,255,0.1);}
 .hstat:last-child{border-right:none;}
@@ -71,7 +73,10 @@ section{padding:88px 0;}
 .mod-card{background:var(--white); border:1px solid var(--line); border-radius:12px; padding:22px; transition:all .15s;}
 .mod-card:hover{border-color:var(--teal-dim); transform:translateY(-2px); box-shadow:0 8px 24px rgba(20,18,61,0.06);}
 .mod-card .ic{font-size:26px; margin-bottom:12px;}
-.mod-card h3{font-size:15px; margin-bottom:6px;}
+.mod-card h4{font-size:15px; margin-bottom:6px; color:var(--navy); font-weight:600;}
+.mod-categoria{margin-bottom:36px;}
+.mod-categoria:last-child{margin-bottom:0;}
+.mod-cat-titulo{font-size:14px; font-weight:600; color:var(--ink-soft); margin-bottom:14px; padding-bottom:8px; border-bottom:1px solid var(--line);}
 .mod-card p{font-size:13px; color:var(--ink-soft);}
 
 /* ── COMPARATIVA ── */
@@ -184,3 +189,35 @@ footer a:hover{color:var(--teal);}
 @media(max-width:920px){
   .pantallas-grid{grid-template-columns:1fr; justify-items:center;}
 }
+
+.map-badge{position:absolute; top:12px; left:12px; background:rgba(20,18,61,0.85); backdrop-filter:blur(6px); border:1px solid rgba(0,212,184,0.3); color:#C7C5E8; font-size:11px; padding:6px 12px; border-radius:20px; z-index:5;}
+
+/* ── SLIDER DE ESTADOS ── */
+.estados-slider{display:flex; gap:14px; overflow-x:auto; padding:8px 4px 20px; scroll-snap-type:x mandatory; -webkit-overflow-scrolling:touch;}
+.estados-slider::-webkit-scrollbar{height:6px;}
+.estados-slider::-webkit-scrollbar-thumb{background:var(--line); border-radius:10px;}
+.estado-card{flex:0 0 auto; scroll-snap-align:start; width:190px; background:var(--white); border:1px solid var(--line); border-radius:14px; padding:20px; text-align:center;}
+.estado-card.disponible{border-color:var(--teal); box-shadow:0 8px 24px rgba(0,212,184,0.12);}
+.estado-card .estado-ic{font-size:26px; margin-bottom:10px;}
+.estado-card h4{font-size:15px; color:var(--navy); margin-bottom:6px;}
+.estado-badge{display:inline-block; font-size:10px; font-weight:700; padding:3px 10px; border-radius:20px; font-family:'IBM Plex Mono',monospace;}
+.estado-badge.on{background:rgba(0,212,184,0.15); color:var(--teal-dim);}
+.estado-badge.off{background:var(--paper2); color:var(--ink-soft);}
+
+/* ── FAQ ── */
+.faq-list{max-width:760px; display:flex; flex-direction:column; gap:10px;}
+.faq-item{background:var(--white); border:1px solid var(--line); border-radius:12px; padding:18px 20px;}
+.faq-item summary{font-weight:600; font-size:15px; color:var(--navy); cursor:pointer; list-style:none; display:flex; justify-content:space-between; align-items:center;}
+.faq-item summary::-webkit-details-marker{display:none;}
+.faq-item summary::after{content:"+"; font-size:20px; color:var(--teal-dim); font-weight:400; flex-shrink:0; margin-left:12px;}
+.faq-item[open] summary::after{content:"–";}
+.faq-item p{margin-top:12px; color:var(--ink-soft); font-size:14px; line-height:1.6;}
+
+/* ── RECURSOS ── */
+.recursos-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:16px;}
+.recurso-card{background:var(--white); border:1px solid var(--line); border-radius:14px; padding:22px; display:block; transition:all .15s;}
+.recurso-card:hover{border-color:var(--teal-dim); transform:translateY(-2px);}
+.recurso-tipo{font-family:'IBM Plex Mono',monospace; font-size:10px; font-weight:700; color:var(--teal-dim); letter-spacing:0.05em; margin-bottom:10px;}
+.recurso-card h4{font-size:15px; color:var(--navy); margin-bottom:8px; line-height:1.4;}
+.recurso-card p{font-size:12px; color:var(--ink-soft);}
+@media(max-width:920px){.recursos-grid{grid-template-columns:1fr;}}
