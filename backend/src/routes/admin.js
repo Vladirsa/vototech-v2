@@ -1,5 +1,7 @@
 import { Router } from 'express';
 import crypto from 'crypto';
+import multer from 'multer';
+import { parse } from 'csv-parse/sync';
 import { query } from '../db/pool.js';
 import { requiereSuperAdmin } from '../middleware/superAdmin.js';
 import { generarToken } from '../middleware/auth.js';
@@ -356,6 +358,123 @@ router.post('/cargar-agregados-2024', async (req, res) => {
     console.error('Error cargando agregados 2024:', e);
     res.status(500).json({ ok: false, error: 'No se pudo cargar: ' + e.message });
   }
+});
+
+const uploadCsv = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+
+/**
+ * POST /api/admin/subir-resultados-historicos
+ * Sube resultados reales por SECCIÓN desde un CSV — columnas
+ * esperadas: seccion,partido,votos (lista_nominal opcional).
+ * El tipo de elección, año y estado se mandan como campos aparte del
+ * formulario, no en cada fila (todas las filas del archivo son del
+ * mismo tipo/año). Es seguro de correr más de una vez: si ya existe
+ * esa combinación exacta (sección+tipo+año+partido), la actualiza en
+ * vez de duplicar.
+ */
+router.post('/subir-resultados-historicos', uploadCsv.single('archivo'), async (req, res) => {
+  const { estado_id, tipo_eleccion, anio } = req.body;
+  if (!req.file) return res.status(400).json({ ok: false, error: 'Falta el archivo CSV' });
+  if (!estado_id || !tipo_eleccion || !anio) return res.status(400).json({ ok: false, error: 'Faltan estado_id, tipo_eleccion o anio' });
+
+  let filas;
+  try {
+    filas = parse(req.file.buffer.toString('utf-8'), { columns: true, skip_empty_lines: true, trim: true });
+  } catch (e) {
+    return res.status(400).json({ ok: false, error: 'El CSV no se pudo leer: ' + e.message });
+  }
+
+  let insertadas = 0, actualizadas = 0, sinSeccion = [];
+  for (const fila of filas) {
+    const numSeccion = parseInt(fila.seccion);
+    const votos = parseInt(fila.votos);
+    if (!numSeccion || !fila.partido || isNaN(votos)) continue;
+
+    const seccion = await query('SELECT id FROM secciones WHERE estado_id=$1 AND numero=$2', [estado_id, numSeccion]);
+    if (!seccion.rows[0]) { sinSeccion.push(numSeccion); continue; }
+
+    const existe = await query(
+      'SELECT id FROM resultados_historicos WHERE seccion_id=$1 AND tipo_eleccion=$2 AND anio=$3 AND partido=$4',
+      [seccion.rows[0].id, tipo_eleccion, anio, fila.partido]
+    );
+    if (existe.rows[0]) {
+      await query('UPDATE resultados_historicos SET votos=$1, lista_nominal=COALESCE($2,lista_nominal) WHERE id=$3',
+        [votos, fila.lista_nominal ? parseInt(fila.lista_nominal) : null, existe.rows[0].id]);
+      actualizadas++;
+    } else {
+      await query(
+        'INSERT INTO resultados_historicos (seccion_id, tipo_eleccion, anio, partido, votos, lista_nominal) VALUES ($1,$2,$3,$4,$5,$6)',
+        [seccion.rows[0].id, tipo_eleccion, anio, fila.partido, votos, fila.lista_nominal ? parseInt(fila.lista_nominal) : null]
+      );
+      insertadas++;
+    }
+  }
+
+  res.json({
+    ok: true,
+    mensaje: `✅ ${insertadas} filas nuevas, ${actualizadas} actualizadas` + (sinSeccion.length ? ` — ⚠️ ${sinSeccion.length} filas con sección no encontrada (revisa: ${[...new Set(sinSeccion)].slice(0, 10).join(', ')})` : ''),
+  });
+});
+
+/**
+ * POST /api/admin/subir-afiliados
+ * CSV esperado: nombre,seccion,telefono,direccion,partido (los 3
+ * últimos opcionales). Esto es lista de referencia — NO se mezcla
+ * con los promovidos de ninguna campaña, es un catálogo aparte por
+ * estado.
+ */
+router.post('/subir-afiliados', uploadCsv.single('archivo'), async (req, res) => {
+  const { estado_id } = req.body;
+  if (!req.file) return res.status(400).json({ ok: false, error: 'Falta el archivo CSV' });
+  if (!estado_id) return res.status(400).json({ ok: false, error: 'Falta estado_id' });
+
+  let filas;
+  try {
+    filas = parse(req.file.buffer.toString('utf-8'), { columns: true, skip_empty_lines: true, trim: true });
+  } catch (e) {
+    return res.status(400).json({ ok: false, error: 'El CSV no se pudo leer: ' + e.message });
+  }
+
+  let insertados = 0, sinNombre = 0;
+  for (const fila of filas) {
+    if (!fila.nombre) { sinNombre++; continue; }
+    let seccionId = null;
+    if (fila.seccion) {
+      const s = await query('SELECT id FROM secciones WHERE estado_id=$1 AND numero=$2', [estado_id, parseInt(fila.seccion)]);
+      seccionId = s.rows[0]?.id || null;
+    }
+    await query(
+      'INSERT INTO afiliados (estado_id, nombre, seccion_id, telefono, direccion, partido, fuente_archivo) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+      [estado_id, fila.nombre, seccionId, fila.telefono || null, fila.direccion || null, fila.partido || null, req.file.originalname]
+    );
+    insertados++;
+  }
+
+  res.json({ ok: true, mensaje: `✅ ${insertados} afiliados cargados` + (sinNombre ? ` — ${sinNombre} filas sin nombre, ignoradas` : '') });
+});
+
+/**
+ * GET /api/admin/resumen-datos/:estadoId
+ * Para que el panel muestre "qué tan lleno" está cada estado —
+ * cuántas secciones, cuántos resultados por tipo, cuántos afiliados.
+ */
+router.get('/resumen-datos/:estadoId', async (req, res) => {
+  const estadoId = req.params.estadoId;
+  const [secciones, resultados, afiliados] = await Promise.all([
+    query('SELECT COUNT(*) as total FROM secciones WHERE estado_id=$1', [estadoId]),
+    query(`SELECT tipo_eleccion, anio, COUNT(DISTINCT seccion_id) as secciones_con_dato
+           FROM resultados_historicos rh JOIN secciones s ON s.id=rh.seccion_id
+           WHERE s.estado_id=$1 GROUP BY tipo_eleccion, anio ORDER BY tipo_eleccion, anio`, [estadoId]),
+    query('SELECT COUNT(*) as total FROM afiliados WHERE estado_id=$1', [estadoId]),
+  ]);
+  res.json({
+    ok: true,
+    data: {
+      total_secciones: parseInt(secciones.rows[0].total),
+      resultados_por_tipo: resultados.rows,
+      total_afiliados: parseInt(afiliados.rows[0].total),
+    },
+  });
 });
 
 export default router;

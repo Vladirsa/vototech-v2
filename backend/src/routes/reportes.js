@@ -1243,6 +1243,26 @@ router.get('/ficha-territorio/:tipo/:numero', async (req, res) => {
   const { tipo, numero } = req.params;
   const estadoId = req.usuario.estado_id;
 
+  // Senaduría es a nivel ESTATAL completo, no por distrito/municipio
+  // — se resuelve aparte, reusando los resultados agregados 2024.
+  if (tipo === 'senaduria') {
+    const [totales, resultados] = await Promise.all([
+      query('SELECT COUNT(*) as secciones, COUNT(DISTINCT municipio_id) as municipios, SUM(lista_nominal) as lista_nominal FROM secciones WHERE estado_id=$1', [estadoId]),
+      query(`SELECT partido, candidato, votos, porcentaje, gano FROM resultados_agregados WHERE estado_id=$1 AND tipo_eleccion='senaduria' AND nivel='estado' ORDER BY votos DESC`, [estadoId]),
+    ]);
+    return res.json({
+      ok: true,
+      data: {
+        existe: resultados.rows.length > 0,
+        tipo: 'senaduria', numero: null, nombre_municipio: null,
+        total_secciones: parseInt(totales.rows[0].secciones),
+        total_lista_nominal: parseInt(totales.rows[0].lista_nominal) || 0,
+        municipios_incluidos: parseInt(totales.rows[0].municipios),
+        historico: resultados.rows.length > 0 ? { anio: 2024, cabecera: 'Todo el estado', resultados: resultados.rows } : null,
+      },
+    });
+  }
+
   let secciones;
   if (tipo === 'distrito_federal') {
     secciones = await query('SELECT id, numero, lista_nominal, municipio_id FROM secciones WHERE estado_id=$1 AND distrito_federal=$2', [estadoId, numero]);
