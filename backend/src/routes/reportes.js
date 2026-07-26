@@ -1104,4 +1104,131 @@ router.get('/pdf/encuestas', async (req, res) => {
   doc.end();
 });
 
+/**
+ * GET /api/reportes/resumen-ejecutivo-pdf
+ * La versión imprimible/compartible del Resumen Ejecutivo — para
+ * mandarla por WhatsApp a alguien que no tiene acceso al sistema,
+ * o llevarla impresa a una reunión con el candidato.
+ */
+router.get('/resumen-ejecutivo-pdf', async (req, res) => {
+  const campanaId = req.usuario.campana_id;
+  const campanaRes = await query('SELECT nombre_candidato, partido FROM campanas WHERE id=$1', [campanaId]);
+  const campana = campanaRes.rows[0];
+
+  const [promovidosTotal, comprometidos, actividad7dias, promotoresActivos] = await Promise.all([
+    query('SELECT COUNT(*) as total FROM promovidos WHERE campana_id=$1', [campanaId]),
+    query(`SELECT COUNT(*) as total FROM promovidos WHERE campana_id=$1 AND comprometido=true`, [campanaId]),
+    query(`SELECT COUNT(*) as total FROM promovidos WHERE campana_id=$1 AND creado_en >= now() - interval '7 days'`, [campanaId]),
+    query(`SELECT COUNT(DISTINCT registrado_por) as total FROM promovidos WHERE campana_id=$1 AND creado_en >= now() - interval '7 days'`, [campanaId]),
+  ]);
+
+  const totalProm = parseInt(promovidosTotal.rows[0].total);
+  const totalComp = parseInt(comprometidos.rows[0].total);
+  const pctComp = totalProm > 0 ? Math.round((totalComp / totalProm) * 100) : 0;
+
+  const doc = iniciarPDF(res, 'resumen_ejecutivo.pdf', 'Resumen Ejecutivo de Campaña', campana?.nombre_candidato);
+
+  seccionPDF(doc, 'Los números que importan');
+  lineaPDF(doc, 'Promovidos totales', totalProm);
+  lineaPDF(doc, 'Comprometidos a votar', `${totalComp} (${pctComp}%)`);
+  lineaPDF(doc, 'Promovidos en los últimos 7 días', parseInt(actividad7dias.rows[0].total));
+  lineaPDF(doc, 'Promotores activos esta semana', parseInt(promotoresActivos.rows[0].total));
+
+  seccionPDF(doc, 'Semáforo de campaña');
+  const semaforo = (ok, texto) => { doc.fontSize(10).fillColor(ok ? '#059669' : '#dc2626').text(`${ok ? '🟢' : '🔴'} ${texto}`); doc.moveDown(0.3); };
+  semaforo(totalProm >= 30, `Muestra estadística: ${totalProm} de 30 mínimo`);
+  semaforo(parseInt(promotoresActivos.rows[0].total) > 0, 'Actividad de promotores esta semana');
+  semaforo(pctComp >= 30, `Tasa de compromiso: ${pctComp}%`);
+  semaforo(parseInt(actividad7dias.rows[0].total) > 0, 'Captación reciente de promovidos');
+
+  doc.end();
+});
+
+/**
+ * GET /api/reportes/motor-riesgos
+ * Detecta automáticamente 4 tipos de riesgo, sin que nadie tenga
+ * que ir a buscarlos a mano:
+ * 1. Operadores que se están "apagando" — dejaron de tener actividad
+ * 2. Municipios/secciones con poca cobertura de promovidos
+ * 3. Gente que no está llegando a su meta diaria
+ * 4. Territorio sin NADIE asignado todavía
+ */
+router.get('/motor-riesgos', async (req, res) => {
+  const campanaId = req.usuario.campana_id;
+
+  // 1. Operadores apagándose — tenían actividad y ya no, o nunca
+  //    han entrado desde que se les dio de alta hace más de 5 días.
+  const operadoresRiesgo = await query(
+    `SELECT id, nombre, rol, puesto, ultimo_acceso, creado_en
+     FROM usuarios
+     WHERE campana_id=$1 AND activo=true AND aprobado=true AND rol NOT IN ('candidato')
+       AND (
+         (ultimo_acceso IS NOT NULL AND ultimo_acceso < now() - interval '5 days')
+         OR (ultimo_acceso IS NULL AND creado_en < now() - interval '5 days')
+       )
+     ORDER BY COALESCE(ultimo_acceso, creado_en) ASC
+     LIMIT 15`,
+    [campanaId]
+  );
+
+  // 2. Metas incumplidas — gente con meta_diaria puesta, pero su
+  //    ritmo real de promovidos capturados está muy por debajo.
+  const metasIncumplidas = await query(
+    `SELECT u.id, u.nombre, u.rol, u.meta_diaria,
+            COUNT(p.id) FILTER (WHERE p.creado_en >= now() - interval '7 days') as promovidos_7dias
+     FROM usuarios u
+     LEFT JOIN promovidos p ON p.registrado_por = u.id AND p.campana_id=$1
+     WHERE u.campana_id=$1 AND u.activo=true AND u.aprobado=true AND u.meta_diaria > 0
+     GROUP BY u.id, u.nombre, u.rol, u.meta_diaria
+     HAVING COUNT(p.id) FILTER (WHERE p.creado_en >= now() - interval '7 days') < u.meta_diaria * 7 * 0.5
+     ORDER BY u.meta_diaria DESC
+     LIMIT 15`,
+    [campanaId]
+  );
+
+  // 3. Municipios con baja cobertura — pocos promovidos respecto al
+  //    tamaño real de su lista nominal.
+  const coberturaBaja = await query(
+    `SELECT m.nombre as municipio, SUM(s.lista_nominal) as lista_nominal, COUNT(DISTINCT pr.id) as promovidos
+     FROM secciones s
+     JOIN municipios m ON m.id = s.municipio_id
+     LEFT JOIN promovidos pr ON pr.seccion_id = s.id AND pr.campana_id=$1
+     WHERE s.estado_id=$2
+     GROUP BY m.id, m.nombre
+     HAVING SUM(s.lista_nominal) > 0
+     ORDER BY (COUNT(DISTINCT pr.id)::float / NULLIF(SUM(s.lista_nominal),0)) ASC
+     LIMIT 8`,
+    [campanaId, req.usuario.estado_id]
+  );
+
+  // 4. Territorio sin nadie asignado — secciones prioritarias (según
+  //    Priorización) que no tienen ningún coordinador ni promotor.
+  const sinEstructura = await query(
+    `SELECT s.numero as seccion, s.municipio_id, m.nombre as municipio
+     FROM secciones s
+     JOIN municipios m ON m.id = s.municipio_id
+     WHERE s.estado_id=$1
+       AND NOT EXISTS (SELECT 1 FROM usuarios u WHERE u.campana_id=$2 AND u.territorio_tipo='seccion' AND u.territorio_id=s.numero)
+     LIMIT 10`,
+    [req.usuario.estado_id, campanaId]
+  );
+
+  res.json({
+    ok: true,
+    data: {
+      operadores_riesgo: operadoresRiesgo.rows.map((o) => ({
+        ...o,
+        dias_inactivo: Math.floor((Date.now() - new Date(o.ultimo_acceso || o.creado_en)) / 86400000),
+      })),
+      metas_incumplidas: metasIncumplidas.rows,
+      cobertura_baja: coberturaBaja.rows.map((c) => ({
+        ...c,
+        pct_cobertura: c.lista_nominal > 0 ? +((c.promovidos / c.lista_nominal) * 100).toFixed(2) : 0,
+      })),
+      sin_estructura: sinEstructura.rows,
+      total_riesgos: operadoresRiesgo.rows.length + metasIncumplidas.rows.length + sinEstructura.rows.length,
+    },
+  });
+});
+
 export default router;
