@@ -330,6 +330,34 @@ router.get('/seccion/:numero', async (req, res) => {
       ? Math.max(1, Math.ceil((new Date(campana.fecha_eleccion) - new Date()) / 86400000))
       : null;
 
+    // 👥 Quién trabaja esta sección — la gente asignada directo aquí
+    // (normalmente promotores/coord. seccional), para saber de un
+    // vistazo si hay alguien cubriendo el territorio o está vacío.
+    const equipoSeccionRes = await query(
+      `SELECT id, nombre, rol, puesto FROM usuarios
+       WHERE campana_id=$1 AND territorio_tipo='seccion' AND territorio_id=$2
+       ORDER BY rol`,
+      [campanaId, numero]
+    );
+
+    // 🔗 Cadena de mando — quién responde por el Distrito Federal, el
+    // Distrito Local, y el Municipio donde cae esta sección. Si no
+    // hay nadie asignado en algún nivel, sale null (hueco real de
+    // cobertura, no un error).
+    const [respDF, respDL, respMuni] = await Promise.all([
+      query(`SELECT nombre, rol FROM usuarios WHERE campana_id=$1 AND territorio_tipo='distrito_federal' AND territorio_id=$2 LIMIT 1`, [campanaId, seccion.distrito_federal]),
+      query(`SELECT nombre, rol FROM usuarios WHERE campana_id=$1 AND territorio_tipo='distrito_local' AND territorio_id=$2 LIMIT 1`, [campanaId, seccion.distrito_local]),
+      query(`SELECT u.nombre, u.rol FROM usuarios u JOIN municipios m ON m.clave_ine=u.territorio_id WHERE u.campana_id=$1 AND u.territorio_tipo='municipio' AND m.nombre=$2 LIMIT 1`, [campanaId, seccion.municipio]),
+    ]);
+
+    // 🔁 Duplicados — promovidos de esta sección que alguien intentó
+    // capturar más de una vez (veces_intentado > 1 significa que el
+    // sistema detectó y bloqueó un segundo intento).
+    const duplicadosRes = await query(
+      `SELECT COUNT(*) as total FROM promovidos WHERE campana_id=$1 AND seccion_id=$2 AND veces_intentado > 1`,
+      [campanaId, seccion.id]
+    );
+
     res.json({
       ok: true,
       data: {
@@ -347,6 +375,11 @@ router.get('/seccion/:numero', async (req, res) => {
         participacion_pct: seccion.lista_nominal > 0 && totalVotos > 0 ? +((totalVotos / seccion.lista_nominal) * 100).toFixed(1) : null,
         promovidos: promos,
         total_promovidos: promos.base + promos.persuadible + promos.adversario,
+        duplicados: parseInt(duplicadosRes.rows[0].total),
+        equipo_en_seccion: equipoSeccionRes.rows,
+        responsable_distrito_federal: respDF.rows[0] || null,
+        responsable_distrito_local: respDL.rows[0] || null,
+        responsable_municipio: respMuni.rows[0] || null,
         deficit_votos: Math.round(deficit),
         promovidos_necesarios: promovidosNecesarios,
         ritmo_diario: diasRestantes ? +(promovidosNecesarios / diasRestantes).toFixed(1) : null,
