@@ -72,4 +72,35 @@ router.get('/localidades/:estadoId', (req, res) => {
   }
 });
 
+/**
+ * GET /api/geo/buscar-direccion?q=...
+ * Busca una dirección real y regresa sus coordenadas exactas —
+ * usa Nominatim (OpenStreetMap), gratuito y sin necesitar llave de
+ * API. Filtrado a México para no traer resultados de otros países
+ * con nombres de calle parecidos.
+ */
+router.get('/buscar-direccion', async (req, res) => {
+  const q = req.query.q;
+  if (!q || q.length < 4) return res.json({ ok: true, data: [] });
+
+  try {
+    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=5&countrycodes=mx&addressdetails=1`;
+    const respuesta = await fetch(url, { headers: { 'User-Agent': 'VotoTech-Sistema-Electoral/1.0' } });
+    if (!respuesta.ok) throw new Error(`Nominatim respondió ${respuesta.status}`);
+    const resultados = await respuesta.json();
+
+    res.json({
+      ok: true,
+      data: resultados.map((r) => ({
+        direccion: r.display_name,
+        lat: parseFloat(r.lat),
+        lng: parseFloat(r.lon),
+      })),
+    });
+  } catch (e) {
+    console.error('Error buscando dirección:', e.message);
+    res.status(500).json({ ok: false, error: 'No se pudo buscar la dirección — intenta de nuevo en un momento' });
+  }
+});
+
 export default router;

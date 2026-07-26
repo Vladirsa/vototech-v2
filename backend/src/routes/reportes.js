@@ -1231,4 +1231,65 @@ router.get('/motor-riesgos', async (req, res) => {
   });
 });
 
+/**
+ * GET /api/reportes/ficha-territorio/:tipo/:numero
+ * tipo: 'distrito_federal' | 'distrito_local' | 'municipio'
+ * La ficha completa de UN distrito o municipio específico — para
+ * cuando lo seleccionas en el mapa: cuántas secciones tiene, su
+ * lista nominal total, y el resultado histórico si existe (los
+ * distritos federales ya tienen datos reales de 2024 cargados).
+ */
+router.get('/ficha-territorio/:tipo/:numero', async (req, res) => {
+  const { tipo, numero } = req.params;
+  const estadoId = req.usuario.estado_id;
+
+  let secciones;
+  if (tipo === 'distrito_federal') {
+    secciones = await query('SELECT id, numero, lista_nominal, municipio_id FROM secciones WHERE estado_id=$1 AND distrito_federal=$2', [estadoId, numero]);
+  } else if (tipo === 'distrito_local') {
+    secciones = await query('SELECT id, numero, lista_nominal, municipio_id FROM secciones WHERE estado_id=$1 AND distrito_local=$2', [estadoId, numero]);
+  } else if (tipo === 'municipio') {
+    const muni = await query('SELECT id, nombre FROM municipios WHERE estado_id=$1 AND clave_ine=$2', [estadoId, numero]);
+    if (!muni.rows[0]) return res.status(404).json({ ok: false, error: 'Municipio no encontrado' });
+    secciones = await query('SELECT id, numero, lista_nominal FROM secciones WHERE municipio_id=$1', [muni.rows[0].id]);
+    secciones.nombreMunicipio = muni.rows[0].nombre;
+  } else {
+    return res.status(400).json({ ok: false, error: 'Tipo de territorio no reconocido' });
+  }
+
+  if (secciones.rows.length === 0) {
+    return res.json({ ok: true, data: { existe: false } });
+  }
+
+  const totalListaNominal = secciones.rows.reduce((s, r) => s + (r.lista_nominal || 0), 0);
+  const municipiosUnicos = tipo !== 'municipio' ? new Set(secciones.rows.map((r) => r.municipio_id)).size : 1;
+
+  // Si es distrito federal, ya tenemos resultados reales 2024 cargados
+  let historico = null;
+  if (tipo === 'distrito_federal') {
+    const r = await query(
+      `SELECT partido, candidato, votos, porcentaje, gano, distrito_cabecera
+       FROM resultados_agregados WHERE estado_id=$1 AND tipo_eleccion='dip_federal' AND nivel='distrito_federal' AND distrito_numero=$2
+       ORDER BY votos DESC`,
+      [estadoId, numero]
+    );
+    if (r.rows.length > 0) {
+      historico = { anio: 2024, cabecera: r.rows[0].distrito_cabecera, resultados: r.rows };
+    }
+  }
+
+  res.json({
+    ok: true,
+    data: {
+      existe: true,
+      tipo, numero,
+      nombre_municipio: secciones.nombreMunicipio || null,
+      total_secciones: secciones.rows.length,
+      total_lista_nominal: totalListaNominal,
+      municipios_incluidos: municipiosUnicos,
+      historico,
+    },
+  });
+});
+
 export default router;
