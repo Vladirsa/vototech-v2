@@ -1,0 +1,52 @@
+name: Verificación antes de desplegar
+
+# Corre en cada push y cada Pull Request — atrapa exactamente el tipo
+# de error que más veces se nos escapó durante el desarrollo: un
+# archivo con un error de sintaxis, o el frontend que deja de
+# compilar por un cambio a medias. Es deliberadamente simple (no hay
+# pruebas unitarias todavía) pero atrapa lo más común antes de que
+# llegue a producción.
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  backend:
+    name: Backend — sintaxis de todas las rutas
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Instalar dependencias
+        run: cd backend && npm install
+      - name: Verificar sintaxis de cada archivo de rutas
+        run: |
+          cd backend
+          echo "Revisando sintaxis de todos los .js del backend..."
+          fallo=0
+          for archivo in $(find src -name "*.js"); do
+            node --check "$archivo" || fallo=1
+          done
+          if [ $fallo -eq 1 ]; then
+            echo "❌ Al menos un archivo tiene error de sintaxis — revisa arriba cuál."
+            exit 1
+          fi
+          echo "✅ Todos los archivos del backend tienen sintaxis válida"
+
+  frontend:
+    name: Frontend — compilación completa
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Instalar dependencias
+        run: cd frontend && npm install
+      - name: Compilar
+        run: cd frontend && npm run build
