@@ -790,7 +790,7 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
 
         {seccionesFiltradas && (
           <GeoJSON
-            key={`${coloreadoActivo}-${seccionActiva}-${territorioId}-${tipoEleccion}-${anio}-${modoColoreado}-${mostrarCobertura}-${Object.keys(prioridadPorSeccion).length}-${seccionesCubiertas.size}-${modoSectorizacion}-${seccionesSeleccionadas.size}-${capaPulso}-${seccionesActivas7d.size}-${zonasAsignadas.length}`}
+            key={`${coloreadoActivo}-${seccionActiva}-${territorioId}-${tipoEleccion}-${anio}-${modoColoreado}-${mostrarCobertura}-${Object.keys(prioridadPorSeccion).length}-${seccionesCubiertas.size}-${modoSectorizacion}-${seccionesSeleccionadas.size}-${capaPulso}-${seccionesActivas7d.size}-${zonasAsignadas.length}-${modoCapa}-${territorioActivo?.tipo}-${territorioActivo?.numero}`}
             data={seccionesFiltradas}
             style={estiloSeccion}
             onEachFeature={alPasarMouse}
@@ -1343,6 +1343,44 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
                 ) : fichaTecnica.total_votos_historico > 0 ? (
                   <div className="text-[10px] text-emerald-400 border-t border-slate-700 pt-2">✅ Meta cubierta con tus promovidos actuales</div>
                 ) : null}
+                {fichaTecnica.duplicados > 0 && (
+                  <div className="text-[10px] text-amber-400 border-t border-slate-700 pt-2 mt-2">⚠️ {fichaTecnica.duplicados} registro(s) duplicado(s) detectado(s) en esta sección</div>
+                )}
+              </div>
+
+              {/* 👥 QUIÉN TRABAJA ESTA SECCIÓN — la estructura real
+                  asignada aquí, y la cadena de mando hacia arriba
+                  (Distrito Federal, Local, Municipio). Un "Sin asignar"
+                  es información tan valiosa como un nombre: es un
+                  hueco de cobertura real. */}
+              <div className="bg-slate-800/60 rounded-lg p-2.5">
+                <div className="text-[10px] text-slate-500 uppercase font-bold mb-1.5">👥 Quién trabaja aquí</div>
+                {fichaTecnica.equipo_en_seccion?.length > 0 ? (
+                  <div className="space-y-1 mb-2">
+                    {fichaTecnica.equipo_en_seccion.map((m) => (
+                      <div key={m.id} className="flex justify-between text-[10px]">
+                        <span className="text-slate-300">{m.nombre}</span>
+                        <span className="text-slate-500 capitalize">{m.rol?.replace(/_/g, ' ')}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-[10px] text-red-400 mb-2">⚠️ Sin nadie asignado directo a esta sección</div>
+                )}
+                <div className="space-y-1 pt-1.5 border-t border-slate-700">
+                  <div className="flex justify-between text-[10px]">
+                    <span className="text-slate-500">Resp. Distrito Federal {fichaTecnica.distrito_federal}</span>
+                    <span className={fichaTecnica.responsable_distrito_federal ? 'text-slate-300' : 'text-red-400'}>{fichaTecnica.responsable_distrito_federal?.nombre || 'Sin asignar'}</span>
+                  </div>
+                  <div className="flex justify-between text-[10px]">
+                    <span className="text-slate-500">Resp. Distrito Local {fichaTecnica.distrito_local}</span>
+                    <span className={fichaTecnica.responsable_distrito_local ? 'text-slate-300' : 'text-red-400'}>{fichaTecnica.responsable_distrito_local?.nombre || 'Sin asignar'}</span>
+                  </div>
+                  <div className="flex justify-between text-[10px]">
+                    <span className="text-slate-500">Resp. Municipio</span>
+                    <span className={fichaTecnica.responsable_municipio ? 'text-slate-300' : 'text-red-400'}>{fichaTecnica.responsable_municipio?.nombre || 'Sin asignar'}</span>
+                  </div>
+                </div>
               </div>
 
               {/* 🗣️ CONTEXTO HUMANO — para que el candidato llegue empático, no
