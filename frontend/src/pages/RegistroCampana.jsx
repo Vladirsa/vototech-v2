@@ -1,7 +1,14 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import api from '../lib/api';
 import Ayuda from '../components/Ayuda';
+
+// ⚠️ Reemplaza esto por tu Site Key real de Cloudflare Turnstile en
+// cuanto la generes (dashboard de Cloudflare → Turnstile → Add site).
+// Esta es la "sitekey de pruebas" oficial de Cloudflare — siempre
+// pasa la verificación, así que el registro sigue funcionando
+// mientras configuras la real, pero NO bloquea bots todavía.
+const TURNSTILE_SITE_KEY = '1x00000000000000000000AA';
 
 const PARTIDOS_MEXICO = [
   { id: 'morena', label: 'MORENA' },
@@ -38,6 +45,28 @@ export default function RegistroCampana() {
   const [municipios, setMunicipios] = useState([]);
   const [error, setError] = useState('');
   const [cargando, setCargando] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState('');
+  const turnstileRef = useRef(null);
+  const turnstileWidgetId = useRef(null);
+
+  // Renderiza el widget de Turnstile en cuanto se llega al paso 4 —
+  // no antes, para no cargarlo innecesariamente si alguien nunca
+  // llega hasta el final del formulario.
+  useEffect(() => {
+    if (paso !== 4 || !turnstileRef.current) return;
+    const intentarRenderizar = () => {
+      if (window.turnstile && turnstileWidgetId.current === null) {
+        turnstileWidgetId.current = window.turnstile.render(turnstileRef.current, {
+          sitekey: TURNSTILE_SITE_KEY,
+          callback: (token) => setTurnstileToken(token),
+          'expired-callback': () => setTurnstileToken(''),
+        });
+      } else if (!window.turnstile) {
+        setTimeout(intentarRenderizar, 300); // el script todavía no cargó, reintenta
+      }
+    };
+    intentarRenderizar();
+  }, [paso]);
   const [exito, setExito] = useState(null);
   const navigate = useNavigate();
 
@@ -61,6 +90,7 @@ export default function RegistroCampana() {
       const { data } = await api.post('/auth/registrar-campana', {
         ...form,
         territorio_id: form.territorio_id ? parseInt(form.territorio_id) : undefined,
+        turnstile_token: turnstileToken,
       });
       if (data.ok) setExito(data);
     } catch (err) {
@@ -244,6 +274,10 @@ export default function RegistroCampana() {
                   </span>
                 </label>
               </div>
+
+              {/* Cloudflare Turnstile — verificación anti-bots, invisible
+                  para una persona real, casi imposible de pasar para un bot */}
+              <div ref={turnstileRef} className="flex justify-center" />
 
               <div className="flex gap-2 pt-2">
                 <button onClick={() => setPaso(3)} className="flex-1 py-3 rounded-xl bg-slate-800 text-slate-300 font-bold text-sm">← Atrás</button>

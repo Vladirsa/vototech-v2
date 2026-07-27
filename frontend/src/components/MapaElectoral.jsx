@@ -1140,6 +1140,40 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
                 ) : (
                   <p className="text-[11px] text-amber-400 bg-amber-500/10 rounded-lg px-3 py-2">⚠️ Sin histórico cargado todavía para este territorio</p>
                 )}
+
+                {/* 👥 QUIÉN TRABAJA AQUÍ Y SI ESTÁ CUMPLIENDO SU META —
+                    lo que faltaba: antes solo se sabía el nombre del
+                    responsable, nunca si de verdad está rindiendo. */}
+                <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 mt-3">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-xs font-bold text-slate-400 uppercase">👥 Equipo y cumplimiento</span>
+                    <span className="text-[10px] text-slate-500">{fichaTerritorio.secciones_cubiertas}/{fichaTerritorio.total_secciones} secc. con alguien asignado</span>
+                  </div>
+                  {fichaTerritorio.equipo?.length > 0 ? (
+                    <div className="space-y-2">
+                      {fichaTerritorio.equipo.map((m, i) => (
+                        <div key={i} className="flex items-center justify-between text-[11px] bg-slate-800/60 rounded-lg px-2.5 py-2">
+                          <div>
+                            <div className="text-slate-200 font-bold">{m.nombre}</div>
+                            <div className="text-slate-500 text-[9px] capitalize">{m.rol.replace(/_/g, ' ')} {m.nivel === 'responsable_directo' ? '· responsable del territorio' : ''}</div>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-white font-bold">{m.promovidos_reales} <span className="text-slate-500 font-normal">promovidos</span></div>
+                            {m.cumplimiento_pct != null ? (
+                              <div className={`text-[9px] font-bold ${m.cumplimiento_pct >= 90 ? 'text-emerald-400' : m.cumplimiento_pct >= 50 ? 'text-amber-400' : 'text-red-400'}`}>
+                                {m.cumplimiento_pct}% de su meta
+                              </div>
+                            ) : (
+                              <div className="text-[9px] text-slate-500">sin meta asignada</div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-[10px] text-red-400">⚠️ Nadie asignado directo a este territorio todavía</p>
+                  )}
+                </div>
               </>
             )}
           </div>

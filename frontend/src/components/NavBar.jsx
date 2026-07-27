@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/authStore';
 import { useTema } from '../lib/temaStore';
@@ -51,14 +52,29 @@ const MODULOS_POR_ROL = {
   voluntario: ['dashboard', 'promovidos', 'marketing'],
 };
 
+// Los mismos 4 que se bloquean en el backend (permisos.js,
+// MODULOS_BLOQUEADOS_DEMO) — se repite aquí porque es una decisión
+// puramente de qué se VE en el menú, más rápido que ir a preguntarle
+// al backend solo para dibujar un candado.
+const MODULOS_BLOQUEADOS_DEMO = ['finanzas', 'juridico', 'dia-eleccion', 'marketing'];
+// Link de agendar cita — reemplázalo por tu link real de Google
+// Calendar (Configuración → Programación de citas) en cuanto lo tengas.
+const LINK_AGENDAR_CITA = 'https://calendar.google.com/calendar/appointments/schedules/PON-AQUI-TU-LINK-REAL';
+
 export default function NavBar() {
   const usuario = useAuth((s) => s.usuario);
   const cerrarSesion = useAuth((s) => s.cerrarSesion);
   const { tema, alternar } = useTema();
   const navigate = useNavigate();
+  const [mostrarPromoCita, setMostrarPromoCita] = useState(false);
 
   const salir = () => { cerrarSesion(); navigate('/login'); };
-  const modulosVisibles = MODULOS.filter((m) => (MODULOS_POR_ROL[usuario?.rol] || TODOS).includes(m.clave));
+  // En la demo, se muestran TODOS los módulos (para que se vea la
+  // amplitud completa del sistema) — el candado se encarga de
+  // impedir la entrada a los 4 que se explican mejor en vivo.
+  const modulosVisibles = usuario?.es_demo
+    ? MODULOS.filter((m) => m.clave !== 'mi-avance')
+    : MODULOS.filter((m) => (MODULOS_POR_ROL[usuario?.rol] || TODOS).includes(m.clave));
 
   return (
     <nav className="sticky top-0 z-[2000] bg-slate-950/95 dark:bg-slate-950/95 backdrop-blur border-b border-slate-800 light:bg-white/95 light:border-slate-200 relative">
@@ -69,20 +85,35 @@ export default function NavBar() {
           <span className="text-xs font-black text-white hidden sm:inline">VotoTech</span>
         </div>
 
-        {modulosVisibles.map((m) => (
-          <NavLink
-            key={m.ruta}
-            to={m.ruta}
-            className={({ isActive }) =>
-              `flex items-center gap-1.5 px-3 py-2.5 text-xs font-bold whitespace-nowrap border-b-2 transition ${
-                isActive ? 'text-indigo-400 border-indigo-500' : 'text-slate-500 border-transparent hover:text-slate-300'
-              }`
-            }
-          >
-            <span>{m.ic}</span>
-            <span className="hidden md:inline">{m.label}</span>
-          </NavLink>
-        ))}
+        {modulosVisibles.map((m) => {
+          const bloqueado = usuario?.es_demo && MODULOS_BLOQUEADOS_DEMO.includes(m.clave);
+          if (bloqueado) {
+            return (
+              <button
+                key={m.ruta}
+                onClick={() => setMostrarPromoCita(true)}
+                className="flex items-center gap-1.5 px-3 py-2.5 text-xs font-bold whitespace-nowrap border-b-2 border-transparent text-slate-600 opacity-60"
+              >
+                <span>🔒</span>
+                <span className="hidden md:inline">{m.label}</span>
+              </button>
+            );
+          }
+          return (
+            <NavLink
+              key={m.ruta}
+              to={m.ruta}
+              className={({ isActive }) =>
+                `flex items-center gap-1.5 px-3 py-2.5 text-xs font-bold whitespace-nowrap border-b-2 transition ${
+                  isActive ? 'text-indigo-400 border-indigo-500' : 'text-slate-500 border-transparent hover:text-slate-300'
+                }`
+              }
+            >
+              <span>{m.ic}</span>
+              <span className="hidden md:inline">{m.label}</span>
+            </NavLink>
+          );
+        })}
 
         <div className="ml-auto flex items-center gap-2 pl-3 flex-shrink-0">
           <button onClick={alternar} className="text-sm px-2 py-1 rounded-lg hover:bg-slate-800" title="Cambiar tema">
@@ -95,6 +126,28 @@ export default function NavBar() {
       {/* Degradado a los lados — pista visual de que el menú se puede deslizar */}
       <div className="absolute top-0 bottom-0 left-0 w-4 bg-gradient-to-r from-slate-950 to-transparent pointer-events-none" />
       <div className="absolute top-0 bottom-0 right-0 w-6 bg-gradient-to-l from-slate-950 to-transparent pointer-events-none" />
+
+      {usuario?.es_demo && (
+        <div className="bg-amber-500/10 border-b border-amber-700/30 px-3 py-1.5 text-center">
+          <span className="text-[10px] text-amber-300 font-bold">🔍 Estás en la demo pública — modo solo lectura. </span>
+          <button onClick={() => setMostrarPromoCita(true)} className="text-[10px] text-amber-200 underline font-bold">Agenda una cita para ver el sistema completo →</button>
+        </div>
+      )}
+
+      {mostrarPromoCita && (
+        <div className="fixed inset-0 bg-black/70 z-[5000] flex items-center justify-center p-4" onClick={() => setMostrarPromoCita(false)}>
+          <div className="bg-slate-900 border border-indigo-500/40 rounded-2xl max-w-sm w-full p-6 text-center space-y-3" onClick={(e) => e.stopPropagation()}>
+            <div className="text-4xl">🔒</div>
+            <h3 className="text-white font-black text-lg">Este módulo se ve mejor en vivo</h3>
+            <p className="text-xs text-slate-400">Agenda una cita de 30 minutos y te muestro esto (y todo lo demás) funcionando con datos reales de campaña.</p>
+            <a href={LINK_AGENDAR_CITA} target="_blank" rel="noopener noreferrer"
+              className="block w-full py-3 rounded-xl bg-indigo-600 text-white font-bold text-sm">
+              📅 Agendar mi cita →
+            </a>
+            <button onClick={() => setMostrarPromoCita(false)} className="text-xs text-slate-500">Seguir explorando la demo</button>
+          </div>
+        </div>
+      )}
     </nav>
   );
 }

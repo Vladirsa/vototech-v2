@@ -68,6 +68,18 @@ const PUNTO_ACTIVIDAD = { reciente: 'bg-emerald-400', medio: 'bg-amber-400', ina
 function ModalAgregarMiembro({ miembros, onCerrar, onGuardado }) {
   const [form, setForm] = useState({ nombre: '', email: '', password: '', telefono: '', rol: 'coord_seccional', puesto: '', parent_id: '', territorio_tipo: 'seccion', territorio_id: '', meta_diaria: '' });
   const [sugerencia, setSugerencia] = useState(null);
+  // Opciones reales de territorio (secciones/municipios/distritos que
+  // de verdad existen dentro de ESTA campaña) — antes había que
+  // escribir el número a mano, adivinando o buscando en otro lado.
+  const [opcionesTerritorio, setOpcionesTerritorio] = useState([]);
+  const [cargandoOpciones, setCargandoOpciones] = useState(false);
+  useEffect(() => {
+    setCargandoOpciones(true);
+    api.get(`/estructura/opciones-territorio?nivel=${form.territorio_tipo}`)
+      .then((r) => setOpcionesTerritorio(r.data.data))
+      .catch(() => setOpcionesTerritorio([]))
+      .finally(() => setCargandoOpciones(false));
+  }, [form.territorio_tipo]);
 
   useEffect(() => {
     if (!form.territorio_id) { setSugerencia(null); return; }
@@ -123,16 +135,19 @@ function ModalAgregarMiembro({ miembros, onCerrar, onGuardado }) {
 
         {(form.rol === 'coord_seccional' || form.rol === 'coord_municipal' || form.rol === 'coord_distrital' || form.rol === 'coord_general') && (
           <div className="flex gap-2">
-            <select value={form.territorio_tipo} onChange={(e) => setForm({ ...form, territorio_tipo: e.target.value })}
+            <select value={form.territorio_tipo} onChange={(e) => setForm({ ...form, territorio_tipo: e.target.value, territorio_id: '' })}
               className="px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
               <option value="seccion">Sección</option>
               <option value="municipio">Municipio</option>
               <option value="distrito_local">Distrito Local</option>
               <option value="distrito_federal">Distrito Federal</option>
             </select>
-            <input placeholder="Número (ej: 12)" type="number" value={form.territorio_id}
-              onChange={(e) => setForm({ ...form, territorio_id: e.target.value })}
-              className="flex-1 px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+            <select value={form.territorio_id} onChange={(e) => setForm({ ...form, territorio_id: e.target.value })}
+              disabled={cargandoOpciones}
+              className="flex-1 px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm disabled:opacity-50">
+              <option value="">{cargandoOpciones ? 'Cargando...' : opcionesTerritorio.length === 0 ? 'Sin opciones disponibles' : 'Selecciona...'}</option>
+              {opcionesTerritorio.map((o) => <option key={o.valor} value={o.valor}>{o.etiqueta}</option>)}
+            </select>
           </div>
         )}
 
@@ -176,6 +191,15 @@ function ModalDetalleMiembro({ miembro, miembros, onCerrar, onActualizado }) {
   const [nuevoDestino, setNuevoDestino] = useState('');
   const [editando, setEditando] = useState(false);
   const [form, setForm] = useState({ nombre: miembro.nombre, telefono: miembro.telefono || '', rol: miembro.rol, puesto: miembro.puesto || '', parent_id: miembro.parent_id || '', meta_diaria: miembro.meta_diaria || '', territorio_tipo: miembro.territorio_tipo || 'seccion', territorio_id: miembro.territorio_id || '' });
+  const [opcionesTerritorioEdit, setOpcionesTerritorioEdit] = useState([]);
+  const [cargandoOpcionesEdit, setCargandoOpcionesEdit] = useState(false);
+  useEffect(() => {
+    setCargandoOpcionesEdit(true);
+    api.get(`/estructura/opciones-territorio?nivel=${form.territorio_tipo}`)
+      .then((r) => setOpcionesTerritorioEdit(r.data.data))
+      .catch(() => setOpcionesTerritorioEdit([]))
+      .finally(() => setCargandoOpcionesEdit(false));
+  }, [form.territorio_tipo]);
 
   const hijosDirectos = miembros.filter((m) => m.parent_id === miembro.id);
 
@@ -385,16 +409,19 @@ function ModalDetalleMiembro({ miembro, miembros, onCerrar, onActualizado }) {
               {PUESTOS_POR_ROL[form.rol]?.map((p) => <option key={p} value={p} />)}
             </datalist>
             <div className="flex gap-2">
-              <select value={form.territorio_tipo} onChange={(e) => setForm({ ...form, territorio_tipo: e.target.value })}
+              <select value={form.territorio_tipo} onChange={(e) => setForm({ ...form, territorio_tipo: e.target.value, territorio_id: '' })}
                 className="px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
                 <option value="seccion">Sección</option>
                 <option value="municipio">Municipio</option>
                 <option value="distrito_local">Distrito Local</option>
                 <option value="distrito_federal">Distrito Federal</option>
               </select>
-              <input placeholder="Número" type="number" value={form.territorio_id}
-                onChange={(e) => setForm({ ...form, territorio_id: e.target.value })}
-                className="flex-1 px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+              <select value={form.territorio_id} onChange={(e) => setForm({ ...form, territorio_id: e.target.value })}
+                disabled={cargandoOpcionesEdit}
+                className="flex-1 px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm disabled:opacity-50">
+                <option value="">{cargandoOpcionesEdit ? 'Cargando...' : 'Selecciona...'}</option>
+                {opcionesTerritorioEdit.map((o) => <option key={o.valor} value={o.valor}>{o.etiqueta}</option>)}
+              </select>
             </div>
             <select value={form.parent_id} onChange={(e) => setForm({ ...form, parent_id: e.target.value })}
               className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">

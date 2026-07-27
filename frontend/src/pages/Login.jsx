@@ -153,6 +153,16 @@ export default function Login() {
         </div>
 
         <form onSubmit={manejarSubmit} className="bg-slate-900/60 backdrop-blur border border-slate-800 rounded-2xl p-6 space-y-4">
+          {!subdominioAutomatico && (
+            <button
+              type="button"
+              onClick={() => { setEntrandoAutomatico(true); setSubdominio('demo'); setEmail('demo@vototech.mx'); intentarLogin('demo', 'demo@vototech.mx', 'VotoTechDemo2027'); }}
+              className="w-full py-2.5 rounded-xl bg-teal-600/20 border border-teal-500/40 text-teal-300 text-sm font-bold hover:bg-teal-600/30 transition-colors"
+            >
+              🎬 Solo quiero probar la demo →
+            </button>
+          )}
+
           {error && (
             <div className="bg-red-500/10 border border-red-500/30 text-red-400 text-xs rounded-lg px-3 py-2">
               ⚠️ {error}
