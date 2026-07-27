@@ -879,18 +879,16 @@ router.get('/cierre-campana-pdf', async (req, res) => {
     const activosRes = await query(`SELECT tipo, COUNT(*) as total FROM activos WHERE campana_id=$1 GROUP BY tipo`, [campanaId]);
     const incidenciasRes = await query(`SELECT COUNT(*) as total FROM incidencias WHERE campana_id=$1`, [campanaId]);
 
-    // ── Generar el PDF ──
-    const doc = new PDFDocument({ margin: 50 });
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename=reporte_cierre_${new Date().toISOString().slice(0, 10)}.pdf`);
-    doc.pipe(res);
+    // ── Generar el PDF — reutiliza el mismo membrete que todos los demás reportes ──
+    const doc = iniciarPDF(
+      res,
+      `reporte_cierre_${new Date().toISOString().slice(0, 10)}.pdf`,
+      'Reporte de Cierre de Campaña',
+      `${campana.nombre_candidato} · ${campana.partido?.toUpperCase()} · ${campana.tipo_eleccion}`,
+      req.usuario.nombre
+    );
 
-    doc.fontSize(20).fillColor('#1e1b4b').text('Reporte de Cierre de Campaña', { align: 'center' });
-    doc.fontSize(12).fillColor('#4338ca').text(campana.nombre_candidato, { align: 'center' });
-    doc.fontSize(9).fillColor('#64748b').text(`${campana.partido?.toUpperCase()} · ${campana.tipo_eleccion} · Generado el ${new Date().toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' })}`, { align: 'center' });
-    doc.moveDown(2);
-
-    const seccion = (titulo) => { doc.moveDown(0.5); doc.fontSize(13).fillColor('#1e1b4b').text(titulo); doc.moveDown(0.3); doc.fontSize(10).fillColor('#334155'); };
+    const seccion = (titulo) => { doc.moveDown(0.5); doc.fontSize(13).font('Helvetica-Bold').fillColor('#1e1b4b').text(titulo); doc.moveDown(0.3); doc.fontSize(10).font('Helvetica').fillColor('#334155'); };
     const linea = (etiqueta, valor) => doc.text(`${etiqueta}: ${valor}`);
 
     seccion('Avance Electoral');
@@ -977,20 +975,39 @@ router.get('/encuestas-resumen', async (req, res) => {
   });
 });
 
-/** Encabezado compartido para todos los reportes PDF — mismo estilo. */
-function iniciarPDF(res, nombreArchivo, titulo, subtitulo) {
-  const doc = new PDFDocument({ margin: 50 });
+/**
+ * Encabezado compartido para todos los reportes PDF — ahora con
+ * membrete real (no solo texto centrado) y quién lo descargó, para
+ * que un PDF que circule por WhatsApp se pueda rastrear a quién se
+ * le dio originalmente.
+ */
+function iniciarPDF(res, nombreArchivo, titulo, subtitulo, descargadoPor) {
+  const doc = new PDFDocument({ margin: 50, size: 'letter' });
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename=${nombreArchivo}`);
   doc.pipe(res);
-  doc.fontSize(18).fillColor('#1e1b4b').text(titulo, { align: 'center' });
-  if (subtitulo) doc.fontSize(9).fillColor('#64748b').text(subtitulo, { align: 'center' });
-  doc.fontSize(8).fillColor('#94a3b8').text(`Generado el ${new Date().toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' })}`, { align: 'center' });
+
+  // ── MEMBRETE ── franja superior de color + marca, no solo texto suelto
+  doc.rect(0, 0, doc.page.width, 8).fill('#1e1b4b');
+  doc.fillColor('#1e1b4b').fontSize(16).font('Helvetica-Bold').text('🗳️  VOTOTECH', 50, 28, { continued: false });
+  doc.fontSize(8).font('Helvetica').fillColor('#94a3b8').text('Plataforma Digital de Gestión Electoral', 50, 48);
+  doc.moveTo(50, 66).lineTo(doc.page.width - 50, 66).lineWidth(1.5).strokeColor('#e2e8f0').stroke();
+
+  doc.moveDown(1.2);
+  doc.fontSize(18).font('Helvetica-Bold').fillColor('#1e1b4b').text(titulo, { align: 'center' });
+  if (subtitulo) doc.fontSize(10).font('Helvetica').fillColor('#4338ca').text(subtitulo, { align: 'center' });
+  doc.fontSize(8).fillColor('#94a3b8').text(`Generado el ${new Date().toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' })} a las ${new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}`, { align: 'center' });
+  if (descargadoPor) {
+    doc.fontSize(8).fillColor('#94a3b8').text(`Descargado por: ${descargadoPor}`, { align: 'center' });
+  }
   doc.moveDown(1.5);
   return doc;
 }
-const seccionPDF = (doc, titulo) => { doc.moveDown(0.5); doc.fontSize(13).fillColor('#1e1b4b').text(titulo); doc.moveDown(0.3); doc.fontSize(10).fillColor('#334155'); };
+const seccionPDF = (doc, titulo) => { doc.moveDown(0.5); doc.fontSize(13).font('Helvetica-Bold').fillColor('#1e1b4b').text(titulo); doc.moveDown(0.3); doc.fontSize(10).font('Helvetica').fillColor('#334155'); };
 const lineaPDF = (doc, etiqueta, valor) => doc.text(`${etiqueta}: ${valor}`);
+// Para párrafos de verdad (descripciones largas) — texto justificado,
+// se ve más formal/ejecutivo que el default alineado a la izquierda.
+const parrafoPDF = (doc, texto, opts = {}) => doc.font('Helvetica').fontSize(9).fillColor('#334155').text(texto, { align: 'justify', ...opts });
 
 /**
  * GET /api/reportes/pdf/juridico
@@ -1001,7 +1018,7 @@ router.get('/pdf/juridico', async (req, res) => {
   const plazos = await query('SELECT * FROM calendario_electoral WHERE campana_id=$1 ORDER BY fecha', [campanaId]);
   const quejas = await query('SELECT * FROM quejas_recursos WHERE campana_id=$1 ORDER BY creado_en DESC', [campanaId]);
 
-  const doc = iniciarPDF(res, 'reporte_juridico.pdf', 'Reporte Juridico de Campana', campanaRes.rows[0]?.nombre_candidato);
+  const doc = iniciarPDF(res, 'reporte_juridico.pdf', 'Reporte Juridico de Campana', campanaRes.rows[0]?.nombre_candidato, req.usuario.nombre);
 
   seccionPDF(doc, 'Calendario Electoral');
   if (plazos.rows.length === 0) doc.text('Sin plazos registrados');
@@ -1011,7 +1028,7 @@ router.get('/pdf/juridico', async (req, res) => {
   if (quejas.rows.length === 0) doc.text('Sin quejas ni recursos registrados');
   quejas.rows.forEach((q) => {
     doc.font('Helvetica-Bold').text(`${q.tipo.toUpperCase()} ante ${q.autoridad.toUpperCase()} - ${q.estado}`);
-    doc.font('Helvetica').fontSize(9).text(q.descripcion, { indent: 15 });
+    doc.font('Helvetica').fontSize(9).text(q.descripcion, { indent: 15, align: 'justify' });
     doc.fontSize(10).moveDown(0.3);
   });
 
@@ -1033,7 +1050,7 @@ router.get('/pdf/estructura', async (req, res) => {
   );
   const porRol = await query('SELECT rol, COUNT(*) as total FROM usuarios WHERE campana_id=$1 AND activo != false GROUP BY rol', [campanaId]);
 
-  const doc = iniciarPDF(res, 'reporte_estructura.pdf', 'Reporte de Estructura de Campana', campanaRes.rows[0]?.nombre_candidato);
+  const doc = iniciarPDF(res, 'reporte_estructura.pdf', 'Reporte de Estructura de Campana', campanaRes.rows[0]?.nombre_candidato, req.usuario.nombre);
 
   seccionPDF(doc, 'Resumen por Nivel');
   porRol.rows.forEach((r) => lineaPDF(doc, r.rol, r.total));
@@ -1057,7 +1074,7 @@ router.get('/pdf/incidencias', async (req, res) => {
   );
   const porTipo = await query('SELECT tipo, COUNT(*) as total FROM incidencias WHERE campana_id=$1 GROUP BY tipo', [campanaId]);
 
-  const doc = iniciarPDF(res, 'reporte_incidencias.pdf', 'Reporte de Incidencias de Campana', campanaRes.rows[0]?.nombre_candidato);
+  const doc = iniciarPDF(res, 'reporte_incidencias.pdf', 'Reporte de Incidencias de Campana', campanaRes.rows[0]?.nombre_candidato, req.usuario.nombre);
 
   seccionPDF(doc, 'Resumen por Tipo');
   porTipo.rows.forEach((r) => lineaPDF(doc, r.tipo, r.total));
@@ -1065,7 +1082,7 @@ router.get('/pdf/incidencias', async (req, res) => {
   seccionPDF(doc, `Detalle (${incidencias.rows.length} incidencias)`);
   incidencias.rows.forEach((i) => {
     doc.font('Helvetica-Bold').text(`${i.tipo} - ${i.urgencia} - ${i.estado}${i.seccion_numero ? ` (Seccion ${i.seccion_numero})` : ''}`);
-    doc.font('Helvetica').fontSize(9).text(i.descripcion, { indent: 15 });
+    doc.font('Helvetica').fontSize(9).text(i.descripcion, { indent: 15, align: 'justify' });
     doc.fontSize(10).moveDown(0.3);
   });
 
@@ -1091,7 +1108,7 @@ router.get('/pdf/encuestas', async (req, res) => {
     [campanaId]
   );
 
-  const doc = iniciarPDF(res, 'reporte_encuestas.pdf', 'Reporte Concentrado de Encuestas', campanaRes.rows[0]?.nombre_candidato);
+  const doc = iniciarPDF(res, 'reporte_encuestas.pdf', 'Reporte Concentrado de Encuestas', campanaRes.rows[0]?.nombre_candidato, req.usuario.nombre);
 
   seccionPDF(doc, 'Encuestas Activas');
   if (encuestas.rows.length === 0) doc.text('Sin encuestas registradas');
@@ -1126,7 +1143,7 @@ router.get('/resumen-ejecutivo-pdf', async (req, res) => {
   const totalComp = parseInt(comprometidos.rows[0].total);
   const pctComp = totalProm > 0 ? Math.round((totalComp / totalProm) * 100) : 0;
 
-  const doc = iniciarPDF(res, 'resumen_ejecutivo.pdf', 'Resumen Ejecutivo de Campaña', campana?.nombre_candidato);
+  const doc = iniciarPDF(res, 'resumen_ejecutivo.pdf', 'Resumen Ejecutivo de Campaña', campana?.nombre_candidato, req.usuario.nombre);
 
   seccionPDF(doc, 'Los números que importan');
   lineaPDF(doc, 'Promovidos totales', totalProm);
