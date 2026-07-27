@@ -165,6 +165,16 @@ footer a:hover{color:var(--teal);}
 .carrusel-dot{width:9px; height:9px; border-radius:50%; background:var(--line); border:0; cursor:pointer; padding:0; transition:background 0.2s, transform 0.2s;}
 .carrusel-dot.activo{background:var(--teal); transform:scale(1.25);}
 
+/* Slider de testimonios */
+.testi-carrusel{max-width:720px; margin:0 auto; position:relative; min-height:200px;}
+.testi-slide{display:none; text-align:center;}
+.testi-slide.activa{display:block; animation:carrusel-fade 0.4s ease;}
+.testi-quote{font-family:'Space Grotesk',sans-serif; font-size:1.3rem; line-height:1.5; color:var(--ink); font-style:italic;}
+.testi-quote::before{content:'"'; color:var(--teal);}
+.testi-quote::after{content:'"'; color:var(--teal);}
+.testi-autor{margin-top:18px; font-size:13px; font-weight:700; color:var(--teal);}
+.testi-lugar{font-size:12px; color:var(--ink-soft);}
+
 .mock-browser{background:var(--white); border-radius:14px; overflow:hidden; box-shadow:0 20px 50px rgba(20,18,61,0.12); border:1px solid var(--line);}
 .mock-bar{display:flex; align-items:center; gap:6px; padding:10px 14px; background:#EDEBE3; border-bottom:1px solid var(--line);}
 .mock-bar span{width:9px; height:9px; border-radius:50%; background:#D8D5C8;}
