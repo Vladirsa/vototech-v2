@@ -194,7 +194,7 @@ export default function AdminPlataforma() {
     const { data } = await axios.get(`${API_URL}/blog/admin`, { headers });
     setBlogPosts(data.data);
   };
-  useEffect(() => { cargarBlog(); }, []);
+  useEffect(() => { if (autenticado) cargarBlog(); }, [autenticado]);
 
   const limpiarFormBlog = () => {
     setFormBlog({ titulo: '', tipo: 'articulo', resumen: '', contenido: '', url_video: '', etiquetas: '', meta_descripcion: '', publicado: false });
@@ -252,7 +252,7 @@ export default function AdminPlataforma() {
     const { data } = await axios.get(`${API_URL}/admin/resumen-datos/${estId}`, { headers });
     setResumenDatos(data.data);
   };
-  useEffect(() => { cargarResumenDatos(estadoCarga); }, [estadoCarga]);
+  useEffect(() => { if (autenticado) cargarResumenDatos(estadoCarga); }, [estadoCarga, autenticado]);
 
   const subirResultados = async () => {
     if (!archivoResultados) return;
