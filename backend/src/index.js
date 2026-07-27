@@ -24,6 +24,7 @@ import geoRoutes from './routes/geo.js';
 import resultadosRoutes from './routes/resultados.js';
 import promovidosRoutes from './routes/promovidos.js';
 import priorizacionRoutes, { guardarSnapshotDiario } from './routes/priorizacion.js';
+import blogRoutes from './routes/blog.js';
 import estructuraRoutes from './routes/estructura.js';
 import reportesRoutes from './routes/reportes.js';
 import agendaRoutes from './routes/agenda.js';
@@ -66,6 +67,94 @@ app.use(helmet());
 // por el CSP estricto de la API porque solo sirve archivos, no
 // procesa datos. Vive en su propia carpeta, aparte del sistema
 // electoral real (que sigue siendo solo API + frontend en Vercel).
+// ── BLOG PÚBLICO — renderizado en el servidor (no solo JS del
+// cliente) para que Google indexe bien cada artículo, con su propio
+// título y descripción únicos. Va ANTES del static para que /blog
+// no intente buscar un archivo blog.html que no existe.
+const ESTILO_BLOG = `
+  body{background:#0B0A21;color:#E8E8F5;font-family:'IBM Plex Sans',sans-serif;margin:0;}
+  .cont{max-width:760px;margin:0 auto;padding:100px 24px 80px;}
+  a.volver{color:#00D4B8;text-decoration:none;font-size:14px;font-weight:600;}
+  h1{font-family:'Space Grotesk',sans-serif;font-size:2.2rem;line-height:1.2;margin:20px 0 10px;}
+  .meta{color:#8583B0;font-size:13px;margin-bottom:30px;}
+  .tag{display:inline-block;background:#14123D;color:#00D4B8;font-size:11px;padding:4px 10px;border-radius:20px;margin-right:6px;}
+  .contenido{font-size:16px;line-height:1.75;white-space:pre-wrap;}
+  .tarjeta{border:1px solid #23204F;border-radius:16px;padding:22px;margin-bottom:18px;display:block;text-decoration:none;color:inherit;}
+  .tarjeta:hover{border-color:#00D4B8;}
+  .tarjeta h2{font-family:'Space Grotesk',sans-serif;font-size:1.3rem;margin:0 0 8px;color:#fff;}
+  .tarjeta p{color:#B8B6D8;font-size:14px;line-height:1.5;margin:0 0 10px;}
+  .cta{background:#00D4B8;color:#0B0A21;padding:12px 22px;border-radius:10px;font-weight:700;text-decoration:none;display:inline-block;margin-top:30px;}
+  iframe{width:100%;aspect-ratio:16/9;border-radius:12px;border:0;}
+  .pdf-embed{display:block;background:#14123D;border-radius:12px;padding:30px;text-align:center;text-decoration:none;color:#00D4B8;font-weight:700;}
+`;
+function urlYoutubeEmbed(url) {
+  const m = url?.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/))([\w-]{11})/);
+  return m ? `https://www.youtube.com/embed/${m[1]}` : null;
+}
+
+app.get('/blog', async (req, res) => {
+  const r = await query(`SELECT titulo, slug, tipo, resumen, etiquetas, fecha_publicacion FROM blog_publicaciones WHERE publicado=true ORDER BY fecha_publicacion DESC LIMIT 100`);
+  const tarjetas = r.rows.map((p) => `
+    <a class="tarjeta" href="/blog/${p.slug}">
+      <h2>${p.tipo === 'pdf' ? '📎 ' : p.tipo === 'video' ? '🎬 ' : ''}${p.titulo}</h2>
+      <p>${p.resumen || ''}</p>
+      ${(p.etiquetas || []).map((t) => `<span class="tag">${t}</span>`).join('')}
+    </a>`).join('\n');
+  res.send(`<!DOCTYPE html><html lang="es-MX"><head><meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Blog — VotoTech | Recursos para campañas electorales en México</title>
+    <meta name="description" content="Artículos, guías y recursos sobre organización de campañas electorales, estructura territorial, y gestión de campo en México.">
+    <link rel="canonical" href="https://www.vototech.com.mx/blog">
+    <meta name="robots" content="index, follow">
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>${ESTILO_BLOG}</style></head><body>
+    <div class="cont">
+      <a class="volver" href="/">← VotoTech</a>
+      <h1>Blog de VotoTech</h1>
+      <p class="meta">Recursos para organizar campañas electorales en México</p>
+      ${tarjetas || '<p>Todavía no hay publicaciones.</p>'}
+    </div></body></html>`);
+});
+
+app.get('/blog/:slug', async (req, res) => {
+  const r = await query('SELECT * FROM blog_publicaciones WHERE slug=$1 AND publicado=true', [req.params.slug]);
+  const p = r.rows[0];
+  if (!p) return res.status(404).send('<h1>No encontrado</h1><a href="/blog">← Volver al blog</a>');
+  query('UPDATE blog_publicaciones SET vistas=vistas+1 WHERE id=$1', [p.id]).catch(() => {});
+
+  let cuerpoMedia = '';
+  if (p.tipo === 'video' && p.url_archivo) {
+    const embed = urlYoutubeEmbed(p.url_archivo);
+    cuerpoMedia = embed ? `<iframe src="${embed}" allowfullscreen></iframe>` : `<a class="pdf-embed" href="${p.url_archivo}" target="_blank">▶️ Ver video</a>`;
+  } else if (p.tipo === 'pdf' && p.url_archivo) {
+    cuerpoMedia = `<a class="pdf-embed" href="${p.url_archivo}" target="_blank">📎 Descargar / ver PDF</a>`;
+  }
+
+  const metaDesc = (p.meta_descripcion || p.resumen || '').replace(/"/g, '&quot;');
+  res.send(`<!DOCTYPE html><html lang="es-MX"><head><meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>${p.meta_titulo || p.titulo} | Blog VotoTech</title>
+    <meta name="description" content="${metaDesc}">
+    <link rel="canonical" href="https://www.vototech.com.mx/blog/${p.slug}">
+    <meta property="og:type" content="article">
+    <meta property="og:title" content="${p.titulo}">
+    <meta property="og:description" content="${metaDesc}">
+    ${p.imagen_portada ? `<meta property="og:image" content="${p.imagen_portada}">` : ''}
+    <meta name="robots" content="index, follow">
+    <script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'Article', headline: p.titulo, description: metaDesc, datePublished: p.fecha_publicacion })}</script>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>${ESTILO_BLOG}</style></head><body>
+    <div class="cont">
+      <a class="volver" href="/blog">← Blog VotoTech</a>
+      <h1>${p.titulo}</h1>
+      <p class="meta">${new Date(p.fecha_publicacion).toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' })} · ${p.vistas} vistas</p>
+      ${(p.etiquetas || []).map((t) => `<span class="tag">${t}</span>`).join('')}
+      ${cuerpoMedia}
+      <div class="contenido">${(p.contenido || '').replace(/</g, '&lt;')}</div>
+      <a class="cta" href="/#demo">Probar VotoTech →</a>
+    </div></body></html>`);
+});
+
 app.use(express.static(path.join(__dirname, '../public-marketing')));
 
 // CORS: solo se permite acceso desde los dominios de VotoTech
@@ -125,6 +214,10 @@ app.use('/api/geo', geoRoutes);
 app.use('/api/resultados', resultadosRoutes);
 app.use('/api/promovidos', requiereAuth, requiereModulo('promovidos'), promovidosRoutes);
 app.use('/api/priorizacion', requiereAuth, requiereModulo('priorizacion'), priorizacionRoutes);
+// El blog maneja su propia protección adentro (rutas /admin con
+// requiereSuperAdmin, rutas públicas sin nada) — por eso NO lleva
+// requiereAuth aquí, a diferencia de los demás módulos.
+app.use('/api/blog', blogRoutes);
 app.use('/api/estructura', requiereAuth, requiereModulo('estructura'), estructuraRoutes);
 app.use('/api/reportes', requiereAuth, requiereModulo('reportes'), reportesRoutes);
 app.use('/api/agenda', requiereAuth, requiereModulo('agenda'), agendaRoutes);

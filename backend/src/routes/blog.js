@@ -1,0 +1,176 @@
+import { Router } from 'express';
+import { z } from 'zod';
+import multer from 'multer';
+import crypto from 'crypto';
+import { createClient } from '@supabase/supabase-js';
+import { query } from '../db/pool.js';
+import { requiereSuperAdmin } from '../middleware/superAdmin.js';
+
+const router = Router();
+
+function clienteSupabase() {
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_KEY;
+  if (!url || !key) return null;
+  return createClient(url, key);
+}
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 30 * 1024 * 1024 } });
+
+function generarSlug(titulo) {
+  return titulo
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // quita acentos
+    .replace(/[^a-z0-9\s-]/g, '')
+    .trim()
+    .replace(/\s+/g, '-')
+    .slice(0, 200);
+}
+
+const esquemaPublicacion = z.object({
+  titulo: z.string({ required_error: 'Falta el título' }).min(5, 'El título es muy corto').max(200),
+  tipo: z.enum(['articulo', 'pdf', 'video']).default('articulo'),
+  resumen: z.string().max(300).optional(),
+  contenido: z.string().optional(),
+  url_video: z.string().url('El link del video no es válido').optional(),
+  imagen_portada: z.string().url().optional(),
+  etiquetas: z.array(z.string()).default([]),
+  meta_titulo: z.string().max(200).optional(),
+  meta_descripcion: z.string().max(300).optional(),
+  publicado: z.boolean().default(false),
+});
+
+// ══════════════════════════════════════════════════════════
+// ADMINISTRACIÓN — protegido con la misma clave del Panel de Admin
+// ══════════════════════════════════════════════════════════
+
+/** GET /api/blog/admin — todas las publicaciones, publicadas o no, para el panel */
+router.get('/admin', requiereSuperAdmin, async (req, res) => {
+  const r = await query('SELECT * FROM blog_publicaciones ORDER BY creado_en DESC');
+  res.json({ ok: true, data: r.rows });
+});
+
+/**
+ * POST /api/blog/admin
+ * Crea una publicación nueva. Si es tipo "pdf", espera el archivo en
+ * el campo "archivo" (multipart/form-data). Si es "articulo" o
+ * "video", el body puede ser JSON normal.
+ */
+router.post('/admin', requiereSuperAdmin, upload.single('archivo'), async (req, res) => {
+  const cuerpo = { ...req.body };
+  // Si viene de un form multipart, etiquetas llega como texto separado por comas
+  if (typeof cuerpo.etiquetas === 'string') {
+    cuerpo.etiquetas = cuerpo.etiquetas.split(',').map((e) => e.trim()).filter(Boolean);
+  }
+  if (typeof cuerpo.publicado === 'string') cuerpo.publicado = cuerpo.publicado === 'true';
+
+  const parseado = esquemaPublicacion.safeParse(cuerpo);
+  if (!parseado.success) {
+    return res.status(400).json({ ok: false, error: parseado.error.errors[0].message });
+  }
+  const d = parseado.data;
+
+  let urlArchivo = d.url_video || null;
+  if (d.tipo === 'pdf') {
+    if (!req.file) return res.status(400).json({ ok: false, error: 'Falta subir el archivo PDF' });
+    const supabase = clienteSupabase();
+    if (!supabase) return res.status(500).json({ ok: false, error: 'Almacenamiento no configurado en el servidor' });
+    const ruta = `blog/${crypto.randomBytes(8).toString('hex')}-${req.file.originalname}`;
+    const { error: errorSubida } = await supabase.storage.from('documentos').upload(ruta, req.file.buffer, { contentType: req.file.mimetype });
+    if (errorSubida) return res.status(500).json({ ok: false, error: 'No se pudo subir el PDF' });
+    urlArchivo = supabase.storage.from('documentos').getPublicUrl(ruta).data.publicUrl;
+  }
+
+  // Imagen de portada opcional, sube junto en el mismo campo "archivo"
+  // solo si el tipo NO es pdf (para pdf, "archivo" ya se usó arriba).
+  let imagenPortada = d.imagen_portada || null;
+
+  let slugBase = generarSlug(d.titulo);
+  let slug = slugBase;
+  let intento = 1;
+  while ((await query('SELECT 1 FROM blog_publicaciones WHERE slug=$1', [slug])).rows[0]) {
+    slug = `${slugBase}-${++intento}`;
+  }
+
+  const resultado = await query(
+    `INSERT INTO blog_publicaciones
+      (titulo, slug, tipo, resumen, contenido, url_archivo, imagen_portada, etiquetas, meta_titulo, meta_descripcion, publicado, fecha_publicacion)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
+    [d.titulo, slug, d.tipo, d.resumen || null, d.contenido || null, urlArchivo, imagenPortada,
+     d.etiquetas, d.meta_titulo || null, d.meta_descripcion || null, d.publicado, d.publicado ? new Date() : null]
+  );
+  res.status(201).json({ ok: true, data: resultado.rows[0] });
+});
+
+/** PATCH /api/blog/admin/:id — editar o publicar/despublicar */
+router.patch('/admin/:id', requiereSuperAdmin, upload.single('archivo'), async (req, res) => {
+  const cuerpo = { ...req.body };
+  if (typeof cuerpo.etiquetas === 'string') {
+    cuerpo.etiquetas = cuerpo.etiquetas.split(',').map((e) => e.trim()).filter(Boolean);
+  }
+  if (typeof cuerpo.publicado === 'string') cuerpo.publicado = cuerpo.publicado === 'true';
+
+  const actual = await query('SELECT * FROM blog_publicaciones WHERE id=$1', [req.params.id]);
+  if (!actual.rows[0]) return res.status(404).json({ ok: false, error: 'Publicación no encontrada' });
+
+  let urlArchivo = cuerpo.url_video || actual.rows[0].url_archivo;
+  if (req.file) {
+    const supabase = clienteSupabase();
+    if (!supabase) return res.status(500).json({ ok: false, error: 'Almacenamiento no configurado' });
+    const ruta = `blog/${crypto.randomBytes(8).toString('hex')}-${req.file.originalname}`;
+    const { error: errorSubida } = await supabase.storage.from('documentos').upload(ruta, req.file.buffer, { contentType: req.file.mimetype });
+    if (errorSubida) return res.status(500).json({ ok: false, error: 'No se pudo subir el archivo' });
+    urlArchivo = supabase.storage.from('documentos').getPublicUrl(ruta).data.publicUrl;
+  }
+
+  const yaEstabaPublicado = actual.rows[0].publicado;
+  const seVaAPublicar = cuerpo.publicado === true;
+
+  const resultado = await query(
+    `UPDATE blog_publicaciones SET
+       titulo=COALESCE($1,titulo), resumen=COALESCE($2,resumen), contenido=COALESCE($3,contenido),
+       url_archivo=$4, imagen_portada=COALESCE($5,imagen_portada), etiquetas=COALESCE($6,etiquetas),
+       meta_titulo=COALESCE($7,meta_titulo), meta_descripcion=COALESCE($8,meta_descripcion),
+       publicado=COALESCE($9,publicado),
+       fecha_publicacion=CASE WHEN $9=true AND fecha_publicacion IS NULL THEN now() ELSE fecha_publicacion END,
+       actualizado_en=now()
+     WHERE id=$10 RETURNING *`,
+    [cuerpo.titulo, cuerpo.resumen, cuerpo.contenido, urlArchivo, cuerpo.imagen_portada,
+     cuerpo.etiquetas, cuerpo.meta_titulo, cuerpo.meta_descripcion, cuerpo.publicado, req.params.id]
+  );
+  res.json({ ok: true, data: resultado.rows[0] });
+});
+
+/** DELETE /api/blog/admin/:id */
+router.delete('/admin/:id', requiereSuperAdmin, async (req, res) => {
+  await query('DELETE FROM blog_publicaciones WHERE id=$1', [req.params.id]);
+  res.json({ ok: true });
+});
+
+// ══════════════════════════════════════════════════════════
+// PÚBLICAS — sin autenticación, para vototech.com.mx/blog
+// ══════════════════════════════════════════════════════════
+
+/** GET /api/blog?etiqueta=X — lista de publicaciones publicadas */
+router.get('/', async (req, res) => {
+  const { etiqueta } = req.query;
+  const params = [];
+  let filtroEtiqueta = '';
+  if (etiqueta) { params.push(etiqueta); filtroEtiqueta = `AND $${params.length} = ANY(etiquetas)`; }
+  const r = await query(
+    `SELECT id, titulo, slug, tipo, resumen, imagen_portada, etiquetas, fecha_publicacion, vistas
+     FROM blog_publicaciones WHERE publicado=true ${filtroEtiqueta}
+     ORDER BY fecha_publicacion DESC LIMIT 100`,
+    params
+  );
+  res.json({ ok: true, data: r.rows });
+});
+
+/** GET /api/blog/:slug — una publicación completa, cuenta la vista */
+router.get('/:slug', async (req, res) => {
+  const r = await query('SELECT * FROM blog_publicaciones WHERE slug=$1 AND publicado=true', [req.params.slug]);
+  if (!r.rows[0]) return res.status(404).json({ ok: false, error: 'No encontrado' });
+  query('UPDATE blog_publicaciones SET vistas=vistas+1 WHERE id=$1', [r.rows[0].id]).catch(() => {});
+  res.json({ ok: true, data: r.rows[0] });
+});
+
+export default router;
