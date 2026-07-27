@@ -71,25 +71,80 @@ app.use(helmet());
 // cliente) para que Google indexe bien cada artículo, con su propio
 // título y descripción únicos. Va ANTES del static para que /blog
 // no intente buscar un archivo blog.html que no existe.
+// Mismo encabezado exacto de la página principal, para que el blog
+// se sienta parte del mismo sitio, no una página aparte. Los anclas
+// (#producto, #demo, etc.) apuntan de regreso a "/" porque esas
+// secciones viven en la página principal, no en el blog.
+const ENCABEZADO_COMPARTIDO = `
+<header>
+  <nav>
+    <a href="/" class="logo"><svg class="logo-mark" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#14123D"/><path d="M16 20 L32 44 L48 20" stroke="#00D4B8" stroke-width="6" fill="none" stroke-linecap="round" stroke-linejoin="round"/><circle cx="32" cy="14" r="4" fill="#00D4B8"/></svg>VOTOTECH</a>
+    <div class="navlinks">
+      <a href="/#producto">Producto</a>
+      <a href="/#comparativa">Comparativa</a>
+      <a href="/#precios">Precios</a>
+      <a href="/#faq">Preguntas</a>
+      <a href="/blog">Blog</a>
+      <a href="/#contacto">Contacto</a>
+    </div>
+    <div class="navcta">
+      <a href="/#demo" class="btn btn-ghost">Ver demo</a>
+      <a href="https://vototech-v2.vercel.app/" class="btn btn-primary">Ingresar al sistema →</a>
+    </div>
+  </nav>
+</header>`;
+
 const ESTILO_BLOG = `
-  body{background:#0B0A21;color:#E8E8F5;font-family:'IBM Plex Sans',sans-serif;margin:0;}
-  .cont{max-width:760px;margin:0 auto;padding:100px 24px 80px;}
-  a.volver{color:#00D4B8;text-decoration:none;font-size:14px;font-weight:600;}
-  h1{font-family:'Space Grotesk',sans-serif;font-size:2.2rem;line-height:1.2;margin:20px 0 10px;}
-  .meta{color:#8583B0;font-size:13px;margin-bottom:30px;}
-  .tag{display:inline-block;background:#14123D;color:#00D4B8;font-size:11px;padding:4px 10px;border-radius:20px;margin-right:6px;}
-  .contenido{font-size:16px;line-height:1.75;white-space:pre-wrap;}
-  .tarjeta{border:1px solid #23204F;border-radius:16px;padding:22px;margin-bottom:18px;display:block;text-decoration:none;color:inherit;}
-  .tarjeta:hover{border-color:#00D4B8;}
-  .tarjeta h2{font-family:'Space Grotesk',sans-serif;font-size:1.3rem;margin:0 0 8px;color:#fff;}
-  .tarjeta p{color:#B8B6D8;font-size:14px;line-height:1.5;margin:0 0 10px;}
-  .cta{background:#00D4B8;color:#0B0A21;padding:12px 22px;border-radius:10px;font-weight:700;text-decoration:none;display:inline-block;margin-top:30px;}
+  body{background:var(--paper,#F7F5F0);color:var(--ink,#14123D);font-family:'IBM Plex Sans',sans-serif;margin:0;}
+  .blog-wrap{max-width:1180px;margin:0 auto;padding:130px 24px 80px;}
+  .blog-titulo{font-family:'Space Grotesk',sans-serif;font-size:2.4rem;line-height:1.15;margin:0 0 8px;}
+  .blog-sub{color:#6b6890;font-size:15px;margin-bottom:40px;}
+  .blog-layout{display:grid;grid-template-columns:1fr 300px;gap:40px;align-items:start;}
+  .blog-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;}
+  @media (max-width:760px){.blog-layout{grid-template-columns:1fr;} .blog-grid{grid-template-columns:1fr;}}
+  a.volver{color:#0d9488;text-decoration:none;font-size:14px;font-weight:600;}
+  .tarjeta{border:1px solid #E3E0D5;background:#fff;border-radius:16px;padding:22px;display:flex;flex-direction:column;text-decoration:none;color:inherit;transition:border-color 0.2s, transform 0.2s;}
+  .tarjeta:hover{border-color:#0d9488;transform:translateY(-2px);}
+  .tarjeta h2{font-family:'Space Grotesk',sans-serif;font-size:1.15rem;margin:0 0 8px;color:#14123D;line-height:1.3;}
+  .tarjeta p{color:#565278;font-size:13.5px;line-height:1.5;margin:0 0 12px;flex:1;}
+  .tag{display:inline-block;background:#EFEDF9;color:#0d9488;font-size:10.5px;font-weight:600;padding:4px 10px;border-radius:20px;margin:0 5px 5px 0;}
+  .sidebar{position:sticky;top:110px;display:flex;flex-direction:column;gap:20px;}
+  .side-caja{background:#fff;border:1px solid #E3E0D5;border-radius:16px;padding:20px;}
+  .side-caja h3{font-family:'Space Grotesk',sans-serif;font-size:0.95rem;margin:0 0 14px;color:#14123D;}
+  .side-post{display:block;text-decoration:none;color:#14123D;font-size:13px;font-weight:600;padding:9px 0;border-bottom:1px solid #EEEBE0;line-height:1.4;}
+  .side-post:last-child{border-bottom:0;}
+  .side-post:hover{color:#0d9488;}
+  .side-contacto p{font-size:13px;color:#565278;margin:6px 0;}
+  .side-contacto a{color:#0d9488;text-decoration:none;font-weight:600;}
+  .side-cta{display:block;text-align:center;background:#0d9488;color:#fff;padding:12px;border-radius:10px;font-weight:700;text-decoration:none;font-size:13.5px;margin-top:6px;}
+  /* Página de artículo individual */
+  .art-cont{max-width:720px;}
+  a.volver-art{color:#0d9488;text-decoration:none;font-size:14px;font-weight:600;}
+  h1.art-h1{font-family:'Space Grotesk',sans-serif;font-size:2.1rem;line-height:1.2;margin:20px 0 10px;}
+  .art-meta{color:#6b6890;font-size:13px;margin-bottom:24px;}
+  .art-contenido{font-size:16px;line-height:1.75;white-space:pre-wrap;color:#2a2760;}
+  .cta{background:#0d9488;color:#fff;padding:12px 22px;border-radius:10px;font-weight:700;text-decoration:none;display:inline-block;margin-top:30px;}
   iframe{width:100%;aspect-ratio:16/9;border-radius:12px;border:0;}
-  .pdf-embed{display:block;background:#14123D;border-radius:12px;padding:30px;text-align:center;text-decoration:none;color:#00D4B8;font-weight:700;}
+  .pdf-embed{display:block;background:#14123D;border-radius:12px;padding:30px;text-align:center;text-decoration:none;color:#00D4B8;font-weight:700;margin-bottom:20px;}
 `;
 function urlYoutubeEmbed(url) {
   const m = url?.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/))([\w-]{11})/);
   return m ? `https://www.youtube.com/embed/${m[1]}` : null;
+}
+function barraLateralHTML(recientes) {
+  return `
+    <aside class="sidebar">
+      <div class="side-caja">
+        <h3>📰 Publicaciones recientes</h3>
+        ${recientes.map((r) => `<a class="side-post" href="/blog/${r.slug}">${r.titulo}</a>`).join('') || '<p style="font-size:12px;color:#8583B0;">Sin más publicaciones todavía.</p>'}
+      </div>
+      <div class="side-caja side-contacto">
+        <h3>📞 Contáctanos</h3>
+        <p>WhatsApp: <a href="https://wa.me/522461217072" target="_blank" rel="noopener">+52 246 121 7072</a></p>
+        <p>¿Listo para ver el sistema completo?</p>
+        <a class="side-cta" href="https://calendar.app.google/HbzMQYyXH4THQeAL6" target="_blank" rel="noopener">📅 Agenda tu cita →</a>
+      </div>
+    </aside>`;
 }
 
 app.get('/blog', async (req, res) => {
@@ -98,7 +153,7 @@ app.get('/blog', async (req, res) => {
     <a class="tarjeta" href="/blog/${p.slug}">
       <h2>${p.tipo === 'pdf' ? '📎 ' : p.tipo === 'video' ? '🎬 ' : ''}${p.titulo}</h2>
       <p>${p.resumen || ''}</p>
-      ${(p.etiquetas || []).map((t) => `<span class="tag">${t}</span>`).join('')}
+      <div>${(p.etiquetas || []).map((t) => `<span class="tag">${t}</span>`).join('')}</div>
     </a>`).join('\n');
   res.send(`<!DOCTYPE html><html lang="es-MX"><head><meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -106,13 +161,18 @@ app.get('/blog', async (req, res) => {
     <meta name="description" content="Artículos, guías y recursos sobre organización de campañas electorales, estructura territorial, y gestión de campo en México.">
     <link rel="canonical" href="https://www.vototech.com.mx/blog">
     <meta name="robots" content="index, follow">
-    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/style.css">
     <style>${ESTILO_BLOG}</style></head><body>
-    <div class="cont">
-      <a class="volver" href="/">← VotoTech</a>
-      <h1>Blog de VotoTech</h1>
-      <p class="meta">Recursos para organizar campañas electorales en México</p>
-      ${tarjetas || '<p>Todavía no hay publicaciones.</p>'}
+    ${ENCABEZADO_COMPARTIDO}
+    <div class="blog-wrap">
+      <h1 class="blog-titulo">Blog de VotoTech</h1>
+      <p class="blog-sub">Recursos para organizar campañas electorales en México</p>
+      <div class="blog-layout">
+        <div class="blog-grid">${tarjetas || '<p>Todavía no hay publicaciones.</p>'}</div>
+        ${barraLateralHTML(r.rows.slice(0, 5))}
+      </div>
     </div></body></html>`);
 });
 
@@ -121,6 +181,7 @@ app.get('/blog/:slug', async (req, res) => {
   const p = r.rows[0];
   if (!p) return res.status(404).send('<h1>No encontrado</h1><a href="/blog">← Volver al blog</a>');
   query('UPDATE blog_publicaciones SET vistas=vistas+1 WHERE id=$1', [p.id]).catch(() => {});
+  const recientes = await query(`SELECT titulo, slug FROM blog_publicaciones WHERE publicado=true AND slug != $1 ORDER BY fecha_publicacion DESC LIMIT 5`, [p.slug]);
 
   let cuerpoMedia = '';
   if (p.tipo === 'video' && p.url_archivo) {
@@ -141,17 +202,25 @@ app.get('/blog/:slug', async (req, res) => {
     <meta property="og:description" content="${metaDesc}">
     ${p.imagen_portada ? `<meta property="og:image" content="${p.imagen_portada}">` : ''}
     <meta name="robots" content="index, follow">
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'Article', headline: p.titulo, description: metaDesc, datePublished: p.fecha_publicacion })}</script>
-    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/style.css">
     <style>${ESTILO_BLOG}</style></head><body>
-    <div class="cont">
-      <a class="volver" href="/blog">← Blog VotoTech</a>
-      <h1>${p.titulo}</h1>
-      <p class="meta">${new Date(p.fecha_publicacion).toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' })} · ${p.vistas} vistas</p>
-      ${(p.etiquetas || []).map((t) => `<span class="tag">${t}</span>`).join('')}
-      ${cuerpoMedia}
-      <div class="contenido">${(p.contenido || '').replace(/</g, '&lt;')}</div>
-      <a class="cta" href="/#demo">Probar VotoTech →</a>
+    ${ENCABEZADO_COMPARTIDO}
+    <div class="blog-wrap">
+      <div class="blog-layout">
+        <div class="art-cont">
+          <a class="volver-art" href="/blog">← Blog VotoTech</a>
+          <h1 class="art-h1">${p.titulo}</h1>
+          <p class="art-meta">${new Date(p.fecha_publicacion).toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' })} · ${p.vistas} vistas</p>
+          <div>${(p.etiquetas || []).map((t) => `<span class="tag">${t}</span>`).join('')}</div>
+          ${cuerpoMedia}
+          <div class="art-contenido">${(p.contenido || '').replace(/</g, '&lt;')}</div>
+          <a class="cta" href="/#demo">Probar VotoTech →</a>
+        </div>
+        ${barraLateralHTML(recientes.rows)}
+      </div>
     </div></body></html>`);
 });
 
