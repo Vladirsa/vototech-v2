@@ -8,7 +8,7 @@ import Ayuda from '../components/Ayuda';
 // Esta es la "sitekey de pruebas" oficial de Cloudflare — siempre
 // pasa la verificación, así que el registro sigue funcionando
 // mientras configuras la real, pero NO bloquea bots todavía.
-const TURNSTILE_SITE_KEY = '1x00000000000000000000AA';
+const TURNSTILE_SITE_KEY = '0x4AAAAAAD_XQKiCZLybD4K6';
 
 const PARTIDOS_MEXICO = [
   { id: 'morena', label: 'MORENA' },
