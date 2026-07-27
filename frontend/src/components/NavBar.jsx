@@ -59,7 +59,7 @@ const MODULOS_POR_ROL = {
 const MODULOS_BLOQUEADOS_DEMO = ['finanzas', 'juridico', 'dia-eleccion', 'marketing'];
 // Link de agendar cita — reemplázalo por tu link real de Google
 // Calendar (Configuración → Programación de citas) en cuanto lo tengas.
-const LINK_AGENDAR_CITA = 'https://calendar.google.com/calendar/appointments/schedules/PON-AQUI-TU-LINK-REAL';
+const LINK_AGENDAR_CITA = 'https://calendar.app.google/HbzMQYyXH4THQeAL6';
 
 export default function NavBar() {
   const usuario = useAuth((s) => s.usuario);

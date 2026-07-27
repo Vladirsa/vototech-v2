@@ -180,6 +180,72 @@ export default function AdminPlataforma() {
   const [subiendoAfiliados, setSubiendoAfiliados] = useState(false);
   const [mensajeCargaResultados, setMensajeCargaResultados] = useState('');
   const [mensajeCargaAfiliados, setMensajeCargaAfiliados] = useState('');
+
+  // ── BLOG PÚBLICO — artículos, PDFs y videos para SEO ──
+  const [blogPosts, setBlogPosts] = useState([]);
+  const [mostrarFormBlog, setMostrarFormBlog] = useState(false);
+  const [editandoBlogId, setEditandoBlogId] = useState(null);
+  const [formBlog, setFormBlog] = useState({ titulo: '', tipo: 'articulo', resumen: '', contenido: '', url_video: '', etiquetas: '', meta_descripcion: '', publicado: false });
+  const [archivoBlog, setArchivoBlog] = useState(null);
+  const [subiendoBlog, setSubiendoBlog] = useState(false);
+  const [mensajeBlog, setMensajeBlog] = useState('');
+
+  const cargarBlog = async () => {
+    const { data } = await axios.get(`${API_URL}/blog/admin`, { headers });
+    setBlogPosts(data.data);
+  };
+  useEffect(() => { cargarBlog(); }, []);
+
+  const limpiarFormBlog = () => {
+    setFormBlog({ titulo: '', tipo: 'articulo', resumen: '', contenido: '', url_video: '', etiquetas: '', meta_descripcion: '', publicado: false });
+    setArchivoBlog(null);
+    setEditandoBlogId(null);
+    setMostrarFormBlog(false);
+  };
+
+  const editarBlog = (post) => {
+    setFormBlog({
+      titulo: post.titulo, tipo: post.tipo, resumen: post.resumen || '', contenido: post.contenido || '',
+      url_video: post.tipo === 'video' ? post.url_archivo || '' : '', etiquetas: (post.etiquetas || []).join(', '),
+      meta_descripcion: post.meta_descripcion || '', publicado: post.publicado,
+    });
+    setEditandoBlogId(post.id);
+    setMostrarFormBlog(true);
+  };
+
+  const guardarBlog = async () => {
+    setSubiendoBlog(true);
+    setMensajeBlog('');
+    const fd = new FormData();
+    Object.entries(formBlog).forEach(([k, v]) => fd.append(k, v));
+    if (archivoBlog) fd.append('archivo', archivoBlog);
+    try {
+      if (editandoBlogId) {
+        await axios.patch(`${API_URL}/blog/admin/${editandoBlogId}`, fd, { headers: { ...headers, 'Content-Type': 'multipart/form-data' } });
+      } else {
+        await axios.post(`${API_URL}/blog/admin`, fd, { headers: { ...headers, 'Content-Type': 'multipart/form-data' } });
+      }
+      setMensajeBlog('✅ Guardado correctamente');
+      limpiarFormBlog();
+      cargarBlog();
+    } catch (e) {
+      setMensajeBlog('⚠️ ' + (e.response?.data?.error || e.message));
+    }
+    setSubiendoBlog(false);
+  };
+
+  const alternarPublicadoBlog = async (post) => {
+    const fd = new FormData();
+    fd.append('publicado', (!post.publicado).toString());
+    await axios.patch(`${API_URL}/blog/admin/${post.id}`, fd, { headers: { ...headers, 'Content-Type': 'multipart/form-data' } });
+    cargarBlog();
+  };
+
+  const eliminarBlog = async (id) => {
+    if (!confirm('¿Borrar esta publicación para siempre?')) return;
+    await axios.delete(`${API_URL}/blog/admin/${id}`, { headers });
+    cargarBlog();
+  };
   const [resumenDatos, setResumenDatos] = useState(null);
 
   const cargarResumenDatos = async (estId) => {
@@ -375,6 +441,100 @@ export default function AdminPlataforma() {
               </button>
             </div>
             {mensajeCargaAfiliados && <p className="text-[10px] text-slate-300 mt-2">{mensajeCargaAfiliados}</p>}
+          </div>
+        </div>
+
+        {/* ── BLOG PÚBLICO — artículos, PDFs, videos para SEO ── */}
+        <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-bold text-white mb-1">📝 Blog Público (SEO)</h3>
+              <p className="text-[10px] text-slate-500">Vive en vototech.com.mx/blog — artículos, PDFs y videos que Google puede indexar.</p>
+            </div>
+            <button onClick={() => { limpiarFormBlog(); setMostrarFormBlog((v) => !v); }}
+              className="px-3 py-2 rounded-lg bg-teal-600 text-white text-xs font-bold flex-shrink-0">
+              {mostrarFormBlog ? '✕ Cerrar' : '+ Nueva publicación'}
+            </button>
+          </div>
+
+          {mostrarFormBlog && (
+            <div className="bg-slate-800/60 rounded-lg p-3 space-y-2.5">
+              <input placeholder="Título" value={formBlog.titulo} onChange={(e) => setFormBlog({ ...formBlog, titulo: e.target.value })}
+                className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white text-xs" />
+
+              <div className="flex gap-2">
+                <select value={formBlog.tipo} onChange={(e) => setFormBlog({ ...formBlog, tipo: e.target.value })}
+                  className="px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white text-xs">
+                  <option value="articulo">📄 Artículo</option>
+                  <option value="pdf">📎 PDF</option>
+                  <option value="video">🎬 Video</option>
+                </select>
+                <label className="flex items-center gap-1.5 text-[10px] text-slate-300 px-2">
+                  <input type="checkbox" checked={formBlog.publicado} onChange={(e) => setFormBlog({ ...formBlog, publicado: e.target.checked })} />
+                  Publicar ya (si no, queda como borrador)
+                </label>
+              </div>
+
+              <textarea placeholder="Resumen corto (se usa también como descripción para Google)" value={formBlog.resumen}
+                onChange={(e) => setFormBlog({ ...formBlog, resumen: e.target.value })} rows={2}
+                className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white text-xs" />
+
+              {formBlog.tipo === 'articulo' && (
+                <textarea placeholder="Contenido completo del artículo" value={formBlog.contenido}
+                  onChange={(e) => setFormBlog({ ...formBlog, contenido: e.target.value })} rows={8}
+                  className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white text-xs font-mono" />
+              )}
+
+              {formBlog.tipo === 'pdf' && (
+                <div>
+                  <input type="file" accept=".pdf" onChange={(e) => setArchivoBlog(e.target.files[0])}
+                    className="text-[10px] text-slate-300" />
+                  <p className="text-[9px] text-slate-500 mt-1">{editandoBlogId ? 'Solo sube un archivo si quieres reemplazar el actual.' : 'Obligatorio para publicaciones tipo PDF.'}</p>
+                </div>
+              )}
+
+              {formBlog.tipo === 'video' && (
+                <input placeholder="Link de YouTube o Vimeo" value={formBlog.url_video}
+                  onChange={(e) => setFormBlog({ ...formBlog, url_video: e.target.value })}
+                  className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white text-xs" />
+              )}
+
+              <input placeholder="Etiquetas separadas por coma (ej: campaña municipal, estructura, día de la elección)" value={formBlog.etiquetas}
+                onChange={(e) => setFormBlog({ ...formBlog, etiquetas: e.target.value })}
+                className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white text-xs" />
+              <p className="text-[9px] text-slate-500 -mt-1.5">Las etiquetas ayudan a que Google entienda de qué trata, y sirven para filtrar en la página del blog.</p>
+
+              <input placeholder="Descripción para Google (si la dejas vacía, usa el resumen)" value={formBlog.meta_descripcion}
+                onChange={(e) => setFormBlog({ ...formBlog, meta_descripcion: e.target.value })}
+                className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white text-xs" />
+
+              <button onClick={guardarBlog} disabled={subiendoBlog || !formBlog.titulo}
+                className="w-full py-2.5 rounded-lg bg-indigo-600 text-white text-xs font-bold disabled:opacity-40">
+                {subiendoBlog ? '⏳ Guardando...' : editandoBlogId ? 'Guardar cambios' : 'Crear publicación'}
+              </button>
+              {mensajeBlog && <p className="text-[10px] text-slate-300">{mensajeBlog}</p>}
+            </div>
+          )}
+
+          <div className="space-y-1.5">
+            {blogPosts.length === 0 ? (
+              <p className="text-[10px] text-slate-500">Sin publicaciones todavía.</p>
+            ) : blogPosts.map((post) => (
+              <div key={post.id} className="flex items-center justify-between bg-slate-800/40 rounded-lg px-3 py-2">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px]">{post.tipo === 'pdf' ? '📎' : post.tipo === 'video' ? '🎬' : '📄'}</span>
+                    <span className="text-xs font-bold text-white truncate">{post.titulo}</span>
+                  </div>
+                  <div className="text-[9px] text-slate-500">{post.publicado ? `✅ Publicado` : '📝 Borrador'} · {post.vistas} vistas · /blog/{post.slug}</div>
+                </div>
+                <div className="flex gap-1.5 flex-shrink-0">
+                  <button onClick={() => alternarPublicadoBlog(post)} className="text-[10px] px-2 py-1 rounded bg-slate-700 text-slate-300">{post.publicado ? 'Ocultar' : 'Publicar'}</button>
+                  <button onClick={() => editarBlog(post)} className="text-[10px] px-2 py-1 rounded bg-slate-700 text-slate-300">Editar</button>
+                  <button onClick={() => eliminarBlog(post.id)} className="text-[10px] px-2 py-1 rounded bg-red-900/50 text-red-300">Borrar</button>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
 
