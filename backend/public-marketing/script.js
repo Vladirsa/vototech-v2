@@ -27,3 +27,31 @@ function enviarPorWhatsApp(evento) {
   window.open(url, '_blank');
   return false;
 }
+
+// ── Carrusel de pantallas — rota sola cada 4.5s, se puede navegar a
+// mano con los puntitos, y se pausa mientras el mouse está encima ──
+(function () {
+  const slides = document.querySelectorAll('.carrusel-slide');
+  const dots = document.querySelectorAll('.carrusel-dot');
+  const contenedor = document.querySelector('.carrusel-pantallas');
+  if (!slides.length) return;
+  let actual = 0;
+  let pausado = false;
+
+  function irA(indice) {
+    slides.forEach((s) => s.classList.remove('activa'));
+    dots.forEach((d) => d.classList.remove('activo'));
+    slides[indice].classList.add('activa');
+    dots[indice].classList.add('activo');
+    actual = indice;
+  }
+  dots.forEach((dot) => dot.addEventListener('click', () => irA(parseInt(dot.dataset.ir))));
+  if (contenedor) {
+    contenedor.addEventListener('mouseenter', () => { pausado = true; });
+    contenedor.addEventListener('mouseleave', () => { pausado = false; });
+  }
+  setInterval(() => {
+    if (pausado) return;
+    irA((actual + 1) % slides.length);
+  }, 4500);
+})();

@@ -156,6 +156,15 @@ footer a:hover{color:var(--teal);}
 .pantallas-grid{display:grid; grid-template-columns:1.4fr 1fr; gap:32px; align-items:start;}
 .mock-caption{text-align:center; font-size:12px; color:var(--ink-soft); margin-top:14px;}
 
+/* Carrusel de pantallas — rota sola entre varias vistas del sistema */
+.carrusel-pantallas{position:relative;}
+.carrusel-slide{display:none;}
+.carrusel-slide.activa{display:block; animation:carrusel-fade 0.4s ease;}
+@keyframes carrusel-fade{from{opacity:0; transform:translateY(6px);} to{opacity:1; transform:translateY(0);}}
+.carrusel-dots{display:flex; gap:8px; justify-content:center; margin-top:16px;}
+.carrusel-dot{width:9px; height:9px; border-radius:50%; background:var(--line); border:0; cursor:pointer; padding:0; transition:background 0.2s, transform 0.2s;}
+.carrusel-dot.activo{background:var(--teal); transform:scale(1.25);}
+
 .mock-browser{background:var(--white); border-radius:14px; overflow:hidden; box-shadow:0 20px 50px rgba(20,18,61,0.12); border:1px solid var(--line);}
 .mock-bar{display:flex; align-items:center; gap:6px; padding:10px 14px; background:#EDEBE3; border-bottom:1px solid var(--line);}
 .mock-bar span{width:9px; height:9px; border-radius:50%; background:#D8D5C8;}

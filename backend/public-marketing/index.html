@@ -22,6 +22,42 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/style.css">
+
+<!-- ══════════════════════════════════════════════════════════
+     META PIXEL — reemplaza PON-AQUI-TU-PIXEL-ID por el número real
+     de 15-16 dígitos que te da Meta Business (Events Manager).
+     Mientras tenga el placeholder, este script simplemente no hace
+     nada — no rompe la página, no manda datos a ningún lado.
+     ══════════════════════════════════════════════════════════ -->
+<script>
+  if (!'PON-AQUI-TU-PIXEL-ID'.includes('PON-AQUI')) {
+    !function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+    n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;
+    n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;
+    t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,
+    document,'script','https://connect.facebook.net/en_US/fbevents.js');
+    fbq('init', 'PON-AQUI-TU-PIXEL-ID');
+    fbq('track', 'PageView');
+  }
+</script>
+
+<!-- ══════════════════════════════════════════════════════════
+     GOOGLE ADS — reemplaza PON-AQUI-TU-AW-ID por tu ID real
+     (formato AW-XXXXXXXXX) que te da Google Ads → Conversiones.
+     Mismo trato: con el placeholder puesto, no hace nada.
+     ══════════════════════════════════════════════════════════ -->
+<script>
+  if (!'PON-AQUI-TU-AW-ID'.includes('PON-AQUI')) {
+    var s = document.createElement('script');
+    s.src = 'https://www.googletagmanager.com/gtag/js?id=PON-AQUI-TU-AW-ID';
+    s.async = true;
+    document.head.appendChild(s);
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'PON-AQUI-TU-AW-ID');
+  }
+</script>
 </head>
 <body>
 
@@ -50,6 +86,7 @@
       <p class="lead">VotoTech es la plataforma de campaña diseñada para operar en los 32 estados de México — con cartografía electoral oficial, estructura territorial real, hasta el nivel de sección.</p>
       <div class="hero-ctas">
         <a href="#demo" class="btn btn-teal">Solicitar una demo →</a>
+        <a href="https://calendar.app.google/HbzMQYyXH4THQeAL6" target="_blank" rel="noopener" class="btn btn-primary">📅 Agenda tu cita →</a>
         <a href="#producto" class="btn btn-ghost" style="border-color:rgba(255,255,255,0.25); color:#fff;">Ver qué incluye</a>
       </div>
       <p class="hero-note">Sin importar el tamaño de tu campaña — municipal, distrital, o estatal.</p>
@@ -234,22 +271,78 @@
       <p>La misma plataforma, dos experiencias — una pantalla para quien toca puertas, un panel completo para quien dirige.</p>
     </div>
     <div class="pantallas-grid">
-      <div class="mock-browser">
-        <div class="mock-bar"><span></span><span></span><span></span><div class="mock-url">app.vototech.com.mx/dashboard</div></div>
-        <div class="mock-body mock-dashboard">
-          <div class="mock-dash-row">
-            <div class="mock-card teal"><div class="mock-num">1,247</div><div class="mock-lbl">Promovidos</div></div>
-            <div class="mock-card gold"><div class="mock-num">38%</div><div class="mock-lbl">Avance a meta</div></div>
-            <div class="mock-card"><div class="mock-num">412</div><div class="mock-lbl">Secciones cubiertas</div></div>
-          </div>
-          <div class="mock-alert">⚡ Motor de Inteligencia: la sección 112 cayó 12% en actividad esta semana</div>
-          <div class="mock-bars">
-            <div class="mock-bar-item"><span>MORENA</span><div class="mock-bar-track"><div class="mock-bar-fill" style="width:61%;background:var(--teal)"></div></div></div>
-            <div class="mock-bar-item"><span>PAN</span><div class="mock-bar-track"><div class="mock-bar-fill" style="width:24%;background:#64748b"></div></div></div>
-            <div class="mock-bar-item"><span>PRI</span><div class="mock-bar-track"><div class="mock-bar-fill" style="width:15%;background:#64748b"></div></div></div>
+      <div class="carrusel-pantallas">
+        <div class="mock-browser carrusel-slide activa" data-slide="0">
+          <div class="mock-bar"><span></span><span></span><span></span><div class="mock-url">app.vototech.com.mx/dashboard</div></div>
+          <div class="mock-body mock-dashboard">
+            <div class="mock-dash-row">
+              <div class="mock-card teal"><div class="mock-num">1,247</div><div class="mock-lbl">Promovidos</div></div>
+              <div class="mock-card gold"><div class="mock-num">38%</div><div class="mock-lbl">Avance a meta</div></div>
+              <div class="mock-card"><div class="mock-num">412</div><div class="mock-lbl">Secciones cubiertas</div></div>
+            </div>
+            <div class="mock-alert">⚡ Motor de Inteligencia: la sección 112 cayó 12% en actividad esta semana</div>
+            <div class="mock-bars">
+              <div class="mock-bar-item"><span>MORENA</span><div class="mock-bar-track"><div class="mock-bar-fill" style="width:61%;background:var(--teal)"></div></div></div>
+              <div class="mock-bar-item"><span>PAN</span><div class="mock-bar-track"><div class="mock-bar-fill" style="width:24%;background:#64748b"></div></div></div>
+              <div class="mock-bar-item"><span>PRI</span><div class="mock-bar-track"><div class="mock-bar-fill" style="width:15%;background:#64748b"></div></div></div>
+            </div>
           </div>
         </div>
-        <p class="mock-caption">Dashboard ejecutivo — vista real de un candidato</p>
+
+        <div class="mock-browser carrusel-slide" data-slide="1">
+          <div class="mock-bar"><span></span><span></span><span></span><div class="mock-url">app.vototech.com.mx/mapa</div></div>
+          <div class="mock-body mock-dashboard">
+            <div class="mock-alert">🗺️ Distrito Local 4 — 26 de 40 secciones con estructura asignada</div>
+            <div class="mock-dash-row">
+              <div class="mock-card teal"><div class="mock-num">🔴 12</div><div class="mock-lbl">Críticas</div></div>
+              <div class="mock-card gold"><div class="mock-num">🟡 8</div><div class="mock-lbl">Disputa</div></div>
+              <div class="mock-card"><div class="mock-num">🟢 20</div><div class="mock-lbl">Consolidar</div></div>
+            </div>
+            <div class="mock-bars">
+              <div class="mock-bar-item"><span>Sección 112 — Base</span><div class="mock-bar-track"><div class="mock-bar-fill" style="width:78%;background:var(--teal)"></div></div></div>
+              <div class="mock-bar-item"><span>Sección 118 — Persuadible</span><div class="mock-bar-track"><div class="mock-bar-fill" style="width:45%;background:#c9a227"></div></div></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="mock-browser carrusel-slide" data-slide="2">
+          <div class="mock-bar"><span></span><span></span><span></span><div class="mock-url">app.vototech.com.mx/estructura</div></div>
+          <div class="mock-body mock-dashboard">
+            <div class="mock-dash-row">
+              <div class="mock-card teal"><div class="mock-num">🏆 Leyenda</div><div class="mock-lbl">Ana — Coord. Norte</div></div>
+              <div class="mock-card"><div class="mock-num">⭐ Estrella</div><div class="mock-lbl">Luis — Coord. Sur</div></div>
+            </div>
+            <div class="mock-alert">🚨 Motor de Riesgos: Coordinador de la sección 88 lleva 5 días sin reportar</div>
+            <div class="mock-bars">
+              <div class="mock-bar-item"><span>Cobertura de casillas</span><div class="mock-bar-track"><div class="mock-bar-fill" style="width:82%;background:var(--teal)"></div></div></div>
+              <div class="mock-bar-item"><span>Metas cumplidas hoy</span><div class="mock-bar-track"><div class="mock-bar-fill" style="width:67%;background:#c9a227"></div></div></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="mock-browser carrusel-slide" data-slide="3">
+          <div class="mock-bar"><span></span><span></span><span></span><div class="mock-url">app.vototech.com.mx/dia-eleccion</div></div>
+          <div class="mock-body mock-dashboard">
+            <div class="mock-alert">🗳️ Día de la Elección — actualizando cada 20 segundos</div>
+            <div class="mock-dash-row">
+              <div class="mock-card teal"><div class="mock-num">340</div><div class="mock-lbl">Casillas reportadas</div></div>
+              <div class="mock-card gold"><div class="mock-num">89%</div><div class="mock-lbl">Participación</div></div>
+              <div class="mock-card"><div class="mock-num">3</div><div class="mock-lbl">Incidencias urgentes</div></div>
+            </div>
+            <div class="mock-bars">
+              <div class="mock-bar-item"><span>MORENA</span><div class="mock-bar-track"><div class="mock-bar-fill" style="width:58%;background:var(--teal)"></div></div></div>
+              <div class="mock-bar-item"><span>PAN</span><div class="mock-bar-track"><div class="mock-bar-fill" style="width:31%;background:#64748b"></div></div></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="carrusel-dots">
+          <button class="carrusel-dot activo" data-ir="0" aria-label="Ver Dashboard"></button>
+          <button class="carrusel-dot" data-ir="1" aria-label="Ver Mapa"></button>
+          <button class="carrusel-dot" data-ir="2" aria-label="Ver Estructura"></button>
+          <button class="carrusel-dot" data-ir="3" aria-label="Ver Día de la Elección"></button>
+        </div>
+        <p class="mock-caption">Dashboard, Mapa, Estructura, Día D — la misma plataforma, cada módulo a fondo</p>
       </div>
 
       <div class="mock-phone">
@@ -293,6 +386,9 @@
         <tr><td>Administración financiera nivel INE</td><td class="us yes">✓</td><td class="no">—</td><td class="no">✕</td><td class="yes">✓</td></tr>
         <tr><td>Respaldo automático diario</td><td class="us yes">✓</td><td>?</td><td>?</td><td class="yes">✓</td></tr>
       </table>
+    </div>
+    <div style="text-align:center; margin-top:32px;">
+      <a href="https://calendar.app.google/HbzMQYyXH4THQeAL6" target="_blank" rel="noopener" class="btn btn-teal">📅 Compruébalo tú mismo — agenda tu cita →</a>
     </div>
   </div>
 </section>
@@ -343,6 +439,9 @@
         </ul>
         <a href="#contacto" class="btn btn-ghost" style="width:100%; justify-content:center;">Hablar con nosotros</a>
       </div>
+    </div>
+    <div style="text-align:center; margin-top:32px;">
+      <a href="https://calendar.app.google/HbzMQYyXH4THQeAL6" target="_blank" rel="noopener" class="btn btn-primary">📅 ¿No estás seguro cuál plan? Agenda una cita →</a>
     </div>
   </div>
 </section>
@@ -397,7 +496,7 @@
     <p>Explora el sistema con datos reales de una campaña de ejemplo — el mapa, la estructura, y más. Un clic, sin escribir nada. Algunos módulos (Finanzas, Jurídico, Día de la Elección, Marketing) se ven mejor explicados en vivo — agenda una cita y te muestro el sistema completo.</p>
     <div style="display:flex; gap:12px; flex-wrap:wrap;">
       <a href="https://vototech-v2.vercel.app/login?demo=1" class="btn btn-teal" target="_blank" rel="noopener">Entrar a la demo →</a>
-      <a href="https://calendar.google.com/calendar/appointments/schedules/https://calendar.app.google/HbzMQYyXH4THQeAL6" class="btn btn-primary" target="_blank" rel="noopener">📅 Agenda tu cita →</a>
+      <a href="https://calendar.app.google/HbzMQYyXH4THQeAL6" class="btn btn-primary" target="_blank" rel="noopener">📅 Agenda tu cita →</a>
     </div>
 
     <div class="demo-credenciales">
@@ -527,5 +626,14 @@
 </footer>
 
 <script src="/script.js" defer></script>
+<!-- Botón flotante de WhatsApp — visible en toda la página al hacer
+     scroll, para no tener que repetir el link en cada sección -->
+<a href="https://wa.me/522461217072?text=Hola%2C%20quiero%20información%20de%20VotoTech." target="_blank" rel="noopener"
+   aria-label="Escríbenos por WhatsApp"
+   style="position:fixed; bottom:22px; right:22px; z-index:9999; width:58px; height:58px; border-radius:50%; background:#25D366; display:flex; align-items:center; justify-content:center; box-shadow:0 4px 18px rgba(0,0,0,0.35); transition:transform 0.2s;"
+   onmouseover="this.style.transform='scale(1.08)'" onmouseout="this.style.transform='scale(1)'">
+  <svg viewBox="0 0 32 32" width="30" height="30" fill="#fff"><path d="M16.001 3C9.373 3 4 8.373 4 15c0 2.386.687 4.612 1.875 6.49L4 29l7.71-1.836A11.94 11.94 0 0 0 16.001 27C22.629 27 28 21.627 28 15S22.629 3 16.001 3zm0 2c5.523 0 10 4.477 10 10s-4.477 10-10 10a9.94 9.94 0 0 1-5.084-1.393l-.364-.217-4.53 1.079 1.104-4.415-.238-.38A9.936 9.936 0 0 1 6 15c0-5.523 4.478-10 10.001-10zm-3.61 5.36c-.196 0-.514.073-.783.368-.269.294-1.027 1.004-1.027 2.449 0 1.446 1.052 2.842 1.198 3.038.147.196 2.038 3.263 5.038 4.443 2.494.98 3.002.784 3.545.735.543-.049 1.75-.715 1.995-1.406.245-.69.245-1.283.171-1.406-.073-.123-.269-.196-.563-.343-.294-.147-1.75-.864-2.02-.963-.27-.098-.467-.147-.664.147-.196.294-.76.963-.933 1.16-.171.196-.343.22-.637.073-.294-.147-1.24-.457-2.363-1.458-.874-.78-1.464-1.744-1.636-2.038-.171-.294-.018-.453.129-.6.132-.132.294-.343.441-.514.147-.172.196-.294.294-.49.098-.196.049-.368-.024-.514-.073-.147-.638-1.585-.902-2.17-.226-.5-.46-.49-.638-.5a11.6 11.6 0 0 0-.516-.012z"/></svg>
+</a>
+
 </body>
 </html>
