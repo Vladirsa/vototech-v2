@@ -28,33 +28,5 @@ function enviarPorWhatsApp(evento) {
   return false;
 }
 
-// ── Carruseles de la página — funciona para cualquier cantidad de
-// carruseles independientes (pantallas, testimonios, etc.), cada
-// uno rota solo sin interferir con los demás ──
-(function () {
-  function iniciarCarrusel(contenedor, intervaloMs) {
-    const slides = contenedor.querySelectorAll('.carrusel-slide');
-    const dots = contenedor.querySelectorAll('.carrusel-dot');
-    if (!slides.length) return;
-    let actual = 0;
-    let pausado = false;
-
-    function irA(indice) {
-      slides.forEach((s) => s.classList.remove('activa'));
-      dots.forEach((d) => d.classList.remove('activo'));
-      slides[indice].classList.add('activa');
-      dots[indice].classList.add('activo');
-      actual = indice;
-    }
-    dots.forEach((dot) => dot.addEventListener('click', () => irA(parseInt(dot.dataset.ir))));
-    contenedor.addEventListener('mouseenter', () => { pausado = true; });
-    contenedor.addEventListener('mouseleave', () => { pausado = false; });
-    setInterval(() => { if (!pausado) irA((actual + 1) % slides.length); }, intervaloMs);
-  }
-
-  const carruselPantallas = document.querySelector('.carrusel-pantallas');
-  if (carruselPantallas) iniciarCarrusel(carruselPantallas, 4500);
-
-  const carruselTestimonios = document.querySelector('.testi-carrusel');
-  if (carruselTestimonios) iniciarCarrusel(carruselTestimonios, 5500);
-})();
+// (Las secciones de "pantallas" y "testimonios" ahora son
+// cuadrículas estáticas, ya no necesitan JavaScript de rotación)
