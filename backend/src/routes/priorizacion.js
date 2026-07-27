@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { query } from '../db/pool.js';
 import { requiereAuth } from '../middleware/auth.js';
+import { filtroTerritorioUsuario } from '../lib/filtroTerritorial.js';
 
 const router = Router();
 router.use(requiereAuth);
@@ -582,6 +583,8 @@ router.get('/municipio/:claveIne', async (req, res) => {
  * histórico y muestra nada más lo que se está trabajando hoy.
  */
 router.get('/densidad-promovidos', async (req, res) => {
+  const params = [req.usuario.campana_id];
+  const filtroTerritorio = await filtroTerritorioUsuario(req.usuario, 's', 2);
   const resultado = await query(
     `SELECT s.numero as seccion,
             COUNT(*) as total,
@@ -589,9 +592,9 @@ router.get('/densidad-promovidos', async (req, res) => {
             COUNT(*) FILTER (WHERE p.clasificacion='persuadible') as persuadible,
             COUNT(*) FILTER (WHERE p.clasificacion='adversario') as adversario
      FROM promovidos p JOIN secciones s ON s.id = p.seccion_id
-     WHERE p.campana_id = $1
+     WHERE p.campana_id = $1 ${filtroTerritorio.sql}
      GROUP BY s.numero`,
-    [req.usuario.campana_id]
+    [...params, ...filtroTerritorio.params]
   );
   res.json({ ok: true, data: resultado.rows });
 });

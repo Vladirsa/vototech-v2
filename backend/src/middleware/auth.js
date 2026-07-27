@@ -22,6 +22,15 @@ export function generarToken(usuario) {
       // su puesto específico es de esa área.
       puesto: usuario.puesto || null,
       estado_id: usuario.estado_id || 29,
+      // El territorio individual del usuario (si tiene uno asignado)
+      // — antes NO viajaba en el token, así que ningún endpoint podía
+      // filtrar el mapa/promovidos por "solo lo tuyo".
+      territorio_tipo: usuario.territorio_tipo || null,
+      territorio_id: usuario.territorio_id || null,
+      // Para poder bloquear escritura y candados de módulo en la
+      // demo pública, sin tocar nada del comportamiento normal de
+      // una campaña real.
+      es_demo: usuario.es_demo || false,
     },
     JWT_SECRET,
     { expiresIn: '30m' }
@@ -100,6 +109,21 @@ export function requiereAuth(req, res, next) {
   try {
     const payload = jwt.verify(token, JWT_SECRET);
     req.usuario = payload;
+
+    // 🔒 La campaña demo es de solo lectura — cualquiera que entre
+    // por el link público puede ver TODO el sistema, pero no puede
+    // agregar, editar ni borrar nada. Esto protege la demo de
+    // quedar "ensuciada" con datos falsos, y empuja a quien de
+    // verdad quiere usar el sistema a agendar una cita.
+    const metodosDeEscritura = ['POST', 'PUT', 'PATCH', 'DELETE'];
+    if (payload.es_demo && metodosDeEscritura.includes(req.method)) {
+      return res.status(403).json({
+        ok: false,
+        error: '🔒 Esta es la demo pública — puedes ver todo el sistema, pero no se puede agregar, editar ni borrar nada aquí. Agenda una cita para probar el sistema completo con datos reales.',
+        es_demo_bloqueado: true,
+      });
+    }
+
     next();
   } catch (e) {
     return res.status(401).json({ ok: false, error: 'Token inválido o expirado' });

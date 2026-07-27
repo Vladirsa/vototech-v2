@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { query } from '../db/pool.js';
 import { requiereAuth } from '../middleware/auth.js';
 import { registrarAuditoria } from '../lib/auditoria.js';
+import { filtroTerritorioUsuario } from '../lib/filtroTerritorial.js';
 
 const router = Router();
 router.use(requiereAuth); // todo este módulo requiere sesión
@@ -24,6 +25,13 @@ router.get('/', async (req, res) => {
     LEFT JOIN usuarios u ON u.id = p.registrado_por
     WHERE p.campana_id = $1`;
   const params = [req.usuario.campana_id];
+
+  // Antes esto solo filtraba por campaña — un Coordinador Municipal
+  // veía TODOS los promovidos del distrito, no solo los de su propio
+  // municipio. Ahora, si el usuario tiene un territorio individual
+  // asignado, se recorta aquí también.
+  const filtroTerritorio = await filtroTerritorioUsuario(req.usuario, 's', params.length + 1);
+  if (filtroTerritorio.sql) { sql += ` ${filtroTerritorio.sql}`; params.push(...filtroTerritorio.params); }
 
   if (seccion) { params.push(seccion); sql += ` AND s.numero = $${params.length}`; }
   if (clasificacion) { params.push(clasificacion); sql += ` AND p.clasificacion = $${params.length}`; }

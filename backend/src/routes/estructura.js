@@ -952,4 +952,77 @@ router.delete('/permisos/:rol/:modulo', async (req, res) => {
   res.json({ ok: true, mensaje: 'Regresado al comportamiento por default' });
 });
 
+/**
+ * GET /api/estructura/opciones-territorio?nivel=seccion|municipio|distrito_local|distrito_federal
+ * En vez de que quien da de alta a alguien tenga que ADIVINAR o
+ * escribir a mano un número de sección/distrito/municipio, esto
+ * regresa exactamente las opciones válidas — recortadas al
+ * territorio real de ESTA campaña. Si la campaña es de un solo
+ * municipio, "municipio" solo trae ese municipio. Si es de un
+ * distrito local, "municipio" trae todos los municipios que caen
+ * dentro de ese distrito, para ir armando la estructura sin
+ * inventar números.
+ */
+router.get('/opciones-territorio', async (req, res) => {
+  const nivel = req.query.nivel;
+  const campanaRes = await query('SELECT territorio_tipo, territorio_id FROM campanas WHERE id=$1', [req.usuario.campana_id]);
+  const campana = campanaRes.rows[0];
+  const estadoId = req.usuario.estado_id;
+
+  // Filtro base: recorta cualquier consulta de secciones al
+  // territorio real de la campaña (si tiene uno definido).
+  let filtroCampana = '';
+  const paramsBase = [estadoId];
+  if (campana.territorio_tipo === 'municipio' && campana.territorio_id) {
+    filtroCampana = `AND s.municipio_id = (SELECT id FROM municipios WHERE estado_id=$1 AND clave_ine=$${paramsBase.length + 1})`;
+    paramsBase.push(campana.territorio_id);
+  } else if (campana.territorio_tipo === 'distrito_local' && campana.territorio_id) {
+    filtroCampana = `AND s.distrito_local = $${paramsBase.length + 1}`;
+    paramsBase.push(campana.territorio_id);
+  } else if (campana.territorio_tipo === 'distrito_federal' && campana.territorio_id) {
+    filtroCampana = `AND s.distrito_federal = $${paramsBase.length + 1}`;
+    paramsBase.push(campana.territorio_id);
+  } else if (campana.territorio_tipo === 'seccion' && campana.territorio_id) {
+    filtroCampana = `AND s.numero = $${paramsBase.length + 1}`;
+    paramsBase.push(campana.territorio_id);
+  }
+  // 'estatal' (Gobernador/Senador) no agrega filtro — todo el estado disponible.
+
+  if (nivel === 'seccion') {
+    const r = await query(
+      `SELECT DISTINCT s.numero, m.nombre as municipio FROM secciones s JOIN municipios m ON m.id=s.municipio_id
+       WHERE s.estado_id=$1 ${filtroCampana} ORDER BY s.numero`,
+      paramsBase
+    );
+    return res.json({ ok: true, data: r.rows.map(f => ({ valor: f.numero, etiqueta: `Sección ${f.numero} — ${f.municipio}` })) });
+  }
+
+  if (nivel === 'municipio') {
+    const r = await query(
+      `SELECT DISTINCT m.clave_ine, m.nombre FROM secciones s JOIN municipios m ON m.id=s.municipio_id
+       WHERE s.estado_id=$1 ${filtroCampana} ORDER BY m.nombre`,
+      paramsBase
+    );
+    return res.json({ ok: true, data: r.rows.map(f => ({ valor: f.clave_ine, etiqueta: `${f.nombre} — ${f.nombre}` })) });
+  }
+
+  if (nivel === 'distrito_local') {
+    const r = await query(
+      `SELECT DISTINCT s.distrito_local FROM secciones s WHERE s.estado_id=$1 ${filtroCampana} AND s.distrito_local IS NOT NULL ORDER BY s.distrito_local`,
+      paramsBase
+    );
+    return res.json({ ok: true, data: r.rows.map(f => ({ valor: f.distrito_local, etiqueta: `Distrito Local ${f.distrito_local}` })) });
+  }
+
+  if (nivel === 'distrito_federal') {
+    const r = await query(
+      `SELECT DISTINCT s.distrito_federal FROM secciones s WHERE s.estado_id=$1 ${filtroCampana} AND s.distrito_federal IS NOT NULL ORDER BY s.distrito_federal`,
+      paramsBase
+    );
+    return res.json({ ok: true, data: r.rows.map(f => ({ valor: f.distrito_federal, etiqueta: `Distrito Federal ${f.distrito_federal}` })) });
+  }
+
+  res.status(400).json({ ok: false, error: 'Nivel no reconocido — usa seccion, municipio, distrito_local o distrito_federal' });
+});
+
 export default router;

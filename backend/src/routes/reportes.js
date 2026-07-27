@@ -1315,6 +1315,50 @@ router.get('/ficha-territorio/:tipo/:numero', async (req, res) => {
     }
   }
 
+  // 👥 QUIÉN TRABAJA ESTE TERRITORIO Y SI ESTÁ CUMPLIENDO SU META —
+  // junta a cualquiera cuyo territorio individual caiga DENTRO de
+  // este (un promotor de una sección de este distrito, un enlace
+  // asignado directo al distrito completo, etc.), y compara sus
+  // promovidos reales contra su meta diaria × los días que lleva
+  // dado de alta. Antes esto no existía — solo se sabía "quién es el
+  // responsable", nunca si de verdad está cumpliendo.
+  const numerosSeccion = secciones.rows.map((s) => s.numero);
+  const equipoRes = await query(
+    `SELECT u.id, u.nombre, u.rol, u.meta_diaria, u.creado_en, u.territorio_tipo, u.territorio_id,
+            COUNT(p.id) as promovidos_reales
+     FROM usuarios u
+     LEFT JOIN promovidos p ON p.registrado_por = u.id
+     WHERE u.campana_id = $1 AND (
+       (u.territorio_tipo = $2 AND u.territorio_id = $3)
+       OR (u.territorio_tipo = 'seccion' AND u.territorio_id = ANY($4::int[]))
+     )
+     GROUP BY u.id
+     ORDER BY u.rol, u.nombre`,
+    [req.usuario.campana_id, tipo, numero, numerosSeccion]
+  );
+  const equipo = equipoRes.rows.map((m) => {
+    const diasActivo = Math.max(1, Math.ceil((Date.now() - new Date(m.creado_en)) / 86400000));
+    const metaAcumulada = (m.meta_diaria || 0) * diasActivo;
+    const promovidosReales = parseInt(m.promovidos_reales);
+    return {
+      nombre: m.nombre,
+      rol: m.rol,
+      nivel: m.territorio_tipo === tipo ? 'responsable_directo' : 'en_el_territorio',
+      meta_diaria: m.meta_diaria,
+      promovidos_reales: promovidosReales,
+      cumplimiento_pct: metaAcumulada > 0 ? Math.min(999, Math.round((promovidosReales / metaAcumulada) * 100)) : null,
+    };
+  });
+  // Cuántas de las secciones de este territorio tienen AL MENOS
+  // alguien trabajándolas (vía Sectorización) — el mismo indicador
+  // que ya existe en Cobertura, pero aquí acotado a este territorio.
+  const coberturaRes = await query(
+    `SELECT COUNT(DISTINCT z.seccion_id) as secciones_cubiertas
+     FROM zonas_asignadas z JOIN secciones s ON s.id = z.seccion_id
+     WHERE z.campana_id = $1 AND s.numero = ANY($2::int[])`,
+    [req.usuario.campana_id, numerosSeccion]
+  );
+
   res.json({
     ok: true,
     data: {
@@ -1325,6 +1369,8 @@ router.get('/ficha-territorio/:tipo/:numero', async (req, res) => {
       total_lista_nominal: totalListaNominal,
       municipios_incluidos: municipiosUnicos,
       historico,
+      equipo,
+      secciones_cubiertas: parseInt(coberturaRes.rows[0].secciones_cubiertas),
     },
   });
 });

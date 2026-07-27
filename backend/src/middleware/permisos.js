@@ -102,11 +102,26 @@ export function invalidarCachePermisos(campanaId) {
  * excepción para ese rol+módulo en SU campaña; si no hay ninguna,
  * cae al default de siempre. Debe usarse DESPUÉS de requiereAuth.
  */
+// Módulos que se muestran con candado en la demo pública — se
+// pueden ver en el menú (para que el candidato sepa que existen),
+// pero no se puede entrar. Son justo los que más valen la pena
+// explicar en vivo, en la cita.
+export const MODULOS_BLOQUEADOS_DEMO = ['finanzas', 'juridico', 'dia-eleccion', 'marketing'];
+
 export function requiereModulo(clave) {
   return async (req, res, next) => {
     if (!req.usuario) {
       return res.status(401).json({ ok: false, error: 'No autenticado' });
     }
+
+    if (req.usuario.es_demo && MODULOS_BLOQUEADOS_DEMO.includes(clave)) {
+      return res.status(403).json({
+        ok: false,
+        error: '🔒 Este módulo está disponible en la demo completa — agenda una cita para verlo con datos reales.',
+        es_demo_bloqueado: true,
+      });
+    }
+
     const excepciones = await obtenerExcepciones(req.usuario.campana_id);
     const excepcion = excepciones[req.usuario.rol]?.[clave];
 

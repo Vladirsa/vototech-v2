@@ -12,6 +12,32 @@ import { generarToken, requiereAuth, generarRefreshToken, validarYRotarRefreshTo
 
 const router = Router();
 
+/**
+ * Verifica el token de Cloudflare Turnstile (protección anti-bots)
+ * contra el servidor de Cloudflare. Si no hay CLOUDFLARE_TURNSTILE_SECRET
+ * configurado todavía (mientras Vladir termina de dar de alta el
+ * sitio en Cloudflare), se deja pasar sin bloquear — así el registro
+ * nunca se rompe por falta de configuración, solo se refuerza en
+ * cuanto la clave real esté puesta.
+ */
+async function verificarTurnstile(token) {
+  const secreto = process.env.CLOUDFLARE_TURNSTILE_SECRET;
+  if (!secreto) return { ok: true, sinConfigurar: true };
+  if (!token) return { ok: false };
+  try {
+    const respuesta = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ secret: secreto, response: token }),
+    });
+    const resultado = await respuesta.json();
+    return { ok: resultado.success === true };
+  } catch (e) {
+    console.error('Error verificando Turnstile:', e.message);
+    return { ok: false };
+  }
+}
+
 // ── VALIDACIÓN DE ENTRADA (zod) ──────────────────────────────
 // Nunca confiar en lo que manda el cliente sin validar forma y tipo.
 const esquemaRegistroCampana = z.object({
@@ -27,6 +53,7 @@ const esquemaRegistroCampana = z.object({
   fecha_eleccion: z.string().optional(),
   codigo_acceso: z.string({ required_error: 'Falta el código de acceso — pídeselo a quien te invitó a usar VotoTech' }).min(3, 'Se requiere un código de acceso válido'),
   acepta_terminos: z.literal(true, { errorMap: () => ({ message: 'Debes aceptar los Términos y Condiciones y el Aviso de Privacidad para continuar' }) }),
+  turnstile_token: z.string().optional(),
 });
 
 /**
@@ -41,6 +68,14 @@ router.post('/registrar-campana', async (req, res) => {
     return res.status(400).json({ ok: false, error: parseado.error.errors[0].message });
   }
   const datos = parseado.data;
+
+  // 🤖 Verificación anti-bots (Cloudflare Turnstile) — se salta sola
+  // si todavía no está configurada la clave, para no bloquear el
+  // registro mientras se termina de dar de alta el sitio en Cloudflare.
+  const turnstile = await verificarTurnstile(datos.turnstile_token);
+  if (!turnstile.ok) {
+    return res.status(400).json({ ok: false, error: 'No se pudo verificar que no eres un robot — recarga la página e intenta de nuevo.' });
+  }
 
   try {
     // ── VALIDAR CÓDIGO DE ACCESO ────────────────────────────
@@ -125,7 +160,7 @@ router.post('/login', async (req, res) => {
   try {
     const resultado = await query(
       `SELECT u.id, u.nombre, u.email, u.password_hash, u.rol, u.activo, u.puesto, u.aprobado,
-              u.dos_factores_activo, u.dos_factores_secreto,
+              u.dos_factores_activo, u.dos_factores_secreto, u.territorio_tipo, u.territorio_id,
               c.id as campana_id, c.activa as campana_activa, c.estado_aprobacion,
               c.fecha_vencimiento, c.es_demo, c.estado_id
        FROM usuarios u
@@ -188,7 +223,7 @@ router.post('/login', async (req, res) => {
       ok: true,
       token,
       refresh_token: refreshToken,
-      usuario: { id: usuario.id, nombre: usuario.nombre, rol: usuario.rol },
+      usuario: { id: usuario.id, nombre: usuario.nombre, rol: usuario.rol, es_demo: usuario.es_demo || false },
     });
   } catch (e) {
     console.error('Error en login:', e);
@@ -241,7 +276,7 @@ router.post('/2fa/verificar-login', async (req, res) => {
   await query('UPDATE usuarios SET ultimo_acceso = now() WHERE id = $1', [usuario.id]);
   const token = generarToken(usuario);
   const refreshToken = await generarRefreshToken(usuario.id);
-  res.json({ ok: true, token, refresh_token: refreshToken, usuario: { id: usuario.id, nombre: usuario.nombre, rol: usuario.rol } });
+  res.json({ ok: true, token, refresh_token: refreshToken, usuario: { id: usuario.id, nombre: usuario.nombre, rol: usuario.rol, es_demo: usuario.es_demo || false } });
 });
 
 /**
