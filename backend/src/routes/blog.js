@@ -31,8 +31,13 @@ const esquemaPublicacion = z.object({
   tipo: z.enum(['articulo', 'pdf', 'video']).default('articulo'),
   resumen: z.string().max(300).optional(),
   contenido: z.string().optional(),
-  url_video: z.string().url('El link del video no es válido').optional(),
-  imagen_portada: z.string().url().optional(),
+  // z.string().url().optional() rechaza un texto VACÍO (no es lo
+  // mismo que "ausente" para Zod) — por eso el panel tronaba con
+  // "link no válido" incluso al crear un artículo normal, que ni
+  // usa este campo. El preprocess convierte '' en undefined antes
+  // de validar, para que sí se trate como realmente opcional.
+  url_video: z.preprocess((v) => (v === '' ? undefined : v), z.string().url('El link del video no es válido').optional()),
+  imagen_portada: z.preprocess((v) => (v === '' ? undefined : v), z.string().url().optional()),
   etiquetas: z.array(z.string()).default([]),
   meta_titulo: z.string().max(200).optional(),
   meta_descripcion: z.string().max(300).optional(),
