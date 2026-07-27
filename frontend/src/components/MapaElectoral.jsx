@@ -89,7 +89,8 @@ const ANIOS_DISPONIBLES = {
   dip_local: [2021],
 };
 
-export default function MapaElectoral({ campanaId, territorioTipo, territorioId, tipoEleccion = 'ayuntamiento' }) {
+export default function MapaElectoral({ campanaId, territorioTipo, territorioId, tipoEleccion = 'ayuntamiento', fechaEleccion }) {
+  const anioCampana = fechaEleccion ? new Date(fechaEleccion).getFullYear() : null;
   const navigate = useNavigate();
   // Leaflet a veces truena con "Map container is already initialized"
   // si el componente se desmonta y se vuelve a montar rápido (por
@@ -283,6 +284,20 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
   // mapa, para ver de un vistazo dónde pelear sin ir a otra pantalla ──
   const [modoColoreado, setModoColoreado] = useState('partido'); // 'partido' | 'prioridad'
   const [prioridadPorSeccion, setPrioridadPorSeccion] = useState({});
+  // Modo "Campaña [año]" — apaga los históricos por completo y
+  // colorea solo con el trabajo real de ESTA campaña: cuántos
+  // promovidos tiene cada sección. No depende de tener resultados
+  // históricos cargados (a diferencia del modo Prioridad).
+  const [densidadPorSeccion, setDensidadPorSeccion] = useState({});
+
+  useEffect(() => {
+    if (modoColoreado !== 'campana') return;
+    api.get('/priorizacion/densidad-promovidos').then(r => {
+      const mapa = {};
+      r.data.data.forEach((f) => { mapa[f.seccion] = { total: parseInt(f.total), base: parseInt(f.base), persuadible: parseInt(f.persuadible), adversario: parseInt(f.adversario) }; });
+      setDensidadPorSeccion(mapa);
+    }).catch(() => setDensidadPorSeccion({}));
+  }, [modoColoreado]);
 
   useEffect(() => {
     if (modoColoreado !== 'prioridad') return;
@@ -641,32 +656,43 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
 
     let colorRelleno = '#3730a3';   // color por defecto (índigo neutral, no rojo/guinda)
     let opacidad = 0.35;
+    let colorBorde = null;   // null = usa el borde normal de siempre
+    let grosorBorde = null;  // null = usa el grosor normal de siempre
 
-    // Modo capa territorial — cada distrito/municipio con su propio
-    // color (por hash del número), para que las fronteras se vean
-    // claras de un vistazo sin necesitar disolver polígonos.
+    // Modo capa territorial — el CONTORNO marca a qué distrito/
+    // municipio pertenece cada sección (color por hash del número,
+    // más grueso y blanco si es el territorio seleccionado), pero el
+    // RELLENO sigue mostrando el resultado histórico real — así ves
+    // las fronteras Y los colores de partido al mismo tiempo, no uno
+    // u otro.
     if (modoCapa === 'senaduria') {
       const esActivo = territorioActivo?.tipo === 'senaduria';
-      return {
-        color: esActivo ? '#ffffff' : '#7c3aed', weight: esActivo ? 2.5 : 0.8,
-        fillColor: '#7c3aed', fillOpacity: esActivo ? 0.6 : 0.35,
-      };
-    }
-    if (modoCapa !== 'secciones') {
+      colorBorde = esActivo ? '#ffffff' : '#7c3aed';
+      grosorBorde = esActivo ? 2.5 : 1.2;
+    } else if (modoCapa !== 'secciones') {
       const numTerritorio = feature.properties[modoCapa];
       const hue = numTerritorio != null ? (numTerritorio * 47) % 360 : 0;
       const esTerritorioActivo = territorioActivo?.tipo === modoCapa && territorioActivo?.numero === numTerritorio;
-      return {
-        color: esTerritorioActivo ? '#ffffff' : `hsl(${hue}, 65%, 45%)`,
-        weight: esTerritorioActivo ? 2.5 : 0.8,
-        fillColor: `hsl(${hue}, 65%, 45%)`,
-        fillOpacity: esTerritorioActivo ? 0.75 : 0.45,
-      };
+      colorBorde = esTerritorioActivo ? '#ffffff' : `hsl(${hue}, 70%, 55%)`;
+      grosorBorde = esTerritorioActivo ? 3 : 1.2;
     }
 
     if (coloreadoActivo && modoColoreado === 'prioridad') {
       const prio = prioridadPorSeccion[num];
       if (prio) { colorRelleno = COLOR_PRIORIDAD[prio.prioridad] || colorRelleno; opacidad = 0.55; }
+    } else if (coloreadoActivo && modoColoreado === 'campana') {
+      // Nada de históricos aquí — solo tu propio trabajo. Entre más
+      // promovidos tenga la sección, más intenso el color; 0
+      // promovidos se queda gris apagado (territorio sin trabajar).
+      const densidad = densidadPorSeccion[num];
+      const total = densidad?.total || 0;
+      if (total === 0) {
+        colorRelleno = '#334155'; opacidad = 0.35;
+      } else {
+        const intensidad = Math.min(total / 15, 1); // 15+ promovidos = intensidad máxima
+        colorRelleno = `hsl(160, 70%, ${45 - intensidad * 20}%)`; // verde-teal, más oscuro/saturado entre más trabajo
+        opacidad = 0.4 + intensidad * 0.4;
+      }
     } else if (coloreadoActivo && resultado?.ganador) {
       colorRelleno = PARTIDOS[resultado.ganador]?.color || colorRelleno;
       opacidad = 0.55;
@@ -694,10 +720,10 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
     return {
       fillColor: colorRelleno,
       fillOpacity: opacidad,
-      color: esSeleccionada ? '#fbbf24' : sinCobertura ? '#ef4444' : '#ffffff',
-      weight: esSeleccionada ? 3 : sinCobertura ? 2 : 1,
-      opacity: esSeleccionada ? 1 : sinCobertura ? 0.9 : 0.4,
-      dashArray: sinCobertura && !esSeleccionada ? '4,3' : null,
+      color: colorBorde ?? (esSeleccionada ? '#fbbf24' : sinCobertura ? '#ef4444' : '#ffffff'),
+      weight: colorBorde ? grosorBorde : (esSeleccionada ? 3 : sinCobertura ? 2 : 1),
+      opacity: colorBorde ? 1 : (esSeleccionada ? 1 : sinCobertura ? 0.9 : 0.4),
+      dashArray: !colorBorde && sinCobertura && !esSeleccionada ? '4,3' : null,
     };
   };
 
@@ -790,7 +816,7 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
 
         {seccionesFiltradas && (
           <GeoJSON
-            key={`${coloreadoActivo}-${seccionActiva}-${territorioId}-${tipoEleccion}-${anio}-${modoColoreado}-${mostrarCobertura}-${Object.keys(prioridadPorSeccion).length}-${seccionesCubiertas.size}-${modoSectorizacion}-${seccionesSeleccionadas.size}-${capaPulso}-${seccionesActivas7d.size}-${zonasAsignadas.length}-${modoCapa}-${territorioActivo?.tipo}-${territorioActivo?.numero}`}
+            key={`${territorioId}-${modoSectorizacion}-${modoCapa}-${zonasAsignadas.length}`}
             data={seccionesFiltradas}
             style={estiloSeccion}
             onEachFeature={alPasarMouse}
@@ -1156,6 +1182,10 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
               className={`flex-1 py-1.5 rounded-lg text-[10px] font-bold ${modoColoreado === 'prioridad' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
               🎯 Por prioridad
             </button>
+            <button onClick={() => setModoColoreado('campana')}
+              className={`flex-1 py-1.5 rounded-lg text-[10px] font-bold ${modoColoreado === 'campana' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
+              🗳️ Campaña {anioCampana || ''}
+            </button>
           </div>
         )}
 
@@ -1245,6 +1275,23 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
                 {label}
               </div>
             ))}
+          </div>
+        )}
+        {coloreadoActivo && modoColoreado === 'campana' && (
+          <div className="p-3 pt-0 space-y-1.5">
+            <p className="text-[9px] text-slate-500 mb-1">Solo tu trabajo real — sin históricos. Entre más oscuro, más promovidos.</p>
+            <div className="flex items-center gap-1.5 text-[10px] text-slate-300 font-semibold">
+              <span className="w-4 h-4 rounded-full flex-shrink-0 shadow" style={{ background: '#334155' }} />
+              Sin trabajar (0 promovidos)
+            </div>
+            <div className="flex items-center gap-1.5 text-[10px] text-slate-300 font-semibold">
+              <span className="w-4 h-4 rounded-full flex-shrink-0 shadow" style={{ background: 'hsl(160, 70%, 40%)' }} />
+              Poco trabajo
+            </div>
+            <div className="flex items-center gap-1.5 text-[10px] text-slate-300 font-semibold">
+              <span className="w-4 h-4 rounded-full flex-shrink-0 shadow" style={{ background: 'hsl(160, 70%, 25%)' }} />
+              Mucho trabajo (15+)
+            </div>
           </div>
         )}
       </div>
@@ -1511,6 +1558,8 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
                         className={`flex-1 py-2 rounded-lg text-xs font-bold ${modoColoreado === 'partido' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🏛️ Partido</button>
                       <button onClick={() => setModoColoreado('prioridad')}
                         className={`flex-1 py-2 rounded-lg text-xs font-bold ${modoColoreado === 'prioridad' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🎯 Prioridad</button>
+                      <button onClick={() => setModoColoreado('campana')}
+                        className={`flex-1 py-2 rounded-lg text-xs font-bold ${modoColoreado === 'campana' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🗳️ Campaña {anioCampana || ''}</button>
                     </div>
                   )}
                 </div>

@@ -31,6 +31,7 @@ export default function MapaConCampana() {
       territorioTipo={campana.territorio_tipo}
       territorioId={campana.territorio_id}
       tipoEleccion={campana.tipo_eleccion}
+      fechaEleccion={campana.fecha_eleccion}
     />
   );
 }
