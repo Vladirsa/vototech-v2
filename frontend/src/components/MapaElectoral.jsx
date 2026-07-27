@@ -128,6 +128,10 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
   // Distrito Federal, Distrito Local, o Municipio — cada uno con su
   // propio color, y al hacer clic, su ficha técnica agregada.
   const [modoCapa, setModoCapa] = useState('secciones'); // 'secciones' | 'distrito_federal' | 'distrito_local' | 'municipio'
+  // Qué tan fuerte se ve el color de cada distrito/municipio — antes
+  // era fijo y la separación entre territorios apenas se notaba; con
+  // esto el candidato ajusta a su gusto, de apenas visible a bien marcado.
+  const [intensidadTerritorial, setIntensidadTerritorial] = useState(0.55);
   const [territorioActivo, setTerritorioActivo] = useState(null);
   const [fichaTerritorio, setFichaTerritorio] = useState(null);
   const [cargandoFichaTerritorio, setCargandoFichaTerritorio] = useState(false);
@@ -289,6 +293,16 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
   // promovidos tiene cada sección. No depende de tener resultados
   // históricos cargados (a diferencia del modo Prioridad).
   const [densidadPorSeccion, setDensidadPorSeccion] = useState({});
+  const resumenCampana = useMemo(() => {
+    const filas = Object.values(densidadPorSeccion);
+    return {
+      totalPromovidos: filas.reduce((s, f) => s + f.total, 0),
+      base: filas.reduce((s, f) => s + f.base, 0),
+      persuadible: filas.reduce((s, f) => s + f.persuadible, 0),
+      adversario: filas.reduce((s, f) => s + f.adversario, 0),
+      seccionesConTrabajo: Object.keys(densidadPorSeccion).length,
+    };
+  }, [densidadPorSeccion]);
 
   useEffect(() => {
     if (modoColoreado !== 'campana') return;
@@ -665,37 +679,48 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
     // RELLENO sigue mostrando el resultado histórico real — así ves
     // las fronteras Y los colores de partido al mismo tiempo, no uno
     // u otro.
+    // Modo capa territorial — ahora el RELLENO también se pinta por
+    // territorio (antes solo el contorno, y la separación entre
+    // distritos/municipios casi no se notaba). La intensidad la
+    // controla el candidato con la barra — de apenas visible a bien
+    // marcado, según lo que necesite para leer el mapa.
     if (modoCapa === 'senaduria') {
       const esActivo = territorioActivo?.tipo === 'senaduria';
       colorBorde = esActivo ? '#ffffff' : '#7c3aed';
       grosorBorde = esActivo ? 2.5 : 1.2;
+      colorRelleno = '#7c3aed';
+      opacidad = esActivo ? Math.min(0.95, intensidadTerritorial + 0.25) : intensidadTerritorial;
     } else if (modoCapa !== 'secciones') {
       const numTerritorio = feature.properties[modoCapa];
       const hue = numTerritorio != null ? (numTerritorio * 47) % 360 : 0;
       const esTerritorioActivo = territorioActivo?.tipo === modoCapa && territorioActivo?.numero === numTerritorio;
       colorBorde = esTerritorioActivo ? '#ffffff' : `hsl(${hue}, 70%, 55%)`;
       grosorBorde = esTerritorioActivo ? 3 : 1.2;
+      colorRelleno = `hsl(${hue}, 75%, 50%)`;
+      opacidad = esTerritorioActivo ? Math.min(0.95, intensidadTerritorial + 0.25) : intensidadTerritorial;
     }
 
-    if (coloreadoActivo && modoColoreado === 'prioridad') {
-      const prio = prioridadPorSeccion[num];
-      if (prio) { colorRelleno = COLOR_PRIORIDAD[prio.prioridad] || colorRelleno; opacidad = 0.55; }
-    } else if (coloreadoActivo && modoColoreado === 'campana') {
-      // Nada de históricos aquí — solo tu propio trabajo. Entre más
-      // promovidos tenga la sección, más intenso el color; 0
-      // promovidos se queda gris apagado (territorio sin trabajar).
-      const densidad = densidadPorSeccion[num];
-      const total = densidad?.total || 0;
-      if (total === 0) {
-        colorRelleno = '#334155'; opacidad = 0.35;
-      } else {
-        const intensidad = Math.min(total / 15, 1); // 15+ promovidos = intensidad máxima
-        colorRelleno = `hsl(160, 70%, ${45 - intensidad * 20}%)`; // verde-teal, más oscuro/saturado entre más trabajo
-        opacidad = 0.4 + intensidad * 0.4;
+    if (modoCapa === 'secciones') {
+      if (coloreadoActivo && modoColoreado === 'prioridad') {
+        const prio = prioridadPorSeccion[num];
+        if (prio) { colorRelleno = COLOR_PRIORIDAD[prio.prioridad] || colorRelleno; opacidad = 0.55; }
+      } else if (coloreadoActivo && modoColoreado === 'campana') {
+        // Nada de históricos aquí — solo tu propio trabajo. Entre más
+        // promovidos tenga la sección, más intenso el color; 0
+        // promovidos se queda gris apagado (territorio sin trabajar).
+        const densidad = densidadPorSeccion[num];
+        const total = densidad?.total || 0;
+        if (total === 0) {
+          colorRelleno = '#334155'; opacidad = 0.35;
+        } else {
+          const intensidad = Math.min(total / 15, 1); // 15+ promovidos = intensidad máxima
+          colorRelleno = `hsl(160, 70%, ${45 - intensidad * 20}%)`; // verde-teal, más oscuro/saturado entre más trabajo
+          opacidad = 0.4 + intensidad * 0.4;
+        }
+      } else if (coloreadoActivo && resultado?.ganador) {
+        colorRelleno = PARTIDOS[resultado.ganador]?.color || colorRelleno;
+        opacidad = 0.55;
       }
-    } else if (coloreadoActivo && resultado?.ganador) {
-      colorRelleno = PARTIDOS[resultado.ganador]?.color || colorRelleno;
-      opacidad = 0.55;
     }
 
     // Pulso de actividad: verde si hubo contacto en los últimos 7 días, gris apagado si no
@@ -1203,7 +1228,20 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
             <button onClick={() => { setModoCapa('senaduria'); setTerritorioActivo(null); }}
               className={`py-1.5 rounded-lg text-[10px] font-bold col-span-2 ${modoCapa === 'senaduria' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🏅 Senaduría (todo el estado)</button>
           </div>
-          {modoCapa !== 'secciones' && <p className="text-[9px] text-slate-500 mt-1.5">Toca cualquier sección para ver la ficha completa de su {modoCapa === 'municipio' ? 'municipio' : modoCapa === 'distrito_federal' ? 'distrito federal' : 'distrito local'}.</p>}
+          {modoCapa !== 'secciones' && (
+            <>
+              <p className="text-[9px] text-slate-500 mt-1.5">Toca cualquier sección para ver la ficha completa de su {modoCapa === 'municipio' ? 'municipio' : modoCapa === 'distrito_federal' ? 'distrito federal' : modoCapa === 'senaduria' ? 'territorio' : 'distrito local'}.</p>
+              <div className="mt-2">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[9px] text-slate-500 font-bold uppercase">🎨 Intensidad del color</span>
+                  <span className="text-[9px] text-slate-400">{Math.round(intensidadTerritorial * 100)}%</span>
+                </div>
+                <input type="range" min="0.15" max="0.9" step="0.05" value={intensidadTerritorial}
+                  onChange={(e) => setIntensidadTerritorial(parseFloat(e.target.value))}
+                  className="w-full accent-indigo-500" />
+              </div>
+            </>
+          )}
         </div>
 
         <div className="p-3 space-y-2">
@@ -1297,7 +1335,32 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
       </div>
       )}
 
-      {/* Indicador de carga de manzanas — antes no había, daba la impresión de que no pasaba nada */}
+      {/* 🗳️ PANEL DE CONTROL — MODO CAMPAÑA — solo el trabajo propio,
+          nada de históricos. Es lo primero que se ve al activar el
+          modo, para que el candidato sepa desde dónde está arrancando
+          antes de empezar a tocar secciones una por una. */}
+      {modoColoreado === 'campana' && (
+        <div className="absolute top-4 right-4 z-[1000] bg-slate-900/95 backdrop-blur border border-emerald-700/40 rounded-xl p-3 text-xs w-48">
+          <div className="text-[10px] text-emerald-400 font-bold uppercase mb-2">🗳️ Campaña {anioCampana || ''} — resumen</div>
+          <div className="grid grid-cols-2 gap-2 mb-2">
+            <div className="bg-slate-800/60 rounded-lg p-2 text-center">
+              <div className="text-lg font-black text-white">{resumenCampana.totalPromovidos}</div>
+              <div className="text-[8px] text-slate-500">Promovidos</div>
+            </div>
+            <div className="bg-slate-800/60 rounded-lg p-2 text-center">
+              <div className="text-lg font-black text-white">{resumenCampana.seccionesConTrabajo}</div>
+              <div className="text-[8px] text-slate-500">Secc. trabajadas</div>
+            </div>
+          </div>
+          <div className="space-y-1">
+            <div className="flex justify-between text-[10px]"><span className="text-emerald-400">● Base</span><span className="text-white font-bold">{resumenCampana.base}</span></div>
+            <div className="flex justify-between text-[10px]"><span className="text-amber-400">● Persuadible</span><span className="text-white font-bold">{resumenCampana.persuadible}</span></div>
+            <div className="flex justify-between text-[10px]"><span className="text-slate-400">● Adversario</span><span className="text-white font-bold">{resumenCampana.adversario}</span></div>
+          </div>
+        </div>
+      )}
+
+
       {seccionActiva && cargandoManzanas && (
         <div className="absolute top-4 right-4 z-[1000] bg-slate-900/95 backdrop-blur border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-300">
           ⏳ Cargando manzanas de la sección...
@@ -1344,7 +1407,7 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
                 </div>
               </div>
 
-              {fichaTecnica.anio_historico ? (
+              {fichaTecnica.anio_historico && modoColoreado !== 'campana' ? (
                 <div className="bg-slate-800/60 rounded-lg p-2.5">
                   <div className="text-[10px] text-slate-500 uppercase font-bold mb-1.5">Resultados históricos {fichaTecnica.anio_historico}</div>
                   <div className="space-y-1">
@@ -1370,7 +1433,7 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
                     </div>
                   )}
                 </div>
-              ) : (
+              ) : modoColoreado === 'campana' ? null : (
                 <div className="text-[10px] text-amber-400 bg-amber-500/10 rounded-lg p-2">⚠️ Sin datos históricos cargados para este tipo de elección</div>
               )}
 
@@ -1381,7 +1444,7 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
                   <div><div className="text-amber-400 font-black">{fichaTecnica.promovidos.persuadible}</div><div className="text-[9px] text-slate-500">Persuad.</div></div>
                   <div><div className="text-slate-400 font-black">{fichaTecnica.promovidos.adversario}</div><div className="text-[9px] text-slate-500">Advers.</div></div>
                 </div>
-                {fichaTecnica.deficit_votos > 0 ? (
+                {modoColoreado !== 'campana' && (fichaTecnica.deficit_votos > 0 ? (
                   <div className="text-[10px] text-slate-300 border-t border-slate-700 pt-2">
                     Faltan <strong className="text-white">{fichaTecnica.deficit_votos.toLocaleString()}</strong> votos para ganar ·
                     necesitas <strong className="text-white">{fichaTecnica.promovidos_necesarios.toLocaleString()}</strong> promovidos más
@@ -1389,7 +1452,7 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
                   </div>
                 ) : fichaTecnica.total_votos_historico > 0 ? (
                   <div className="text-[10px] text-emerald-400 border-t border-slate-700 pt-2">✅ Meta cubierta con tus promovidos actuales</div>
-                ) : null}
+                ) : null)}
                 {fichaTecnica.duplicados > 0 && (
                   <div className="text-[10px] text-amber-400 border-t border-slate-700 pt-2 mt-2">⚠️ {fichaTecnica.duplicados} registro(s) duplicado(s) detectado(s) en esta sección</div>
                 )}
@@ -1560,6 +1623,34 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
                         className={`flex-1 py-2 rounded-lg text-xs font-bold ${modoColoreado === 'prioridad' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🎯 Prioridad</button>
                       <button onClick={() => setModoColoreado('campana')}
                         className={`flex-1 py-2 rounded-lg text-xs font-bold ${modoColoreado === 'campana' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🗳️ Campaña {anioCampana || ''}</button>
+                    </div>
+                  )}
+                </div>
+
+                <div className="border-t border-slate-800 pt-3">
+                  <p className="text-xs font-bold text-white mb-1.5">🗺️ Ver por territorio</p>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <button onClick={() => { setModoCapa('secciones'); setTerritorioActivo(null); }}
+                      className={`py-2 rounded-lg text-xs font-bold ${modoCapa === 'secciones' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>Secciones</button>
+                    <button onClick={() => { setModoCapa('distrito_federal'); setTerritorioActivo(null); }}
+                      className={`py-2 rounded-lg text-xs font-bold ${modoCapa === 'distrito_federal' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>Dist. Federal</button>
+                    <button onClick={() => { setModoCapa('distrito_local'); setTerritorioActivo(null); }}
+                      className={`py-2 rounded-lg text-xs font-bold ${modoCapa === 'distrito_local' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>Dist. Local</button>
+                    <button onClick={() => { setModoCapa('municipio'); setTerritorioActivo(null); }}
+                      className={`py-2 rounded-lg text-xs font-bold ${modoCapa === 'municipio' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>Municipio</button>
+                    <button onClick={() => { setModoCapa('senaduria'); setTerritorioActivo(null); }}
+                      className={`py-2 rounded-lg text-xs font-bold col-span-2 ${modoCapa === 'senaduria' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🏅 Senaduría (todo el estado)</button>
+                  </div>
+                  {modoCapa !== 'secciones' && (
+                    <div className="mt-2.5">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[10px] text-slate-500 font-bold uppercase">🎨 Intensidad del color</span>
+                        <span className="text-[10px] text-slate-400">{Math.round(intensidadTerritorial * 100)}%</span>
+                      </div>
+                      <input type="range" min="0.15" max="0.9" step="0.05" value={intensidadTerritorial}
+                        onChange={(e) => setIntensidadTerritorial(parseFloat(e.target.value))}
+                        className="w-full accent-indigo-500" />
+                      <p className="text-[9px] text-slate-500 mt-1">Toca cualquier sección para ver su ficha completa.</p>
                     </div>
                   )}
                 </div>
