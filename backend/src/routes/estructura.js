@@ -151,10 +151,10 @@ router.get('/salud', async (req, res) => {
 });
 
 const esquemaMiembro = z.object({
-  nombre: z.string().min(2).max(200),
-  email: z.string().email(),
+  nombre: z.string({ required_error: 'Falta el nombre' }).min(2, 'El nombre es muy corto').max(200),
+  email: z.string({ required_error: 'Falta el correo electrónico' }).email('El correo no es válido'),
   telefono: z.string().max(20).optional(),
-  password: z.string().min(8),
+  password: z.string({ required_error: 'Falta la contraseña' }).min(8, 'La contraseña debe tener al menos 8 caracteres'),
   rol: z.enum([
     'jefe_campana', 'coord_general', 'coord_distrital', 'coord_municipal', 'coord_seccional', 'promotor',
     'encargado_juridico', 'encargado_finanzas', 'voluntario',
@@ -164,7 +164,7 @@ const esquemaMiembro = z.object({
     'coordinador_territorial', 'coordinador_politico',
     'enlace_distrital_federal', 'enlace_distrital_local', 'enlace_municipal',
     'enlace_jovenes', 'enlace_mujeres', 'enlace_brigadas', 'enlace_activos', 'enlace_seccional',
-  ]),
+  ], { required_error: 'Falta elegir el rol de esta persona' }),
   puesto: z.string().max(100).optional(),
   parent_id: z.string().uuid().optional(),
   territorio_tipo: z.string().optional(),

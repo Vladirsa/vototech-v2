@@ -63,10 +63,10 @@ router.get('/', async (req, res) => {
 });
 
 const esquemaGasto = z.object({
-  categoria: z.string().min(2).max(40),
-  descripcion: z.string().min(2).max(300),
-  monto: z.coerce.number().positive(),
-  fecha: z.string(),
+  categoria: z.string({ required_error: 'Falta elegir la categoría del gasto' }).min(2).max(40),
+  descripcion: z.string({ required_error: 'Falta describir el gasto' }).min(2, 'Describe brevemente el gasto').max(300),
+  monto: z.coerce.number({ required_error: 'Falta el monto', invalid_type_error: 'Falta el monto' }).positive('El monto debe ser mayor a cero'),
+  fecha: z.string({ required_error: 'Falta la fecha del gasto' }),
   proveedor: z.string().max(200).optional(),
   rfc: z.string().max(20).optional(),
   factura_uuid: z.string().max(100).optional(),

@@ -23,7 +23,7 @@ import authRoutes from './routes/auth.js';
 import geoRoutes from './routes/geo.js';
 import resultadosRoutes from './routes/resultados.js';
 import promovidosRoutes from './routes/promovidos.js';
-import priorizacionRoutes from './routes/priorizacion.js';
+import priorizacionRoutes, { guardarSnapshotDiario } from './routes/priorizacion.js';
 import estructuraRoutes from './routes/estructura.js';
 import reportesRoutes from './routes/reportes.js';
 import agendaRoutes from './routes/agenda.js';
@@ -274,6 +274,16 @@ httpServer.listen(PORT, async () => {
   };
   revisarVencimientos();
   setInterval(revisarVencimientos, 24 * 60 * 60 * 1000);
+
+  // Captura diaria automática de qué está prediciendo el Motor de
+  // Priorización — la base que se auto-guarda para medir precisión
+  // real después de cada elección, sin tocar datos personales.
+  setTimeout(() => {
+    guardarSnapshotDiario().catch((e) => console.error('⚠️ Error en snapshot diario:', e.message));
+    setInterval(() => {
+      guardarSnapshotDiario().catch((e) => console.error('⚠️ Error en snapshot diario:', e.message));
+    }, 24 * 60 * 60 * 1000);
+  }, 2 * 60 * 1000);
 
   // Respaldo automático diario de cada campaña — para que nunca se
   // pierda información aunque algo salga mal. Se corre unas horas

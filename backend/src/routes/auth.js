@@ -15,17 +15,17 @@ const router = Router();
 // ── VALIDACIÓN DE ENTRADA (zod) ──────────────────────────────
 // Nunca confiar en lo que manda el cliente sin validar forma y tipo.
 const esquemaRegistroCampana = z.object({
-  nombre_candidato: z.string().min(3).max(200),
-  email: z.string().email(),
-  password: z.string().min(8, 'La contraseña debe tener al menos 8 caracteres'),
-  partido: z.string().min(2, 'Debes seleccionar tu partido').max(50),
-  tipo_eleccion: z.enum(['ayuntamiento', 'dip_local', 'dip_federal', 'gobernador', 'pres_comunidad', 'senador', 'presidencial']),
-  estado_id: z.number().int(),
-  subdominio: z.string().regex(/^[a-z0-9-]{3,63}$/, 'Solo minúsculas, números y guiones'),
+  nombre_candidato: z.string({ required_error: 'Falta el nombre del candidato' }).min(3, 'El nombre es muy corto').max(200),
+  email: z.string({ required_error: 'Falta el correo electrónico' }).email('El correo no es válido'),
+  password: z.string({ required_error: 'Falta la contraseña' }).min(8, 'La contraseña debe tener al menos 8 caracteres'),
+  partido: z.string({ required_error: 'Debes seleccionar tu partido' }).min(2, 'Debes seleccionar tu partido').max(50),
+  tipo_eleccion: z.enum(['ayuntamiento', 'dip_local', 'dip_federal', 'gobernador', 'pres_comunidad', 'senador', 'presidencial'], { required_error: 'Debes elegir el tipo de elección' }),
+  estado_id: z.number({ required_error: 'Falta el estado' }).int(),
+  subdominio: z.string({ required_error: 'Falta elegir el subdominio de tu campaña' }).regex(/^[a-z0-9-]{3,63}$/, 'Solo minúsculas, números y guiones'),
   territorio_tipo: z.enum(['municipio', 'seccion', 'distrito_local', 'distrito_federal', 'estatal']).optional(),
   territorio_id: z.number().int().optional(),
   fecha_eleccion: z.string().optional(),
-  codigo_acceso: z.string().min(3, 'Se requiere un código de acceso válido'),
+  codigo_acceso: z.string({ required_error: 'Falta el código de acceso — pídeselo a quien te invitó a usar VotoTech' }).min(3, 'Se requiere un código de acceso válido'),
   acepta_terminos: z.literal(true, { errorMap: () => ({ message: 'Debes aceptar los Términos y Condiciones y el Aviso de Privacidad para continuar' }) }),
 });
 
@@ -202,10 +202,10 @@ router.post('/login', async (req, res) => {
  * el Jefe de Campaña tenga que crear su cuenta manualmente uno por uno.
  */
 const esquemaRegistroPromotor = z.object({
-  codigo: z.string(),
-  nombre: z.string().min(3),
-  email: z.string().email(),
-  password: z.string().min(8),
+  codigo: z.string({ required_error: 'Falta el código de invitación' }),
+  nombre: z.string({ required_error: 'Falta tu nombre' }).min(3, 'El nombre es muy corto'),
+  email: z.string({ required_error: 'Falta el correo electrónico' }).email('El correo no es válido'),
+  password: z.string({ required_error: 'Falta la contraseña' }).min(8, 'La contraseña debe tener al menos 8 caracteres'),
   telefono: z.string().optional(),
 });
 

@@ -7,6 +7,7 @@ import { requiereSuperAdmin } from '../middleware/superAdmin.js';
 import { generarToken } from '../middleware/auth.js';
 import { crearDemo } from '../../seed-demo.js';
 import { repararListaNominal } from '../../seed.js';
+import { calcularPrecisionAutomatica } from './priorizacion.js';
 
 const router = Router();
 router.use(requiereSuperAdmin); // TODO en este archivo requiere la clave secreta
@@ -410,9 +411,21 @@ router.post('/subir-resultados-historicos', uploadCsv.single('archivo'), async (
     }
   }
 
+  // 🎯 Disparo automático — en cuanto llegan resultados reales,
+  // comparar contra la última predicción guardada de cada campaña
+  // que compite en esta elección, y guardar la precisión para
+  // siempre. El candidato no tiene que hacer nada para esto.
+  let mensajePrecision = '';
+  try {
+    const campanasComparadas = await calcularPrecisionAutomatica(estado_id, tipo_eleccion, anio);
+    if (campanasComparadas > 0) mensajePrecision = ` · 🎯 Precisión calculada automáticamente para ${campanasComparadas} campaña(s)`;
+  } catch (e) {
+    console.error('⚠️ Error calculando precisión automática tras carga:', e.message);
+  }
+
   res.json({
     ok: true,
-    mensaje: `✅ ${insertadas} filas nuevas, ${actualizadas} actualizadas` + (sinSeccion.length ? ` — ⚠️ ${sinSeccion.length} filas con sección no encontrada (revisa: ${[...new Set(sinSeccion)].slice(0, 10).join(', ')})` : ''),
+    mensaje: `✅ ${insertadas} filas nuevas, ${actualizadas} actualizadas` + (sinSeccion.length ? ` — ⚠️ ${sinSeccion.length} filas con sección no encontrada (revisa: ${[...new Set(sinSeccion)].slice(0, 10).join(', ')})` : '') + mensajePrecision,
   });
 });
 
