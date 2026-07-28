@@ -248,6 +248,68 @@ export default function AdminPlataforma() {
   };
   const [resumenDatos, setResumenDatos] = useState(null);
 
+  // ── EXPANSIÓN A OTRO ESTADO — crear estado, subir municipios, subir cartografía ──
+  const [estadosDisponibles, setEstadosDisponibles] = useState([]);
+  const [mostrarExpansion, setMostrarExpansion] = useState(false);
+  const [nuevoEstadoId, setNuevoEstadoId] = useState('');
+  const [nuevoEstadoNombre, setNuevoEstadoNombre] = useState('');
+  const [mensajeEstado, setMensajeEstado] = useState('');
+  const [archivoMunicipios, setArchivoMunicipios] = useState(null);
+  const [archivoCartografia, setArchivoCartografia] = useState(null);
+  const [estadoParaCartografia, setEstadoParaCartografia] = useState('');
+  const [subiendoExpansion, setSubiendoExpansion] = useState(false);
+  const [mensajeExpansion, setMensajeExpansion] = useState('');
+
+  const cargarEstados = async () => {
+    const { data } = await axios.get(`${API_URL}/admin/estados`, { headers });
+    setEstadosDisponibles(data.data);
+  };
+  useEffect(() => { if (mostrarExpansion) cargarEstados(); }, [mostrarExpansion]);
+
+  const crearEstado = async () => {
+    setMensajeEstado('');
+    try {
+      const { data } = await axios.post(`${API_URL}/admin/estados`, { id: parseInt(nuevoEstadoId), nombre: nuevoEstadoNombre }, { headers });
+      setMensajeEstado('✅ ' + data.mensaje);
+      setNuevoEstadoId(''); setNuevoEstadoNombre('');
+      cargarEstados();
+    } catch (e) {
+      setMensajeEstado('⚠️ ' + (e.response?.data?.error || e.message));
+    }
+  };
+
+  const subirMunicipiosNuevoEstado = async () => {
+    if (!archivoMunicipios || !estadoParaCartografia) return;
+    setSubiendoExpansion(true);
+    setMensajeExpansion('');
+    const fd = new FormData();
+    fd.append('archivo', archivoMunicipios);
+    fd.append('estado_id', estadoParaCartografia);
+    try {
+      const { data } = await axios.post(`${API_URL}/admin/subir-municipios`, fd, { headers: { ...headers, 'Content-Type': 'multipart/form-data' } });
+      setMensajeExpansion('✅ Municipios: ' + data.mensaje);
+    } catch (e) {
+      setMensajeExpansion('⚠️ ' + (e.response?.data?.error || e.message));
+    }
+    setSubiendoExpansion(false);
+  };
+
+  const subirCartografiaNuevoEstado = async () => {
+    if (!archivoCartografia || !estadoParaCartografia) return;
+    setSubiendoExpansion(true);
+    setMensajeExpansion('');
+    const fd = new FormData();
+    fd.append('archivo', archivoCartografia);
+    fd.append('estado_id', estadoParaCartografia);
+    try {
+      const { data } = await axios.post(`${API_URL}/admin/subir-cartografia`, fd, { headers: { ...headers, 'Content-Type': 'multipart/form-data' } });
+      setMensajeExpansion('✅ Cartografía: ' + data.mensaje);
+    } catch (e) {
+      setMensajeExpansion('⚠️ ' + (e.response?.data?.error || e.message));
+    }
+    setSubiendoExpansion(false);
+  };
+
   const cargarResumenDatos = async (estId) => {
     const { data } = await axios.get(`${API_URL}/admin/resumen-datos/${estId}`, { headers });
     setResumenDatos(data.data);
@@ -536,6 +598,72 @@ export default function AdminPlataforma() {
               </div>
             ))}
           </div>
+        </div>
+
+        {/* ── EXPANSIÓN A OTRO ESTADO ── */}
+        <div className="bg-slate-900/60 border border-purple-800/40 rounded-xl p-4 space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-bold text-white mb-1">🗺️ Expandir a Otro Estado</h3>
+              <p className="text-[10px] text-slate-500">Crea el estado, sube su catálogo de municipios, y su cartografía (mapa oficial de secciones del INE).</p>
+            </div>
+            <button onClick={() => setMostrarExpansion((v) => !v)}
+              className="px-3 py-2 rounded-lg bg-purple-600 text-white text-xs font-bold flex-shrink-0">
+              {mostrarExpansion ? '✕ Cerrar' : '+ Nuevo estado'}
+            </button>
+          </div>
+
+          {mostrarExpansion && (
+            <div className="space-y-4">
+              <div className="bg-slate-800/60 rounded-lg p-3">
+                <p className="text-xs font-bold text-slate-300 mb-2">1. Crear el estado</p>
+                <p className="text-[9px] text-slate-500 mb-2">El ID debe ser la clave oficial del INE para ese estado (1-32) — no un número inventado.</p>
+                <div className="flex gap-2">
+                  <input placeholder="ID (ej. 21 = Puebla)" type="number" value={nuevoEstadoId} onChange={(e) => setNuevoEstadoId(e.target.value)}
+                    className="w-32 px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white text-xs" />
+                  <input placeholder="Nombre del estado" value={nuevoEstadoNombre} onChange={(e) => setNuevoEstadoNombre(e.target.value)}
+                    className="flex-1 px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white text-xs" />
+                  <button onClick={crearEstado} disabled={!nuevoEstadoId || !nuevoEstadoNombre}
+                    className="px-3 py-2 rounded-lg bg-indigo-600 text-white text-xs font-bold disabled:opacity-40 flex-shrink-0">Crear</button>
+                </div>
+                {mensajeEstado && <p className="text-[10px] text-slate-300 mt-2">{mensajeEstado}</p>}
+              </div>
+
+              <div>
+                <label className="text-[10px] text-slate-500 font-bold uppercase block mb-1">Estado destino para los siguientes pasos</label>
+                <select value={estadoParaCartografia} onChange={(e) => setEstadoParaCartografia(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs">
+                  <option value="">Selecciona un estado...</option>
+                  {estadosDisponibles.map((e) => <option key={e.id} value={e.id}>{e.nombre} (id {e.id})</option>)}
+                </select>
+              </div>
+
+              <div className="bg-slate-800/60 rounded-lg p-3">
+                <p className="text-xs font-bold text-slate-300 mb-2">2. Subir catálogo de municipios</p>
+                <p className="text-[9px] text-slate-500 mb-2">CSV con columnas: <code className="text-purple-300">clave_ine,nombre</code> — necesario ANTES de la cartografía.</p>
+                <div className="flex gap-2">
+                  <input type="file" accept=".csv" onChange={(e) => setArchivoMunicipios(e.target.files[0])} className="flex-1 text-[10px] text-slate-300" />
+                  <button onClick={subirMunicipiosNuevoEstado} disabled={!archivoMunicipios || !estadoParaCartografia || subiendoExpansion}
+                    className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-[10px] font-bold disabled:opacity-40 flex-shrink-0">Subir</button>
+                </div>
+              </div>
+
+              <div className="bg-slate-800/60 rounded-lg p-3">
+                <p className="text-xs font-bold text-slate-300 mb-2">3. Subir cartografía (el mapa)</p>
+                <p className="text-[9px] text-slate-500 mb-2">Archivo <code className="text-purple-300">.geojson</code> de la Cartografía Electoral del INE — cada sección debe traer <code className="text-purple-300">seccion, municipio, distrito_local, distrito_federal</code> en sus propiedades.</p>
+                <div className="flex gap-2">
+                  <input type="file" accept=".geojson,.json" onChange={(e) => setArchivoCartografia(e.target.files[0])} className="flex-1 text-[10px] text-slate-300" />
+                  <button onClick={subirCartografiaNuevoEstado} disabled={!archivoCartografia || !estadoParaCartografia || subiendoExpansion}
+                    className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-[10px] font-bold disabled:opacity-40 flex-shrink-0">
+                    {subiendoExpansion ? '⏳...' : 'Subir'}
+                  </button>
+                </div>
+              </div>
+
+              {mensajeExpansion && <p className="text-[10px] text-slate-300 bg-slate-800/60 rounded-lg p-2">{mensajeExpansion}</p>}
+              <p className="text-[9px] text-slate-500">Después de estos 3 pasos, ya puedes usar el panel de arriba ("📂 Carga de Datos por Estado") para subir resultados históricos y afiliados de este nuevo estado.</p>
+            </div>
+          )}
         </div>
 
         <div>
