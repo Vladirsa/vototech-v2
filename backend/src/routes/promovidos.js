@@ -262,11 +262,26 @@ router.post('/', async (req, res) => {
   }
 
   try {
+    // Se resuelve la sección PRIMERO (antes se hacía después), porque
+    // ahora la necesitamos para la detección de duplicados.
+    let seccionId = null;
+    if (d.seccion_numero) {
+      const s = await query('SELECT id FROM secciones WHERE estado_id=$2 AND numero=$1', [d.seccion_numero, req.usuario.estado_id]);
+      if (!s.rows[0]) {
+        return res.status(400).json({ ok: false, error: `La sección ${d.seccion_numero} no existe en el catálogo oficial — revisa el número.` });
+      }
+      seccionId = s.rows[0].id;
+    }
+
     // ── DETECCIÓN DE DUPLICADOS ──────────────────────────────
-    // Se busca primero por CURP (identificador único real), y si no
-    // viene CURP, por nombre + teléfono dentro de la misma campaña.
-    // Si ya existe, NO se crea un registro nuevo — se cuenta el
-    // intento y se avisa quién lo registró la primera vez.
+    // Antes pedía nombre + TELÉFONO — pero muchos promotores no
+    // capturan teléfono, así que casi nunca detectaba nada. Ahora es
+    // más práctico: mismo nombre + misma sección (que ya trae el
+    // municipio implícito, cada sección pertenece a un solo
+    // municipio) — es muy poco probable que dos personas distintas
+    // se llamen exactamente igual Y vivan en la misma sección.
+    // CURP se sigue revisando primero si viene, por ser aún más
+    // confiable que nombre+sección.
     let duplicado = null;
     if (d.curp) {
       const porCurp = await query(
@@ -277,22 +292,26 @@ router.post('/', async (req, res) => {
       );
       duplicado = porCurp.rows[0] || null;
     }
-    if (!duplicado && d.telefono) {
-      const porNombreTel = await query(
+    if (!duplicado && seccionId) {
+      const porNombreSeccion = await query(
         `SELECT p.*, u.nombre as registrado_por_nombre FROM promovidos p
          JOIN usuarios u ON u.id = p.registrado_por
-         WHERE p.campana_id=$1 AND lower(p.nombre)=lower($2) AND p.telefono=$3`,
-        [req.usuario.campana_id, d.nombre, d.telefono]
+         WHERE p.campana_id=$1 AND lower(p.nombre)=lower($2) AND p.seccion_id=$3`,
+        [req.usuario.campana_id, d.nombre, seccionId]
       );
-      duplicado = porNombreTel.rows[0] || null;
+      duplicado = porNombreSeccion.rows[0] || null;
     }
 
     if (duplicado) {
+      // Solo se cuenta el intento — el registro NUNCA se reasigna a
+      // quien lo intentó capturar de nuevo, se queda con quien lo
+      // registró la primera vez. La persona nueva no se lleva ningún
+      // crédito ni penalización por este intento.
       await query('UPDATE promovidos SET veces_intentado = veces_intentado + 1 WHERE id=$1', [duplicado.id]);
       return res.status(409).json({
         ok: false,
         duplicado: true,
-        error: `${d.nombre} ya está registrado en el sistema`,
+        error: `⚠️ Persona ya registrada — ${d.nombre} ya está en el sistema (lo capturó ${duplicado.registrado_por_nombre} el ${new Date(duplicado.creado_en).toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' })})`,
         data: {
           id: duplicado.id,
           registrado_por: duplicado.registrado_por_nombre,
@@ -300,15 +319,6 @@ router.post('/', async (req, res) => {
           veces_intentado: duplicado.veces_intentado + 1,
         },
       });
-    }
-
-    let seccionId = null;
-    if (d.seccion_numero) {
-      const s = await query('SELECT id FROM secciones WHERE estado_id=$2 AND numero=$1', [d.seccion_numero, req.usuario.estado_id]);
-      if (!s.rows[0]) {
-        return res.status(400).json({ ok: false, error: `La sección ${d.seccion_numero} no existe en el catálogo oficial — revisa el número.` });
-      }
-      seccionId = s.rows[0].id;
     }
 
     // Se marca "manual" si el promotor de verdad eligió una
@@ -531,23 +541,26 @@ router.post('/importar', async (req, res) => {
     const d = parseado.data;
 
     try {
-      // Misma lógica de duplicados que el registro individual — no
-      // crear dos veces a la misma persona si ya existía.
-      let duplicado = null;
-      if (d.telefono) {
-        const existente = await query(
-          `SELECT id FROM promovidos WHERE campana_id=$1 AND lower(nombre)=lower($2) AND telefono=$3`,
-          [req.usuario.campana_id, d.nombre, d.telefono]
-        );
-        duplicado = existente.rows[0];
-      }
-      if (duplicado) { duplicados++; continue; }
-
+      // Se resuelve la sección primero, para poder usarla en la
+      // detección de duplicados de abajo.
       let seccionId = null;
       if (d.seccion_numero) {
         const s = await query('SELECT id FROM secciones WHERE estado_id=$2 AND numero=$1', [d.seccion_numero, req.usuario.estado_id]);
         seccionId = s.rows[0]?.id || null;
       }
+
+      // Misma lógica de duplicados que el registro individual —
+      // mismo nombre + misma sección (ya no requiere teléfono, que
+      // casi nunca viene en estas listas importadas).
+      let duplicado = null;
+      if (seccionId) {
+        const existente = await query(
+          `SELECT id FROM promovidos WHERE campana_id=$1 AND lower(nombre)=lower($2) AND seccion_id=$3`,
+          [req.usuario.campana_id, d.nombre, seccionId]
+        );
+        duplicado = existente.rows[0];
+      }
+      if (duplicado) { duplicados++; continue; }
 
       await query(
         `INSERT INTO promovidos (campana_id, nombre, telefono, seccion_id, partido, comprometido, temperatura, registrado_por, consentimiento)

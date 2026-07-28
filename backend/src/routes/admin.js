@@ -1,6 +1,9 @@
 import { Router } from 'express';
 import crypto from 'crypto';
 import multer from 'multer';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { parse } from 'csv-parse/sync';
 import { query } from '../db/pool.js';
 import { requiereSuperAdmin } from '../middleware/superAdmin.js';
@@ -8,6 +11,10 @@ import { generarToken } from '../middleware/auth.js';
 import { crearDemo } from '../../seed-demo.js';
 import { repararListaNominal } from '../../seed.js';
 import { calcularPrecisionAutomatica } from './priorizacion.js';
+import { invalidarCacheGeoSecciones } from './geo.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const router = Router();
 router.use(requiereSuperAdmin); // TODO en este archivo requiere la clave secreta
@@ -487,6 +494,154 @@ router.get('/resumen-datos/:estadoId', async (req, res) => {
       resultados_por_tipo: resultados.rows,
       total_afiliados: parseInt(afiliados.rows[0].total),
     },
+  });
+});
+
+/**
+ * GET /api/admin/estados — lista de estados que ya existen en el
+ * sistema, para el desplegable del panel.
+ */
+router.get('/estados', async (req, res) => {
+  const r = await query('SELECT id, nombre, activo FROM estados ORDER BY nombre');
+  res.json({ ok: true, data: r.rows });
+});
+
+/**
+ * POST /api/admin/estados — da de alta un estado nuevo. El id debe
+ * ser la clave oficial del INE para ese estado (1-32), para que
+ * coincida con lo que traen los archivos oficiales de cartografía y
+ * resultados — no es un número inventado.
+ */
+router.post('/estados', async (req, res) => {
+  const { id, nombre } = req.body;
+  if (!id || !nombre) return res.status(400).json({ ok: false, error: 'Falta id (clave INE 1-32) o nombre del estado' });
+  const existe = await query('SELECT id FROM estados WHERE id=$1', [id]);
+  if (existe.rows[0]) return res.status(400).json({ ok: false, error: `Ya existe un estado con id ${id}` });
+  await query('INSERT INTO estados (id, nombre, activo) VALUES ($1,$2,true)', [id, nombre]);
+  res.status(201).json({ ok: true, mensaje: `Estado "${nombre}" creado con id ${id}` });
+});
+
+/**
+ * POST /api/admin/subir-municipios
+ * CSV esperado: clave_ine,nombre — el catálogo de municipios de un
+ * estado. Necesario ANTES de subir la cartografía, porque cada
+ * sección del mapa se vincula a su municipio por esta clave.
+ */
+router.post('/subir-municipios', uploadCsv.single('archivo'), async (req, res) => {
+  const { estado_id } = req.body;
+  if (!req.file) return res.status(400).json({ ok: false, error: 'Falta el archivo CSV' });
+  if (!estado_id) return res.status(400).json({ ok: false, error: 'Falta estado_id' });
+
+  let filas;
+  try {
+    filas = parse(req.file.buffer.toString('utf-8'), { columns: true, skip_empty_lines: true, trim: true });
+  } catch (e) {
+    return res.status(400).json({ ok: false, error: 'El CSV no se pudo leer: ' + e.message });
+  }
+
+  let creados = 0, actualizados = 0;
+  for (const fila of filas) {
+    const claveIne = parseInt(fila.clave_ine);
+    if (!claveIne || !fila.nombre) continue;
+    const existe = await query('SELECT id FROM municipios WHERE estado_id=$1 AND clave_ine=$2', [estado_id, claveIne]);
+    if (existe.rows[0]) {
+      await query('UPDATE municipios SET nombre=$1 WHERE id=$2', [fila.nombre, existe.rows[0].id]);
+      actualizados++;
+    } else {
+      await query('INSERT INTO municipios (estado_id, clave_ine, nombre) VALUES ($1,$2,$3)', [estado_id, claveIne, fila.nombre]);
+      creados++;
+    }
+  }
+  res.json({ ok: true, mensaje: `✅ ${creados} municipios nuevos, ${actualizados} actualizados` });
+});
+
+/**
+ * POST /api/admin/subir-cartografia
+ * El corazón de expandir a otro estado — sube el GeoJSON oficial de
+ * secciones (de la Cartografía Electoral del INE). Cada "feature"
+ * debe traer en sus properties: seccion, municipio (la CLAVE del
+ * municipio, no el nombre), distrito_local, distrito_federal, y
+ * opcionalmente lista_nominal. Requiere que los municipios de ese
+ * estado YA estén cargados (paso anterior), porque cada sección se
+ * vincula a su municipio por esa clave.
+ *
+ * Hace 2 cosas a la vez: (1) llena la tabla `secciones` en la base
+ * de datos — lo que usan Priorización, Reportes, etc. — y (2) guarda
+ * el archivo geográfico en disco para que el Mapa Electoral lo
+ * pueda dibujar. Es seguro volver a correrlo (actualiza, no duplica).
+ */
+router.post('/subir-cartografia', uploadCsv.single('archivo'), async (req, res) => {
+  const { estado_id } = req.body;
+  if (!req.file) return res.status(400).json({ ok: false, error: 'Falta el archivo GeoJSON' });
+  if (!estado_id) return res.status(400).json({ ok: false, error: 'Falta estado_id' });
+
+  let geojson;
+  try {
+    geojson = JSON.parse(req.file.buffer.toString('utf-8'));
+  } catch (e) {
+    return res.status(400).json({ ok: false, error: 'El archivo no es un GeoJSON válido: ' + e.message });
+  }
+  if (!geojson.features || !Array.isArray(geojson.features)) {
+    return res.status(400).json({ ok: false, error: 'El GeoJSON no tiene "features" — no es cartografía de secciones válida' });
+  }
+
+  // Catálogo de municipios de este estado, para resolver clave -> id
+  const municipiosRes = await query('SELECT id, clave_ine FROM municipios WHERE estado_id=$1', [estado_id]);
+  const municipioIdPorClave = {};
+  municipiosRes.rows.forEach((m) => { municipioIdPorClave[m.clave_ine] = m.id; });
+  if (municipiosRes.rows.length === 0) {
+    return res.status(400).json({ ok: false, error: 'Este estado no tiene municipios cargados todavía — sube primero el catálogo de municipios.' });
+  }
+
+  let insertadas = 0, actualizadas = 0;
+  const sinMunicipio = new Set();
+  const featuresLimpias = [];
+
+  for (const feature of geojson.features) {
+    const p = feature.properties || {};
+    const numero = parseInt(p.seccion);
+    const claveMuni = parseInt(p.municipio);
+    if (!numero || !claveMuni) continue;
+    const municipioId = municipioIdPorClave[claveMuni];
+    if (!municipioId) { sinMunicipio.add(claveMuni); continue; }
+
+    const existe = await query('SELECT id FROM secciones WHERE estado_id=$1 AND numero=$2', [estado_id, numero]);
+    if (existe.rows[0]) {
+      await query(
+        'UPDATE secciones SET municipio_id=$1, distrito_local=$2, distrito_federal=$3, lista_nominal=COALESCE($4,lista_nominal) WHERE id=$5',
+        [municipioId, p.distrito_local || null, p.distrito_federal || null, p.lista_nominal ? parseInt(p.lista_nominal) : null, existe.rows[0].id]
+      );
+      actualizadas++;
+    } else {
+      await query(
+        'INSERT INTO secciones (estado_id, numero, municipio_id, distrito_local, distrito_federal, lista_nominal) VALUES ($1,$2,$3,$4,$5,$6)',
+        [estado_id, numero, municipioId, p.distrito_local || null, p.distrito_federal || null, p.lista_nominal ? parseInt(p.lista_nominal) : 0]
+      );
+      insertadas++;
+    }
+
+    // El mapa solo necesita estas 4 propiedades por sección — se
+    // guarda una copia "limpia" del archivo, sin todo lo demás que
+    // pueda traer el GeoJSON oficial (menos peso para el navegador).
+    featuresLimpias.push({
+      type: 'Feature',
+      properties: { seccion: numero, municipio: claveMuni, distrito_local: p.distrito_local || null, distrito_federal: p.distrito_federal || null },
+      geometry: feature.geometry,
+    });
+  }
+
+  if (featuresLimpias.length === 0) {
+    return res.status(400).json({ ok: false, error: 'Ninguna sección del archivo se pudo procesar — revisa que las properties traigan "seccion" y "municipio" correctamente.' });
+  }
+
+  const rutaArchivo = path.join(__dirname, '../db', `secciones_estado_${estado_id}.geojson`);
+  fs.writeFileSync(rutaArchivo, JSON.stringify({ type: 'FeatureCollection', features: featuresLimpias }));
+  invalidarCacheGeoSecciones(estado_id);
+
+  res.json({
+    ok: true,
+    mensaje: `✅ ${insertadas} secciones nuevas, ${actualizadas} actualizadas, mapa guardado con ${featuresLimpias.length} secciones` +
+      (sinMunicipio.size ? ` — ⚠️ ${sinMunicipio.size} claves de municipio no encontradas (revisa: ${[...sinMunicipio].slice(0, 10).join(', ')})` : ''),
   });
 });
 
