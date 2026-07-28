@@ -127,9 +127,16 @@ const ESTILO_BLOG = `
   iframe{width:100%;aspect-ratio:16/9;border-radius:12px;border:0;}
   .pdf-embed{display:block;background:#14123D;border-radius:12px;padding:30px;text-align:center;text-decoration:none;color:#00D4B8;font-weight:700;margin-bottom:20px;}
 `;
-function urlYoutubeEmbed(url) {
-  const m = url?.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/))([\w-]{11})/);
-  return m ? `https://www.youtube.com/embed/${m[1]}` : null;
+function urlVideoEmbed(url) {
+  if (!url) return null;
+  const yt = url.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/))([\w-]{11})/);
+  if (yt) return `https://www.youtube.com/embed/${yt[1]}`;
+  // El panel promete "YouTube o Vimeo" pero antes solo se embebía
+  // YouTube — un link de Vimeo se veía como simple texto en vez de
+  // reproductor, que es justo el bug reportado.
+  const vimeo = url.match(/vimeo\.com\/(\d+)/);
+  if (vimeo) return `https://player.vimeo.com/video/${vimeo[1]}`;
+  return null;
 }
 function barraLateralHTML(recientes) {
   return `
@@ -163,7 +170,7 @@ app.get('/blog', async (req, res) => {
     <meta name="robots" content="index, follow">
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/style.css">
+    <link rel="stylesheet" href="/style.css?v=2">
     <style>${ESTILO_BLOG}</style></head><body>
     ${ENCABEZADO_COMPARTIDO}
     <div class="blog-wrap">
@@ -185,7 +192,7 @@ app.get('/blog/:slug', async (req, res) => {
 
   let cuerpoMedia = '';
   if (p.tipo === 'video' && p.url_archivo) {
-    const embed = urlYoutubeEmbed(p.url_archivo);
+    const embed = urlVideoEmbed(p.url_archivo);
     cuerpoMedia = embed ? `<iframe src="${embed}" allowfullscreen></iframe>` : `<a class="pdf-embed" href="${p.url_archivo}" target="_blank">▶️ Ver video</a>`;
   } else if (p.tipo === 'pdf' && p.url_archivo) {
     cuerpoMedia = `<a class="pdf-embed" href="${p.url_archivo}" target="_blank">📎 Descargar / ver PDF</a>`;
@@ -205,7 +212,7 @@ app.get('/blog/:slug', async (req, res) => {
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'Article', headline: p.titulo, description: metaDesc, datePublished: p.fecha_publicacion })}</script>
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/style.css">
+    <link rel="stylesheet" href="/style.css?v=2">
     <style>${ESTILO_BLOG}</style></head><body>
     ${ENCABEZADO_COMPARTIDO}
     <div class="blog-wrap">
