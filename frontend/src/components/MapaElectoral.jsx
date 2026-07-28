@@ -14,6 +14,33 @@ const COLOR_CLASIFICACION = {
 };
 
 /**
+ * Botón para "encontrar" el mapa otra vez — regresa al centro y
+ * zoom de inicio con una animación suave. Antes no existía ninguna
+ * forma de recuperarse si alguien se perdía navegando (ni siquiera
+ * había botones de zoom visibles, zoomControl estaba apagado).
+ */
+function ControlCentrarMapa({ centro, zoomInicial }) {
+  const map = useMap();
+  return (
+    <div className="absolute top-16 right-2 z-[999] flex flex-col gap-1.5">
+      <button onClick={() => map.flyTo(centro, zoomInicial, { duration: 0.8 })}
+        title="Centrar el mapa"
+        className="w-9 h-9 rounded-lg bg-slate-900/95 backdrop-blur border border-slate-700 text-white text-base shadow-lg flex items-center justify-center hover:bg-slate-800">
+        🎯
+      </button>
+      <button onClick={() => map.zoomIn()} title="Acercar"
+        className="w-9 h-9 rounded-lg bg-slate-900/95 backdrop-blur border border-slate-700 text-white text-base font-bold shadow-lg flex items-center justify-center hover:bg-slate-800">
+        +
+      </button>
+      <button onClick={() => map.zoomOut()} title="Alejar"
+        className="w-9 h-9 rounded-lg bg-slate-900/95 backdrop-blur border border-slate-700 text-white text-base font-bold shadow-lg flex items-center justify-center hover:bg-slate-800">
+        −
+      </button>
+    </div>
+  );
+}
+
+/**
  * Capa de mapa de calor — usa leaflet.heat directamente sobre el mapa
  * (no hay wrapper de react-leaflet para esto, así que se maneja con
  * useMap + efecto manual). El color ahora refleja el partido que
@@ -89,8 +116,28 @@ const ANIOS_DISPONIBLES = {
   dip_local: [2021],
 };
 
+/**
+ * Qué capas de "Ver por territorio" tiene sentido mostrarle a ESTA
+ * campaña — antes se mostraban las 4 siempre, sin importar el
+ * alcance real. Una campaña municipal no debe poder ver "Senaduría"
+ * ni "Distrito Federal" como capas seleccionables — no son su
+ * elección, y solo confunden. La regla es simple: solo se muestran
+ * territorios IGUALES o MÁS CHICOS que el propio alcance de la
+ * campaña, nunca más grandes.
+ */
+function capasDeTerritorioDisponibles(territorioTipo) {
+  if (territorioTipo === 'seccion') return ['secciones'];
+  if (territorioTipo === 'municipio') return ['secciones', 'municipio'];
+  if (territorioTipo === 'distrito_local') return ['secciones', 'municipio', 'distrito_local'];
+  if (territorioTipo === 'distrito_federal') return ['secciones', 'municipio', 'distrito_local'];
+  // 'estatal' (Gobernador/Senador) — su elección sí es de todo el
+  // estado, tiene sentido que vea todos los niveles.
+  return ['secciones', 'municipio', 'distrito_local', 'distrito_federal', 'senaduria'];
+}
+
 export default function MapaElectoral({ campanaId, territorioTipo, territorioId, tipoEleccion = 'ayuntamiento', fechaEleccion }) {
   const anioCampana = fechaEleccion ? new Date(fechaEleccion).getFullYear() : null;
+  const capasDisponibles = capasDeTerritorioDisponibles(territorioTipo);
   const navigate = useNavigate();
   // Leaflet a veces truena con "Map container is already initialized"
   // si el componente se desmonta y se vuelve a montar rápido (por
@@ -814,11 +861,11 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
   const centroTlaxcala = [19.32, -98.24];
 
   return (
-    <div className="relative w-full h-[calc(100vh-45px)] bg-slate-950">
+    <div className="relative w-full h-full bg-slate-950">
       <MapContainer key={idMontajeMapa} center={centroTlaxcala} zoom={11} className="w-full h-full" zoomControl={false}>
 
         {/* SORPRESA 1: selector de tipo de mapa (satelital, oscuro, calles) — la v1 no tenía NINGÚN mapa base real */}
-        <LayersControl position="topright">
+        <LayersControl position="bottomleft">
           <LayersControl.BaseLayer name="🌙 Oscuro (recomendado de noche)">
             <TileLayer
               url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
@@ -989,6 +1036,8 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
             </Popup>
           </Marker>
         ))}
+
+        <ControlCentrarMapa centro={centroTlaxcala} zoomInicial={11} />
 
         <CapaCalor
           puntos={promovidosFiltrados.map(p => ({ lat: p._lat, lng: p._lng }))}
@@ -1253,14 +1302,22 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
           <div className="grid grid-cols-2 gap-1.5">
             <button onClick={() => { setModoCapa('secciones'); setTerritorioActivo(null); }}
               className={`py-1.5 rounded-lg text-[10px] font-bold ${modoCapa === 'secciones' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>Secciones</button>
-            <button onClick={() => { setModoCapa('distrito_federal'); setTerritorioActivo(null); }}
-              className={`py-1.5 rounded-lg text-[10px] font-bold ${modoCapa === 'distrito_federal' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>Dist. Federal</button>
-            <button onClick={() => { setModoCapa('distrito_local'); setTerritorioActivo(null); }}
-              className={`py-1.5 rounded-lg text-[10px] font-bold ${modoCapa === 'distrito_local' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>Dist. Local</button>
-            <button onClick={() => { setModoCapa('municipio'); setTerritorioActivo(null); }}
-              className={`py-1.5 rounded-lg text-[10px] font-bold ${modoCapa === 'municipio' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>Municipio</button>
-            <button onClick={() => { setModoCapa('senaduria'); setTerritorioActivo(null); }}
-              className={`py-1.5 rounded-lg text-[10px] font-bold col-span-2 ${modoCapa === 'senaduria' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🏅 Senaduría (todo el estado)</button>
+            {capasDisponibles.includes('distrito_federal') && (
+              <button onClick={() => { setModoCapa('distrito_federal'); setTerritorioActivo(null); }}
+                className={`py-1.5 rounded-lg text-[10px] font-bold ${modoCapa === 'distrito_federal' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>Dist. Federal</button>
+            )}
+            {capasDisponibles.includes('distrito_local') && (
+              <button onClick={() => { setModoCapa('distrito_local'); setTerritorioActivo(null); }}
+                className={`py-1.5 rounded-lg text-[10px] font-bold ${modoCapa === 'distrito_local' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>Dist. Local</button>
+            )}
+            {capasDisponibles.includes('municipio') && (
+              <button onClick={() => { setModoCapa('municipio'); setTerritorioActivo(null); }}
+                className={`py-1.5 rounded-lg text-[10px] font-bold ${modoCapa === 'municipio' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>Municipio</button>
+            )}
+            {capasDisponibles.includes('senaduria') && (
+              <button onClick={() => { setModoCapa('senaduria'); setTerritorioActivo(null); }}
+                className={`py-1.5 rounded-lg text-[10px] font-bold col-span-2 ${modoCapa === 'senaduria' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🏅 Senaduría (todo el estado)</button>
+            )}
           </div>
           {modoCapa !== 'secciones' && (
             <>
@@ -1666,14 +1723,22 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
                   <div className="grid grid-cols-2 gap-1.5">
                     <button onClick={() => { setModoCapa('secciones'); setTerritorioActivo(null); }}
                       className={`py-2 rounded-lg text-xs font-bold ${modoCapa === 'secciones' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>Secciones</button>
-                    <button onClick={() => { setModoCapa('distrito_federal'); setTerritorioActivo(null); }}
-                      className={`py-2 rounded-lg text-xs font-bold ${modoCapa === 'distrito_federal' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>Dist. Federal</button>
-                    <button onClick={() => { setModoCapa('distrito_local'); setTerritorioActivo(null); }}
-                      className={`py-2 rounded-lg text-xs font-bold ${modoCapa === 'distrito_local' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>Dist. Local</button>
-                    <button onClick={() => { setModoCapa('municipio'); setTerritorioActivo(null); }}
-                      className={`py-2 rounded-lg text-xs font-bold ${modoCapa === 'municipio' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>Municipio</button>
-                    <button onClick={() => { setModoCapa('senaduria'); setTerritorioActivo(null); }}
-                      className={`py-2 rounded-lg text-xs font-bold col-span-2 ${modoCapa === 'senaduria' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🏅 Senaduría (todo el estado)</button>
+                    {capasDisponibles.includes('distrito_federal') && (
+                      <button onClick={() => { setModoCapa('distrito_federal'); setTerritorioActivo(null); }}
+                        className={`py-2 rounded-lg text-xs font-bold ${modoCapa === 'distrito_federal' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>Dist. Federal</button>
+                    )}
+                    {capasDisponibles.includes('distrito_local') && (
+                      <button onClick={() => { setModoCapa('distrito_local'); setTerritorioActivo(null); }}
+                        className={`py-2 rounded-lg text-xs font-bold ${modoCapa === 'distrito_local' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>Dist. Local</button>
+                    )}
+                    {capasDisponibles.includes('municipio') && (
+                      <button onClick={() => { setModoCapa('municipio'); setTerritorioActivo(null); }}
+                        className={`py-2 rounded-lg text-xs font-bold ${modoCapa === 'municipio' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>Municipio</button>
+                    )}
+                    {capasDisponibles.includes('senaduria') && (
+                      <button onClick={() => { setModoCapa('senaduria'); setTerritorioActivo(null); }}
+                        className={`py-2 rounded-lg text-xs font-bold col-span-2 ${modoCapa === 'senaduria' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🏅 Senaduría (todo el estado)</button>
+                    )}
                   </div>
                   {modoCapa !== 'secciones' && (
                     <div className="mt-2.5">
