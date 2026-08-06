@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { MapContainer, TileLayer, Marker } from 'react-leaflet';
 import api, { descargarArchivo } from '../lib/api';
 import BuscadorCalle from '../components/BuscadorCalle';
 import InsigniaPartido from '../components/InsigniaPartido';
@@ -22,7 +21,7 @@ const CLASIFICACION_ESTILO = {
 export function ModalAgregar({ onCerrar, onGuardado, seccionInicial }) {
   const [form, setForm] = useState({
     nombre: '', telefono: '', seccion_numero: seccionInicial || '', partido: '', calle: '', lat: null, lng: null,
-    comprometido: false, temperatura: 'tibio', clasificacion: 'persuadible', consentimiento: false,
+    comprometido: false, temperatura: 'tibio', consentimiento: false,
     necesidad_principal: '', situacion_grave: '', genero: '', rango_edad: '',
   });
   const [error, setError] = useState('');
@@ -62,17 +61,6 @@ export function ModalAgregar({ onCerrar, onGuardado, seccionInicial }) {
           valor={form.calle}
           onSeleccion={(datos) => setForm((f) => ({ ...f, calle: datos.calle, lat: datos.lat, lng: datos.lng }))}
         />
-        {form.lat && form.lng && (
-          <div className="rounded-lg overflow-hidden border border-slate-700">
-            <div style={{ height: 140 }}>
-              <MapContainer center={[form.lat, form.lng]} zoom={17} style={{ height: '100%', width: '100%' }} zoomControl={false} dragging={false} scrollWheelZoom={false}>
-                <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-                <Marker position={[form.lat, form.lng]} />
-              </MapContainer>
-            </div>
-            <p className="text-[9px] text-slate-500 bg-slate-800 px-2 py-1.5">📍 Así va a quedar posicionado en el mapa — confirma que sea el lugar correcto</p>
-          </div>
-        )}
 
         <select value={form.partido} onChange={(e) => actualizar('partido', e.target.value)}
           className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
@@ -106,18 +94,6 @@ export function ModalAgregar({ onCerrar, onGuardado, seccionInicial }) {
               {t==='frio'?'❄️':t==='tibio'?'🌡️':'🔥'} {t}
             </button>
           ))}
-        </div>
-
-        <div>
-          <p className="text-[10px] text-slate-500 mb-1">¿Cómo la clasificas? (lo que tú observaste en la plática)</p>
-          <div className="flex gap-2">
-            {[['base','✅','Base'],['persuadible','🎯','Persuadible'],['adversario','⛔','Adversario']].map(([v,ic,label]) => (
-              <button key={v} type="button" onClick={() => actualizar('clasificacion', v)}
-                className={`flex-1 py-2 rounded-lg text-xs font-bold border ${form.clasificacion===v ? 'bg-indigo-600 border-indigo-500 text-white' : 'border-slate-700 text-slate-400'}`}>
-                {ic} {label}
-              </button>
-            ))}
-          </div>
         </div>
 
         <label className="flex items-center gap-2 text-xs text-slate-300">

@@ -1,8 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import api, { descargarArchivo } from '../lib/api';
-import { COLOR_PARTIDO } from '../components/InsigniaPartido';
 import Ayuda from '../components/Ayuda';
 
 const PARTIDOS_COLOR = {
@@ -11,25 +9,14 @@ const PARTIDOS_COLOR = {
   rsp: '#7c3aed', fxm: '#0891b2', panalt: '#64748b',
 };
 
-function SemaforoItem({ ok, bien, mal }) {
-  return (
-    <div className={`flex items-center gap-2 rounded-lg px-3 py-2 ${ok ? 'bg-emerald-500/10' : 'bg-red-500/10'}`}>
-      <span className="text-lg flex-shrink-0">{ok ? '🟢' : '🔴'}</span>
-      <span className={`text-xs ${ok ? 'text-emerald-300' : 'text-red-300'}`}>{ok ? bien : mal}</span>
-    </div>
-  );
-}
-
 export default function Reportes() {
-  const [tab, setTab] = useState('ejecutivo');
+  const [tab, setTab] = useState('diario');
   const [subTabActividad, setSubTabActividad] = useState('resumen');
   const [fecha, setFecha] = useState(new Date().toISOString().slice(0, 10));
   const [diario, setDiario] = useState([]);
   const [tendencia, setTendencia] = useState([]);
   const [estadisticas, setEstadisticas] = useState(null);
   const [fichaEstado, setFichaEstado] = useState(null);
-  const [porPartido, setPorPartido] = useState(null);
-  const [riesgos, setRiesgos] = useState(null);
   const [tipoAgregado, setTipoAgregado] = useState('dip_federal');
   const [agregados, setAgregados] = useState(null);
   const [probabilidad, setProbabilidad] = useState(null);
@@ -55,8 +42,6 @@ export default function Reportes() {
     api.get('/reportes/tendencia').then((r) => setTendencia(r.data.data));
     api.get('/reportes/estadisticas').then((r) => setEstadisticas(r.data.data));
     api.get('/reportes/ficha-estado').then((r) => setFichaEstado(r.data.data)).catch(() => setFichaEstado(null));
-    api.get('/promovidos-analitica/concentrado-mapa').then((r) => setPorPartido(r.data.data.por_partido)).catch(() => setPorPartido(null));
-    api.get('/reportes/motor-riesgos').then((r) => setRiesgos(r.data.data)).catch(() => setRiesgos(null));
     api.get('/reportes/probabilidad').then((r) => setProbabilidad(r.data.data));
     api.get('/reportes/regresion-cobertura').then((r) => setRegresion(r.data.data));
     api.get('/reportes/prueba-ritmo').then((r) => setPruebaRitmo(r.data.data));
@@ -99,19 +84,15 @@ export default function Reportes() {
           <button onClick={() => descargarArchivo('/reportes/pdf/encuestas', 'reporte_encuestas.pdf')} className="text-[10px] font-bold text-slate-400 hover:text-white bg-slate-800/60 px-2.5 py-1.5 rounded-lg">📄 Encuestas</button>
         </div>
 
-        <div className="flex gap-2 overflow-x-auto pb-1 -mx-4 px-4 md:mx-0 md:px-0" style={{ scrollbarWidth: 'thin' }}>
-          <button onClick={() => setTab('ejecutivo')} className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'ejecutivo' ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'}`}>⚡ Resumen Ejecutivo</button>
-          <button onClick={() => setTab('riesgos')} className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-bold relative ${tab === 'riesgos' ? 'bg-red-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
-            🚨 Motor de Riesgos {riesgos && riesgos.total_riesgos > 0 && <span className="ml-1 bg-red-500 text-white rounded-full px-1.5 text-[9px]">{riesgos.total_riesgos}</span>}
-          </button>
-          <button onClick={() => setTab('diario')} className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'diario' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📋 Bitácora diaria</button>
-          <button onClick={() => setTab('tendencia')} className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'tendencia' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📈 Tendencia</button>
-          <button onClick={() => setTab('estadisticas')} className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'estadisticas' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🗺️ Análisis histórico</button>
-          <button onClick={() => setTab('ficha-estado')} className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'ficha-estado' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🏛️ Ficha del Estado</button>
-          <button onClick={() => setTab('otros-cargos')} className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'otros-cargos' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🗳️ Senado / Dip. Federal / Dip. Local</button>
-          <button onClick={() => setTab('probabilidad')} className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'probabilidad' ? 'bg-purple-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🎲 Estadística y Probabilidad</button>
-          <button onClick={() => setTab('actividad')} className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'actividad' ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🎯 Actividad de Campo</button>
-          <button onClick={() => setTab('encuestas')} className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'encuestas' ? 'bg-pink-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📋 Encuestas</button>
+        <div className="flex gap-2">
+          <button onClick={() => setTab('diario')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'diario' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📋 Bitácora diaria</button>
+          <button onClick={() => setTab('tendencia')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'tendencia' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📈 Tendencia</button>
+          <button onClick={() => setTab('estadisticas')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'estadisticas' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🗺️ Análisis histórico</button>
+          <button onClick={() => setTab('ficha-estado')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'ficha-estado' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🏛️ Ficha del Estado</button>
+          <button onClick={() => setTab('otros-cargos')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'otros-cargos' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🗳️ Senado / Dip. Federal / Dip. Local</button>
+          <button onClick={() => setTab('probabilidad')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'probabilidad' ? 'bg-purple-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🎲 Estadística y Probabilidad</button>
+          <button onClick={() => setTab('actividad')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'actividad' ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🎯 Actividad de Campo</button>
+          <button onClick={() => setTab('encuestas')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'encuestas' ? 'bg-pink-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📋 Encuestas</button>
         </div>
 
         {tab === 'probabilidad' && probabilidad && (
@@ -252,193 +233,6 @@ export default function Reportes() {
                 </>
               )}
             </div>
-          </div>
-        )}
-
-        {tab === 'ejecutivo' && (
-          <div className="space-y-4">
-            <div className="flex justify-between items-center">
-              <p className="text-[11px] text-slate-500">Lo que necesitas saber en 10 segundos — para el detalle completo, usa las demás pestañas.</p>
-              <button onClick={() => descargarArchivo('/reportes/resumen-ejecutivo-pdf', 'resumen-ejecutivo.pdf')}
-                className="px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 text-[10px] font-bold flex-shrink-0">📥 Descargar PDF</button>
-            </div>
-
-            {/* Los 3 números que de verdad importan */}
-            <div className="grid grid-cols-3 gap-3">
-              <div className="bg-gradient-to-br from-indigo-900/40 to-indigo-950/40 border border-indigo-700/30 rounded-2xl p-4 text-center">
-                <div className="text-3xl font-black text-white">
-                  {probabilidad?.intervalo_confianza?.centro != null ? `${probabilidad.intervalo_confianza.centro}%` : '—'}
-                </div>
-                <div className="text-[10px] text-slate-400 mt-1">Intención de voto estimada</div>
-              </div>
-              <div className="bg-gradient-to-br from-emerald-900/40 to-emerald-950/40 border border-emerald-700/30 rounded-2xl p-4 text-center">
-                <div className="text-3xl font-black text-white">{caminoTriunfo?.secciones_ganadas_hoy ?? '—'}</div>
-                <div className="text-[10px] text-slate-400 mt-1">Secciones que ganas hoy</div>
-              </div>
-              <div className="bg-gradient-to-br from-amber-900/40 to-amber-950/40 border border-amber-700/30 rounded-2xl p-4 text-center">
-                <div className="text-3xl font-black text-white">{caminoTriunfo?.secciones_necesarias_adicionales ?? '—'}</div>
-                <div className="text-[10px] text-slate-400 mt-1">Secciones que faltan por voltear</div>
-              </div>
-            </div>
-
-            {/* Gráfica de tendencia real — antes esto era solo un
-                número estático, ahora se ve el movimiento de los
-                últimos 14 días de un vistazo */}
-            <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4">
-              <div className="text-xs font-bold text-slate-400 uppercase mb-3">📈 Promovidos captados — últimos 14 días</div>
-              {tendencia.length === 0 ? (
-                <div className="text-xs text-slate-500 text-center py-8">Aún no hay suficiente actividad para mostrar tendencia</div>
-              ) : (
-                <ResponsiveContainer width="100%" height={180}>
-                  <LineChart data={tendencia.map(t => ({ ...t, fechaCorta: new Date(t.fecha).toLocaleDateString('es-MX', { day: 'numeric', month: 'short' }) }))}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                    <XAxis dataKey="fechaCorta" tick={{ fontSize: 9, fill: '#64748b' }} axisLine={{ stroke: '#334155' }} />
-                    <YAxis tick={{ fontSize: 9, fill: '#64748b' }} axisLine={{ stroke: '#334155' }} allowDecimals={false} />
-                    <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8, fontSize: 11 }} labelStyle={{ color: '#fff' }} />
-                    <Line type="monotone" dataKey="promovidos" name="Promovidos" stroke="#6366f1" strokeWidth={2} dot={{ r: 3 }} />
-                    <Line type="monotone" dataKey="comprometidos" name="Comprometidos" stroke="#10b981" strokeWidth={2} dot={{ r: 3 }} />
-                  </LineChart>
-                </ResponsiveContainer>
-              )}
-            </div>
-
-            {porPartido && porPartido.length > 0 && (
-              <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4">
-                <div className="text-xs font-bold text-slate-400 uppercase mb-3">🥧 Tus promovidos por partido</div>
-                <div className="flex items-center gap-4">
-                  <ResponsiveContainer width="45%" height={160}>
-                    <PieChart>
-                      <Pie data={porPartido} dataKey="total" nameKey="partido" cx="50%" cy="50%" innerRadius={35} outerRadius={65} paddingAngle={2}>
-                        {porPartido.map((p, i) => <Cell key={i} fill={COLOR_PARTIDO[p.partido]?.color || '#64748b'} />)}
-                      </Pie>
-                      <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8, fontSize: 11 }} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                  <div className="flex-1 space-y-1.5">
-                    {porPartido.map((p, i) => (
-                      <div key={i} className="flex items-center justify-between text-[11px]">
-                        <span className="flex items-center gap-1.5 text-slate-300">
-                          <span className="w-2.5 h-2.5 rounded-full" style={{ background: COLOR_PARTIDO[p.partido]?.color || '#64748b' }} />
-                          {p.partido.toUpperCase()}
-                        </span>
-                        <span className="text-slate-400 font-bold">{p.total}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Semáforo de salud de la campaña — 4 focos, sin texto de más */}
-            <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4">
-              <div className="text-xs font-bold text-slate-400 uppercase mb-3">🚦 Semáforo de campaña</div>
-              <div className="grid grid-cols-2 gap-3">
-                <SemaforoItem
-                  ok={probabilidad?.muestra_suficiente}
-                  bien="Muestra estadística suficiente"
-                  mal={`Muestra chica (${probabilidad?.total_promovidos_muestra ?? 0} de 30 necesarios)`}
-                />
-                <SemaforoItem
-                  ok={actividadResumen?.promotores_activos > 0}
-                  bien={`${actividadResumen?.promotores_activos ?? 0} promotores activos`}
-                  mal="Sin promotores reportando actividad"
-                />
-                <SemaforoItem
-                  ok={actividadResumen && actividadResumen.pct_comprometidos >= 30}
-                  bien={`${actividadResumen?.pct_comprometidos ?? 0}% de tasa de compromiso`}
-                  mal={`Tasa de compromiso baja (${actividadResumen?.pct_comprometidos ?? 0}%)`}
-                />
-                <SemaforoItem
-                  ok={actividadResumen?.ultimos_7_dias?.some((d) => d.total > 0)}
-                  bien="Actividad reciente en los últimos 7 días"
-                  mal="Sin actividad reportada en los últimos 7 días"
-                />
-              </div>
-            </div>
-
-            {/* La frase que resume todo, en español sencillo */}
-            {caminoTriunfo?.interpretacion && (
-              <div className="bg-indigo-500/10 border border-indigo-500/30 rounded-2xl p-4 text-sm text-indigo-200 leading-relaxed">
-                💬 {caminoTriunfo.interpretacion}
-              </div>
-            )}
-
-            {fichaEstado && (
-              <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4 flex items-center justify-between">
-                <div>
-                  <div className="text-xs font-bold text-slate-400 uppercase">Tu campaña, de un vistazo</div>
-                  <div className="text-[11px] text-slate-500 mt-1">{fichaEstado.tus_promovidos_totales} promovidos capturados hasta hoy</div>
-                </div>
-                <Link to="/promovidos" className="text-[10px] font-bold text-indigo-400">Ver detalle →</Link>
-              </div>
-            )}
-          </div>
-        )}
-
-        {tab === 'riesgos' && riesgos && (
-          <div className="space-y-5">
-            <p className="text-[11px] text-slate-500">Detectado automáticamente de tus propios datos — nadie tiene que ir a buscar estos problemas a mano.</p>
-
-            {riesgos.total_riesgos === 0 ? (
-              <div className="text-center text-emerald-400 text-sm py-10">🎉 Sin riesgos detectados por ahora</div>
-            ) : (
-              <>
-                {riesgos.operadores_riesgo.length > 0 && (
-                  <div>
-                    <div className="text-xs font-bold text-red-400 uppercase mb-2">🔌 Operadores apagándose — {riesgos.operadores_riesgo.length}</div>
-                    <p className="text-[10px] text-slate-500 mb-2">Sin actividad hace más de 5 días — vale la pena revisar si siguen activos en campo.</p>
-                    <div className="space-y-1.5">
-                      {riesgos.operadores_riesgo.map((o) => (
-                        <div key={o.id} className="bg-red-500/5 border border-red-500/20 rounded-lg px-3 py-2 flex justify-between items-center">
-                          <span className="text-xs text-white font-bold">{o.nombre} <span className="text-slate-500 font-normal">({o.puesto || o.rol})</span></span>
-                          <span className="text-[10px] text-red-400">{o.dias_inactivo} días sin actividad</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {riesgos.metas_incumplidas.length > 0 && (
-                  <div>
-                    <div className="text-xs font-bold text-amber-400 uppercase mb-2">🎯 Metas por debajo del ritmo — {riesgos.metas_incumplidas.length}</div>
-                    <p className="text-[10px] text-slate-500 mb-2">Llevan menos de la mitad de lo esperado en los últimos 7 días.</p>
-                    <div className="space-y-1.5">
-                      {riesgos.metas_incumplidas.map((m) => (
-                        <div key={m.id} className="bg-amber-500/5 border border-amber-500/20 rounded-lg px-3 py-2 flex justify-between items-center">
-                          <span className="text-xs text-white font-bold">{m.nombre}</span>
-                          <span className="text-[10px] text-amber-400">{m.promovidos_7dias} de {m.meta_diaria * 7} esperados (7 días)</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {riesgos.cobertura_baja.length > 0 && (
-                  <div>
-                    <div className="text-xs font-bold text-orange-400 uppercase mb-2">🗺️ Municipios con menor cobertura</div>
-                    <div className="space-y-1.5">
-                      {riesgos.cobertura_baja.map((c, i) => (
-                        <div key={i} className="bg-orange-500/5 border border-orange-500/20 rounded-lg px-3 py-2 flex justify-between items-center">
-                          <span className="text-xs text-white font-bold">{c.municipio}</span>
-                          <span className="text-[10px] text-orange-400">{c.promovidos} promovidos · {c.pct_cobertura}% de {c.lista_nominal.toLocaleString()} electores</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {riesgos.sin_estructura.length > 0 && (
-                  <div>
-                    <div className="text-xs font-bold text-slate-400 uppercase mb-2">👤 Secciones sin nadie asignado — {riesgos.sin_estructura.length}</div>
-                    <div className="flex flex-wrap gap-1.5">
-                      {riesgos.sin_estructura.map((s, i) => (
-                        <span key={i} className="text-[10px] bg-slate-800 text-slate-300 rounded-full px-2.5 py-1">Sección {s.seccion} · {s.municipio}</span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
           </div>
         )}
 

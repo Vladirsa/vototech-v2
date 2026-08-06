@@ -54,9 +54,9 @@ export default function RecuperarPassword() {
           <div className="text-3xl mb-2">📱</div>
           <h1 className="text-lg font-black text-white">Recuperar contraseña</h1>
           <p className="text-xs text-slate-500 mt-1">
-            {paso === 1 && 'Te vamos a mandar un código de 6 dígitos por WhatsApp, al teléfono que ya tienes registrado en el sistema. En la siguiente pantalla (aquí mismo) lo escribes.'}
-            {paso === 2 && 'Revisa WhatsApp — te llegó un mensaje con un código de 6 dígitos. Escríbelo aquí abajo (tienes unos minutos antes de que expire).'}
-            {paso === 3 && 'El código fue correcto — ahora sí, elige tu contraseña nueva.'}
+            {paso === 1 && 'Te mandamos un código por WhatsApp al teléfono que ya tienes registrado'}
+            {paso === 2 && 'Escribe el código de 6 dígitos que te llegó'}
+            {paso === 3 && 'Elige tu contraseña nueva'}
           </p>
         </div>
 
@@ -73,20 +73,17 @@ export default function RecuperarPassword() {
               className="w-full py-3 rounded-xl bg-indigo-600 text-white font-bold text-sm disabled:opacity-40">
               {cargando ? 'Enviando...' : 'Mandar código por WhatsApp'}
             </button>
-            <p className="text-[10px] text-slate-600 text-center">¿No tienes tu teléfono a la mano, o no te llegó nada? Pídele a quien te dio de alta en el sistema (tu coordinador directo) que te restablezca el acceso desde Estructura.</p>
           </form>
         )}
 
         {paso === 2 && (
           <form onSubmit={verificarCodigo} className="space-y-3">
-            <p className="text-[10px] text-slate-500 text-center -mt-1">Revisa bien tus chats — a veces WhatsApp Business llega junto con la publicidad o en "solicitudes de mensaje".</p>
             <input value={codigo} onChange={(e) => setCodigo(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="000000" maxLength={6} autoFocus
               className="w-full px-4 py-3 rounded-xl bg-slate-800/80 border border-slate-700 text-white text-2xl text-center tracking-[0.5em] focus:outline-none focus:border-indigo-500" />
             <button type="submit" disabled={cargando || codigo.length !== 6}
               className="w-full py-3 rounded-xl bg-indigo-600 text-white font-bold text-sm disabled:opacity-40">
               {cargando ? 'Verificando...' : 'Verificar código'}
             </button>
-            <button type="button" onClick={() => setPaso(1)} className="w-full text-[10px] text-slate-500 hover:text-slate-300">¿No te llegó? Volver a intentar</button>
           </form>
         )}
 

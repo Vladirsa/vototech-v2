@@ -1,7 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../lib/api';
-import { useAuth } from '../lib/authStore';
 // html2canvas se importa DINÁMICAMENTE dentro de exportarImagen() —
 // es una librería pesada que solo hace falta si alguien de verdad
 // toca "Exportar imagen", no en cada visita a Estructura.
@@ -20,12 +19,6 @@ const ROL_LABEL = {
   coord_distrital: 'Nivel Regional', coord_municipal: 'Nivel Municipal',
   coord_seccional: 'Nivel Territorial', promotor: 'Promotor',
   encargado_juridico: 'Encargado Jurídico', encargado_finanzas: 'Encargado de Finanzas', voluntario: 'Voluntario',
-  // Cadena jerárquica territorial completa
-  coordinador_territorial: 'Coordinador Territorial', coordinador_politico: 'Coordinador Político',
-  enlace_distrital_federal: 'Enlace Distrital Federal', enlace_distrital_local: 'Enlace Distrital Local',
-  enlace_municipal: 'Enlace Municipal', enlace_seccional: 'Enlace Seccional',
-  enlace_jovenes: 'Enlace de Jóvenes', enlace_mujeres: 'Enlace de Mujeres',
-  enlace_brigadas: 'Enlace de Brigadas', enlace_activos: 'Enlace de Activos',
 };
 
 // Catálogo real de puestos de campaña — investigado de estructuras
@@ -44,16 +37,6 @@ const PUESTOS_POR_ROL = {
   // El puesto de voluntario define QUÉ puede hacer, no solo cómo se
   // llama — "Marketing" es el único que además desbloquea ese módulo.
   voluntario: ['Marketing', 'Pinta de bardas', 'Reparto de publicidad', 'Apoyo logístico', 'Apoyo en eventos'],
-  coordinador_territorial: ['Coordinador Territorial'],
-  coordinador_politico: ['Coordinador Político', 'Enlace con Partidos'],
-  enlace_distrital_federal: ['Enlace Distrital Federal'],
-  enlace_distrital_local: ['Enlace Distrital Local'],
-  enlace_municipal: ['Enlace Municipal'],
-  enlace_seccional: ['Enlace Seccional'],
-  enlace_jovenes: ['Enlace de Jóvenes'],
-  enlace_mujeres: ['Enlace de Mujeres'],
-  enlace_brigadas: ['Enlace de Brigadas (pinta de bardas, reparto)'],
-  enlace_activos: ['Enlace de Activos'],
 };
 
 function estaActivoReciente(ultimoAcceso) {
@@ -68,18 +51,6 @@ const PUNTO_ACTIVIDAD = { reciente: 'bg-emerald-400', medio: 'bg-amber-400', ina
 function ModalAgregarMiembro({ miembros, onCerrar, onGuardado }) {
   const [form, setForm] = useState({ nombre: '', email: '', password: '', telefono: '', rol: 'coord_seccional', puesto: '', parent_id: '', territorio_tipo: 'seccion', territorio_id: '', meta_diaria: '' });
   const [sugerencia, setSugerencia] = useState(null);
-  // Opciones reales de territorio (secciones/municipios/distritos que
-  // de verdad existen dentro de ESTA campaña) — antes había que
-  // escribir el número a mano, adivinando o buscando en otro lado.
-  const [opcionesTerritorio, setOpcionesTerritorio] = useState([]);
-  const [cargandoOpciones, setCargandoOpciones] = useState(false);
-  useEffect(() => {
-    setCargandoOpciones(true);
-    api.get(`/estructura/opciones-territorio?nivel=${form.territorio_tipo}`)
-      .then((r) => setOpcionesTerritorio(r.data.data))
-      .catch(() => setOpcionesTerritorio([]))
-      .finally(() => setCargandoOpciones(false));
-  }, [form.territorio_tipo]);
 
   useEffect(() => {
     if (!form.territorio_id) { setSugerencia(null); return; }
@@ -135,19 +106,16 @@ function ModalAgregarMiembro({ miembros, onCerrar, onGuardado }) {
 
         {(form.rol === 'coord_seccional' || form.rol === 'coord_municipal' || form.rol === 'coord_distrital' || form.rol === 'coord_general') && (
           <div className="flex gap-2">
-            <select value={form.territorio_tipo} onChange={(e) => setForm({ ...form, territorio_tipo: e.target.value, territorio_id: '' })}
+            <select value={form.territorio_tipo} onChange={(e) => setForm({ ...form, territorio_tipo: e.target.value })}
               className="px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
               <option value="seccion">Sección</option>
               <option value="municipio">Municipio</option>
               <option value="distrito_local">Distrito Local</option>
               <option value="distrito_federal">Distrito Federal</option>
             </select>
-            <select value={form.territorio_id} onChange={(e) => setForm({ ...form, territorio_id: e.target.value })}
-              disabled={cargandoOpciones}
-              className="flex-1 px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm disabled:opacity-50">
-              <option value="">{cargandoOpciones ? 'Cargando...' : opcionesTerritorio.length === 0 ? 'Sin opciones disponibles' : 'Selecciona...'}</option>
-              {opcionesTerritorio.map((o) => <option key={o.valor} value={o.valor}>{o.etiqueta}</option>)}
-            </select>
+            <input placeholder="Número (ej: 12)" type="number" value={form.territorio_id}
+              onChange={(e) => setForm({ ...form, territorio_id: e.target.value })}
+              className="flex-1 px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
           </div>
         )}
 
@@ -191,15 +159,6 @@ function ModalDetalleMiembro({ miembro, miembros, onCerrar, onActualizado }) {
   const [nuevoDestino, setNuevoDestino] = useState('');
   const [editando, setEditando] = useState(false);
   const [form, setForm] = useState({ nombre: miembro.nombre, telefono: miembro.telefono || '', rol: miembro.rol, puesto: miembro.puesto || '', parent_id: miembro.parent_id || '', meta_diaria: miembro.meta_diaria || '', territorio_tipo: miembro.territorio_tipo || 'seccion', territorio_id: miembro.territorio_id || '' });
-  const [opcionesTerritorioEdit, setOpcionesTerritorioEdit] = useState([]);
-  const [cargandoOpcionesEdit, setCargandoOpcionesEdit] = useState(false);
-  useEffect(() => {
-    setCargandoOpcionesEdit(true);
-    api.get(`/estructura/opciones-territorio?nivel=${form.territorio_tipo}`)
-      .then((r) => setOpcionesTerritorioEdit(r.data.data))
-      .catch(() => setOpcionesTerritorioEdit([]))
-      .finally(() => setCargandoOpcionesEdit(false));
-  }, [form.territorio_tipo]);
 
   const hijosDirectos = miembros.filter((m) => m.parent_id === miembro.id);
 
@@ -409,19 +368,16 @@ function ModalDetalleMiembro({ miembro, miembros, onCerrar, onActualizado }) {
               {PUESTOS_POR_ROL[form.rol]?.map((p) => <option key={p} value={p} />)}
             </datalist>
             <div className="flex gap-2">
-              <select value={form.territorio_tipo} onChange={(e) => setForm({ ...form, territorio_tipo: e.target.value, territorio_id: '' })}
+              <select value={form.territorio_tipo} onChange={(e) => setForm({ ...form, territorio_tipo: e.target.value })}
                 className="px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
                 <option value="seccion">Sección</option>
                 <option value="municipio">Municipio</option>
                 <option value="distrito_local">Distrito Local</option>
                 <option value="distrito_federal">Distrito Federal</option>
               </select>
-              <select value={form.territorio_id} onChange={(e) => setForm({ ...form, territorio_id: e.target.value })}
-                disabled={cargandoOpcionesEdit}
-                className="flex-1 px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm disabled:opacity-50">
-                <option value="">{cargandoOpcionesEdit ? 'Cargando...' : 'Selecciona...'}</option>
-                {opcionesTerritorioEdit.map((o) => <option key={o.valor} value={o.valor}>{o.etiqueta}</option>)}
-              </select>
+              <input placeholder="Número" type="number" value={form.territorio_id}
+                onChange={(e) => setForm({ ...form, territorio_id: e.target.value })}
+                className="flex-1 px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
             </div>
             <select value={form.parent_id} onChange={(e) => setForm({ ...form, parent_id: e.target.value })}
               className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
@@ -531,10 +487,6 @@ function PanelCodigosMasivos() {
 }
 
 export default function Estructura() {
-  const usuario = useAuth((s) => s.usuario);
-  const esMandoMaximo = ['candidato', 'jefe_campana', 'coord_general'].includes(usuario?.rol);
-  const [permisos, setPermisos] = useState(null);
-  const [guardandoPermiso, setGuardandoPermiso] = useState('');
   const [miembros, setMiembros] = useState([]);
   const [salud, setSalud] = useState(null);
   const [mostrarModal, setMostrarModal] = useState(false);
@@ -549,7 +501,6 @@ export default function Estructura() {
   const [representantesIne, setRepresentantesIne] = useState([]);
   const [gamificacion, setGamificacion] = useState([]);
   const [cobertura, setCobertura] = useState(null);
-  const [pendientes, setPendientes] = useState([]);
   const [seccionExpandida, setSeccionExpandida] = useState(null);
   const [soloIncompletas, setSoloIncompletas] = useState(true);
   const [nuevaCasilla, setNuevaCasilla] = useState({ tipo: 'especial', electores_estimados: '' });
@@ -575,9 +526,7 @@ export default function Estructura() {
     api.get('/estructura/ranking/coordinadores').then((r) => setRanking(r.data.data)).catch(() => setRanking([]));
     api.get('/estructura/representantes-ine').then((r) => setRepresentantesIne(r.data.data)).catch(() => setRepresentantesIne([]));
     api.get('/estructura/gamificacion').then((r) => setGamificacion(r.data.data)).catch(() => setGamificacion([]));
-    if (esMandoMaximo) api.get('/estructura/permisos').then((r) => setPermisos(r.data.data)).catch(() => setPermisos(null));
     api.get('/estructura/cobertura-casillas').then((r) => setCobertura(r.data.data)).catch(() => setCobertura(null));
-    api.get('/estructura/pendientes-aprobacion').then((r) => setPendientes(r.data.data)).catch(() => setPendientes([]));
   };
   useEffect(cargar, []);
 
@@ -593,35 +542,6 @@ export default function Estructura() {
   const quitarCasillaOficial = async (id) => {
     if (!confirm('¿Quitar esta casilla de la base oficial?')) return;
     await api.delete(`/estructura/casillas-oficiales/${id}`);
-    cargar();
-  };
-
-  const alternarPermiso = async (rol, modulo, valorActual) => {
-    setGuardandoPermiso(`${rol}-${modulo}`);
-    try {
-      await api.put('/estructura/permisos', { rol, modulo, permitido: !valorActual });
-      const r = await api.get('/estructura/permisos');
-      setPermisos(r.data.data);
-    } catch (e) {
-      alert(e.response?.data?.error || 'No se pudo cambiar el permiso');
-    }
-    setGuardandoPermiso('');
-  };
-  const restaurarDefaultPermiso = async (rol, modulo) => {
-    setGuardandoPermiso(`${rol}-${modulo}`);
-    await api.delete(`/estructura/permisos/${rol}/${modulo}`);
-    const r = await api.get('/estructura/permisos');
-    setPermisos(r.data.data);
-    setGuardandoPermiso('');
-  };
-
-  const aprobarPendiente = async (id) => {
-    await api.patch(`/estructura/${id}/aprobar`);
-    cargar();
-  };
-  const rechazarPendiente = async (id, nombre) => {
-    if (!confirm(`¿Rechazar el alta de "${nombre}"? Se borra por completo, no se puede deshacer.`)) return;
-    await api.delete(`/estructura/${id}/rechazar`);
     cargar();
   };
 
@@ -721,12 +641,6 @@ export default function Estructura() {
             <button onClick={() => setVista('representantes-ine')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'representantes-ine' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🗳️ Representantes INE</button>
             <button onClick={() => setVista('gamificacion')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'gamificacion' ? 'bg-amber-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🏆 Ranking del Equipo</button>
             <button onClick={() => setVista('cobertura-casillas')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'cobertura-casillas' ? 'bg-red-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🗳️ Cobertura de Casillas</button>
-            {esMandoMaximo && (
-              <button onClick={() => setVista('permisos')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'permisos' ? 'bg-purple-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🔐 Permisos por Rol</button>
-            )}
-            <button onClick={() => setVista('pendientes-aprobacion')} className={`px-3 py-1.5 rounded-full text-xs font-bold relative ${vista === 'pendientes-aprobacion' ? 'bg-amber-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
-              ⏳ Pendientes de Aprobar {pendientes.length > 0 && <span className="ml-1 bg-red-500 text-white rounded-full px-1.5 text-[9px]">{pendientes.length}</span>}
-            </button>
           </div>
           {vista === 'organigrama' && (
             <div className="flex gap-2 items-center">
@@ -872,68 +786,6 @@ export default function Estructura() {
                 </div>
               ))}
             </div>
-          </div>
-        ) : vista === 'pendientes-aprobacion' ? (
-          <div className="space-y-2">
-            <p className="text-[11px] text-slate-500">Solo tú puedes aprobar o rechazar a la gente que TÚ diste de alta directamente (o, si eres candidato/jefe, a cualquier Enlace Distrital Federal pendiente — ese nivel siempre pasa por ustedes).</p>
-            {pendientes.length === 0 ? (
-              <div className="text-center text-slate-500 text-sm py-10">🎉 Sin nadie pendiente de tu aprobación</div>
-            ) : pendientes.map((p) => (
-              <div key={p.id} className="bg-amber-500/5 border border-amber-500/30 rounded-xl p-3">
-                <div className="text-sm font-bold text-white">{p.nombre}</div>
-                <div className="text-[10px] text-slate-500 mb-2">
-                  {ROL_LABEL[p.rol] || p.rol} · {p.territorio_tipo && `${p.territorio_tipo.replace('_', ' ')} ${p.territorio_id}`} · dado de alta {new Date(p.creado_en).toLocaleDateString('es-MX')}
-                </div>
-                <div className="flex gap-2">
-                  <button onClick={() => aprobarPendiente(p.id)} className="flex-1 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-bold">✅ Aprobar</button>
-                  <button onClick={() => rechazarPendiente(p.id, p.nombre)} className="flex-1 py-1.5 rounded-lg bg-red-600/80 text-white text-xs font-bold">✕ Rechazar</button>
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : vista === 'permisos' ? (
-          <div className="space-y-3">
-            <p className="text-[11px] text-slate-500">Toca cualquier interruptor para cambiar qué módulos ve cada rol — se aplica de inmediato en todo el sistema. El punto morado marca lo que TÚ personalizaste (distinto al default de fábrica); toca ✕ para regresarlo al default.</p>
-            {!permisos ? (
-              <div className="text-center text-slate-500 py-10">⏳ Cargando...</div>
-            ) : (
-              <div className="overflow-x-auto -mx-4 px-4">
-                <table className="text-[10px] border-collapse min-w-[900px]">
-                  <thead>
-                    <tr>
-                      <th className="text-left text-slate-400 font-bold uppercase p-2 sticky left-0 bg-slate-950">Rol</th>
-                      {permisos[0]?.modulos.map((m) => (
-                        <th key={m.modulo} className="text-slate-400 font-bold uppercase p-2 text-center whitespace-nowrap">{m.modulo.replace('-', ' ')}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {permisos.filter((r) => r.rol !== 'candidato').map((r) => (
-                      <tr key={r.rol} className="border-t border-slate-800">
-                        <td className="p-2 font-bold text-white sticky left-0 bg-slate-950 whitespace-nowrap">{ROL_LABEL[r.rol] || r.rol}</td>
-                        {r.modulos.map((m) => {
-                          const clave = `${r.rol}-${m.modulo}`;
-                          const cargando = guardandoPermiso === clave;
-                          return (
-                            <td key={m.modulo} className="p-2 text-center">
-                              <div className="flex items-center justify-center gap-1">
-                                <button disabled={cargando} onClick={() => alternarPermiso(r.rol, m.modulo, m.permitido)}
-                                  className={`w-8 h-[18px] rounded-full relative transition-colors ${m.permitido ? 'bg-emerald-600' : 'bg-slate-700'}`}>
-                                  <span className={`absolute top-0.5 w-3.5 h-3.5 rounded-full bg-white transition-all ${m.permitido ? 'left-4' : 'left-0.5'}`} />
-                                </button>
-                                {m.esPersonalizado && (
-                                  <button onClick={() => restaurarDefaultPermiso(r.rol, m.modulo)} title="Regresar al default" className="text-purple-400 text-[9px]">●</button>
-                                )}
-                              </div>
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
           </div>
         ) : (
           <div className="space-y-2">

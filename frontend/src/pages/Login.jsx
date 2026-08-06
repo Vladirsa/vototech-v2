@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { useNavigate, Link, useSearchParams } from 'react-router-dom';
+import { useState } from 'react';
+import { useNavigate, Link } from 'react-router-dom';
 import api from '../lib/api';
 import { useAuth } from '../lib/authStore';
 
@@ -34,50 +34,27 @@ export default function Login() {
   const [tokenPreAuth, setTokenPreAuth] = useState(null);
   const [codigo2FA, setCodigo2FA] = useState('');
 
-  const [searchParams] = useSearchParams();
-  const [entrandoAutomatico, setEntrandoAutomatico] = useState(false);
-
-  const intentarLogin = async (subdominioVal, emailVal, passwordVal) => {
+  const manejarSubmit = async (e) => {
+    e.preventDefault();
     setError('');
     setCargando(true);
     try {
-      const { data } = await api.post('/auth/login', { subdominio: subdominioVal, email: emailVal, password: passwordVal });
+      const { data } = await api.post('/auth/login', { subdominio, email, password });
       if (data.requiere_2fa) {
-        localStorage.setItem('vototech_ultimo_subdominio', subdominioVal);
+        localStorage.setItem('vototech_ultimo_subdominio', subdominio);
         setTokenPreAuth(data.token_pre_auth);
         setCargando(false);
         return;
       }
       if (data.ok) {
-        localStorage.setItem('vototech_ultimo_subdominio', subdominioVal);
-        iniciarSesion(data.token, data.usuario, subdominioVal, data.refresh_token);
+        localStorage.setItem('vototech_ultimo_subdominio', subdominio);
+        iniciarSesion(data.token, data.usuario, subdominio, data.refresh_token);
         navigate(data.usuario?.rol === 'promotor' ? '/mi-avance' : '/mapa');
       }
     } catch (err) {
       setError(err.response?.data?.error || 'Error al iniciar sesión');
-      setEntrandoAutomatico(false);
     }
     setCargando(false);
-  };
-
-  // Acceso directo a la demo — ?demo=1 en la URL entra solo, sin que
-  // nadie tenga que escribir subdominio/correo/contraseña a mano.
-  // Las credenciales de la demo ya son públicas (se muestran tal
-  // cual en la página de ventas), así que no hay ningún riesgo nuevo
-  // en traerlas fijas aquí — es puramente para quitar fricción.
-  useEffect(() => {
-    if (searchParams.get('demo') === '1') {
-      setEntrandoAutomatico(true);
-      setSubdominio('demo');
-      setEmail('demo@vototech.mx');
-      intentarLogin('demo', 'demo@vototech.mx', 'VotoTechDemo2027');
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const manejarSubmit = async (e) => {
-    e.preventDefault();
-    intentarLogin(subdominio, email, password);
   };
 
   const verificarCodigo2FA = async (e) => {
@@ -122,22 +99,6 @@ export default function Login() {
     );
   }
 
-  if (entrandoAutomatico) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-950 p-4">
-        <div className="text-center">
-          <div className="text-5xl mb-4 animate-pulse">🗳️</div>
-          <h1 className="text-xl font-black text-white mb-2">Entrando a la demo de VotoTech...</h1>
-          {error ? (
-            <p className="text-sm text-red-400 mt-2">{error} — <button onClick={() => setEntrandoAutomatico(false)} className="underline">entrar manualmente</button></p>
-          ) : (
-            <p className="text-sm text-indigo-400">Un momento, ya casi estás dentro</p>
-          )}
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-950 p-4">
       <div className="w-full max-w-sm">
@@ -153,16 +114,6 @@ export default function Login() {
         </div>
 
         <form onSubmit={manejarSubmit} className="bg-slate-900/60 backdrop-blur border border-slate-800 rounded-2xl p-6 space-y-4">
-          {!subdominioAutomatico && (
-            <button
-              type="button"
-              onClick={() => { setEntrandoAutomatico(true); setSubdominio('demo'); setEmail('demo@vototech.mx'); intentarLogin('demo', 'demo@vototech.mx', 'VotoTechDemo2027'); }}
-              className="w-full py-2.5 rounded-xl bg-teal-600/20 border border-teal-500/40 text-teal-300 text-sm font-bold hover:bg-teal-600/30 transition-colors"
-            >
-              🎬 Solo quiero probar la demo →
-            </button>
-          )}
-
           {error && (
             <div className="bg-red-500/10 border border-red-500/30 text-red-400 text-xs rounded-lg px-3 py-2">
               ⚠️ {error}

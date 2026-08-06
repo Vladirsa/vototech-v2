@@ -2,12 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api, { descargarArchivo } from '../lib/api';
 
-const CATEGORIAS = [
-  'propaganda_impresa', 'espectaculares', 'transporte', 'personal', 'tecnologia', 'publicidad_digital',
-  // Desglose típico de un evento — para que "eventos" no sea una
-  // sola categoría genérica que esconde en qué se fue el dinero.
-  'utilitarios', 'lona', 'sonido', 'sillas', 'comida', 'renta_de_espacio', 'seguridad', 'otro',
-];
+const CATEGORIAS = ['propaganda_impresa', 'espectaculares', 'eventos', 'transporte', 'personal', 'tecnologia', 'publicidad_digital', 'otro'];
 const TIPO_COMPROBANTE = { factura: '🧾 Factura', nota: '📝 Nota de venta', recibo: '🧻 Recibo', sin_comprobante: '⚠️ Sin comprobante' };
 const TIPO_INGRESO = {
   aportacion_efectivo: '💵 Aportación en efectivo', aportacion_especie: '📦 Aportación en especie',
@@ -41,51 +36,18 @@ export default function Finanzas() {
   const [ingresos, setIngresos] = useState([]);
   const [resumen, setResumen] = useState(null);
   const [mostrarForm, setMostrarForm] = useState(false);
-  const [form, setForm] = useState({ categoria: 'otro', descripcion: '', monto: '', fecha: new Date().toISOString().slice(0, 10), tipo_comprobante: 'sin_comprobante', numero_comprobante: '', proveedor: '', evento_id: '' });
-  const [fotoGasto, setFotoGasto] = useState(null);
-  const [ubicacion, setUbicacion] = useState(null);
-  const [errorUbicacion, setErrorUbicacion] = useState('');
-  const [eventos, setEventos] = useState([]);
+  const [form, setForm] = useState({ categoria: 'otro', descripcion: '', monto: '', fecha: new Date().toISOString().slice(0, 10), tipo_comprobante: 'sin_comprobante', numero_comprobante: '', proveedor: '' });
   const [formIngreso, setFormIngreso] = useState({ tipo_ingreso: 'aportacion_efectivo', aportante_nombre: '', aportante_identificacion: '', monto: '', fecha: new Date().toISOString().slice(0, 10), forma_recepcion: 'transferencia', numero_recibo: '' });
   const [tope, setTope] = useState('');
-  const [guardando, setGuardando] = useState(false);
-  const [errorGuardar, setErrorGuardar] = useState('');
 
   const cargar = () => api.get('/finanzas').then((r) => { setGastos(r.data.data); setIngresos(r.data.ingresos); setResumen(r.data.resumen); });
   useEffect(cargar, []);
-  useEffect(() => { api.get('/agenda').then((r) => setEventos(r.data.data || [])).catch(() => setEventos([])); }, []);
-
-  // Cada gasto necesita ubicación real — se pide el GPS en cuanto se
-  // abre el formulario, no hasta que la persona intenta guardar (así
-  // ya está lista cuando la necesite, sin tener que esperar).
-  useEffect(() => {
-    if (!mostrarForm || tab !== 'gastos') return;
-    setErrorUbicacion('');
-    if (!navigator.geolocation) { setErrorUbicacion('Este dispositivo no soporta ubicación GPS'); return; }
-    navigator.geolocation.getCurrentPosition(
-      (pos) => setUbicacion({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-      () => setErrorUbicacion('No se pudo obtener tu ubicación — activa el GPS y vuelve a abrir el formulario')
-    );
-  }, [mostrarForm, tab]);
 
   const guardar = async () => {
-    setErrorGuardar('');
-    if (!fotoGasto) { setErrorGuardar('Falta la foto de evidencia — es obligatoria.'); return; }
-    if (!ubicacion) { setErrorGuardar(errorUbicacion || 'Todavía no tenemos tu ubicación, espera un momento e intenta de nuevo.'); return; }
-
-    setGuardando(true);
-    try {
-      const fd = new FormData();
-      Object.entries(form).forEach(([k, v]) => { if (v !== '') fd.append(k, v); });
-      fd.append('lat', ubicacion.lat);
-      fd.append('lng', ubicacion.lng);
-      fd.append('foto', fotoGasto);
-      await api.post('/finanzas', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
-      setForm({ categoria: 'otro', descripcion: '', monto: '', fecha: new Date().toISOString().slice(0, 10), tipo_comprobante: 'sin_comprobante', numero_comprobante: '', proveedor: '', evento_id: form.evento_id });
-      setFotoGasto(null);
-      cargar();
-    } catch (e) { setErrorGuardar(e.response?.data?.error || 'No se pudo guardar el gasto'); }
-    setGuardando(false);
+    await api.post('/finanzas', { ...form, monto: parseFloat(form.monto) });
+    setForm({ categoria: 'otro', descripcion: '', monto: '', fecha: new Date().toISOString().slice(0, 10), tipo_comprobante: 'sin_comprobante', numero_comprobante: '', proveedor: '' });
+    setMostrarForm(false);
+    cargar();
   };
 
   const guardarIngreso = async () => {
@@ -173,12 +135,8 @@ export default function Finanzas() {
 
         {mostrarForm && tab === 'gastos' && (
           <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 space-y-2.5">
-            <select value={form.evento_id} onChange={(e) => setForm({ ...form, evento_id: e.target.value })} className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
-              <option value="">Sin vincular a un evento</option>
-              {eventos.map((ev) => <option key={ev.id} value={ev.id}>📅 {ev.titulo} — {new Date(ev.fecha).toLocaleDateString('es-MX')}</option>)}
-            </select>
             <select value={form.categoria} onChange={(e) => setForm({ ...form, categoria: e.target.value })} className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
-              {CATEGORIAS.map((c) => <option key={c} value={c}>{c.replace(/_/g, ' ')}</option>)}
+              {CATEGORIAS.map((c) => <option key={c} value={c}>{c.replace('_', ' ')}</option>)}
             </select>
             <input placeholder="Descripción" value={form.descripcion} onChange={(e) => setForm({ ...form, descripcion: e.target.value })}
               className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
@@ -200,29 +158,7 @@ export default function Finanzas() {
                   className="flex-1 px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
               )}
             </div>
-
-            <div className="bg-slate-800/60 rounded-lg p-3 space-y-2">
-              <label className="block">
-                <span className="text-[10px] text-slate-400 font-bold uppercase">📷 Foto de evidencia (obligatoria)</span>
-                <input type="file" accept="image/*" capture="environment" onChange={(e) => setFotoGasto(e.target.files[0])}
-                  className="w-full text-xs text-slate-300 mt-1" />
-                {fotoGasto && <span className="text-[10px] text-emerald-400">✓ {fotoGasto.name}</span>}
-              </label>
-              <div className="text-[10px]">
-                {ubicacion ? (
-                  <span className="text-emerald-400">📍 Ubicación capturada</span>
-                ) : errorUbicacion ? (
-                  <span className="text-red-400">⚠️ {errorUbicacion}</span>
-                ) : (
-                  <span className="text-slate-500">📍 Obteniendo tu ubicación...</span>
-                )}
-              </div>
-            </div>
-
-            {errorGuardar && <p className="text-[11px] text-red-400">{errorGuardar}</p>}
-            <button onClick={guardar} disabled={!form.descripcion || !form.monto || guardando} className="w-full py-2.5 rounded-lg bg-emerald-600 text-white text-sm font-bold disabled:opacity-40">
-              {guardando ? 'Guardando...' : 'Guardar gasto'}
-            </button>
+            <button onClick={guardar} disabled={!form.descripcion || !form.monto} className="w-full py-2.5 rounded-lg bg-emerald-600 text-white text-sm font-bold disabled:opacity-40">Guardar gasto</button>
           </div>
         )}
 

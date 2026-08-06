@@ -44,6 +44,7 @@ export default function Dashboard() {
   const [alertasInteligentes, setAlertasInteligentes] = useState([]);
   const [vistaEjecutiva, setVistaEjecutiva] = useState(false);
   const [ejecutivo, setEjecutivo] = useState(null);
+  const [diagnosticoIA, setDiagnosticoIA] = useState(null);
 
   useEffect(() => {
     api.get('/dashboard/resumen').then((r) => { setD(r.data.data); setCargando(false); }).catch(() => setCargando(false));
@@ -335,6 +336,23 @@ export default function Dashboard() {
 
         {/* 🔐 Verificación en dos pasos — solo altos mandos */}
         {['candidato', 'jefe_campana', 'coord_general'].includes(usuario?.rol) && <Panel2FA />}
+
+        {/* 🩺 Diagnóstico del Centro IA — para saber en 2 segundos si el
+            problema es la llave de Anthropic (configuración) o algo más */}
+        {['candidato', 'jefe_campana', 'coord_general'].includes(usuario?.rol) && (
+          <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 flex items-center justify-between">
+            <div>
+              <h3 className="text-xs font-bold text-slate-400 uppercase">🩺 Estado del Centro IA</h3>
+              {diagnosticoIA && (
+                <p className={`text-[10px] mt-0.5 ${diagnosticoIA.funciona ? 'text-emerald-400' : 'text-red-400'}`}>
+                  {diagnosticoIA.funciona ? '✅ ' : '❌ '}{diagnosticoIA.mensaje}
+                </p>
+              )}
+            </div>
+            <button onClick={() => api.get('/ia/estado').then((r) => setDiagnosticoIA(r.data.data))}
+              className="px-3 py-2 rounded-lg bg-slate-800 text-slate-300 text-xs font-bold flex-shrink-0">Revisar</button>
+          </div>
+        )}
 
         {/* 🔔 Notificaciones push */}
         <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 flex items-center justify-between">
