@@ -3,7 +3,6 @@ import { z } from 'zod';
 import bcrypt from 'bcryptjs';
 import { query } from '../db/pool.js';
 import { requiereAuth } from '../middleware/auth.js';
-import { MODULOS_POR_ROL, TODOS_LOS_MODULOS, invalidarCachePermisos } from '../middleware/permisos.js';
 import { registrarAuditoria } from '../lib/auditoria.js';
 
 const router = Router();
@@ -36,14 +35,7 @@ router.get('/', async (req, res) => {
   // de mando (candidato, jefe, coord_general/distrital/municipal)
   // siguen viendo todo, porque su trabajo es supervisar más allá de
   // una sola rama.
-  // Solo candidato/jefe_campana/coord_general ven la campaña
-  // completa — absolutamente cualquier otro rol (todos los niveles
-  // de la cadena territorial, jurídico, finanzas, voluntarios) solo
-  // ve su propia rama hacia abajo. Esto es central al diseño: cada
-  // nivel jerárquico existe precisamente para NO tener que ver más
-  // de lo que le toca.
-  const ROLES_SIN_RESTRICCION = ['candidato', 'jefe_campana', 'coord_general'];
-  const esRamaLimitada = !ROLES_SIN_RESTRICCION.includes(req.usuario.rol);
+  const esRamaLimitada = req.usuario.rol === 'coord_seccional';
 
   const resultado = await query(
     esRamaLimitada
@@ -151,20 +143,11 @@ router.get('/salud', async (req, res) => {
 });
 
 const esquemaMiembro = z.object({
-  nombre: z.string({ required_error: 'Falta el nombre' }).min(2, 'El nombre es muy corto').max(200),
-  email: z.string({ required_error: 'Falta el correo electrónico' }).email('El correo no es válido'),
+  nombre: z.string().min(2).max(200),
+  email: z.string().email(),
   telefono: z.string().max(20).optional(),
-  password: z.string({ required_error: 'Falta la contraseña' }).min(8, 'La contraseña debe tener al menos 8 caracteres'),
-  rol: z.enum([
-    'jefe_campana', 'coord_general', 'coord_distrital', 'coord_municipal', 'coord_seccional', 'promotor',
-    'encargado_juridico', 'encargado_finanzas', 'voluntario',
-    // Cadena jerárquica territorial nueva — más granular que los
-    // coord_* de arriba, para campañas que necesitan el detalle
-    // completo de distrito federal → local → municipio → sección.
-    'coordinador_territorial', 'coordinador_politico',
-    'enlace_distrital_federal', 'enlace_distrital_local', 'enlace_municipal',
-    'enlace_jovenes', 'enlace_mujeres', 'enlace_brigadas', 'enlace_activos', 'enlace_seccional',
-  ], { required_error: 'Falta elegir el rol de esta persona' }),
+  password: z.string().min(8),
+  rol: z.enum(['jefe_campana', 'coord_general', 'coord_distrital', 'coord_municipal', 'coord_seccional', 'promotor', 'encargado_juridico', 'encargado_finanzas', 'voluntario']),
   puesto: z.string().max(100).optional(),
   parent_id: z.string().uuid().optional(),
   territorio_tipo: z.string().optional(),
@@ -196,32 +179,6 @@ router.post('/', async (req, res) => {
 
     const passwordHash = await bcrypt.hash(d.password, 12);
 
-    // Validar que el territorio asignado exista de verdad — antes se
-    // podía escribir cualquier número de sección/distrito/municipio,
-    // y esa persona quedaba "asignada" a un territorio fantasma que
-    // nunca aparecería en el mapa ni en los reportes de cobertura.
-    if (d.territorio_tipo && d.territorio_id) {
-      let existeTerritorio = false;
-      if (d.territorio_tipo === 'seccion') {
-        const r = await query('SELECT 1 FROM secciones WHERE estado_id=$1 AND numero=$2', [req.usuario.estado_id, d.territorio_id]);
-        existeTerritorio = r.rows.length > 0;
-      } else if (d.territorio_tipo === 'distrito_local') {
-        const r = await query('SELECT 1 FROM secciones WHERE estado_id=$1 AND distrito_local=$2 LIMIT 1', [req.usuario.estado_id, d.territorio_id]);
-        existeTerritorio = r.rows.length > 0;
-      } else if (d.territorio_tipo === 'distrito_federal') {
-        const r = await query('SELECT 1 FROM secciones WHERE estado_id=$1 AND distrito_federal=$2 LIMIT 1', [req.usuario.estado_id, d.territorio_id]);
-        existeTerritorio = r.rows.length > 0;
-      } else if (d.territorio_tipo === 'municipio') {
-        const r = await query('SELECT 1 FROM municipios WHERE estado_id=$1 AND clave_ine=$2', [req.usuario.estado_id, d.territorio_id]);
-        existeTerritorio = r.rows.length > 0;
-      } else {
-        existeTerritorio = true; // tipo de territorio no reconocido, no bloqueamos por si acaso
-      }
-      if (!existeTerritorio) {
-        return res.status(400).json({ ok: false, error: `No existe ${d.territorio_tipo.replace('_', ' ')} número ${d.territorio_id} — revisa el número.` });
-      }
-    }
-
     // Si no se especifica jefe directo, cuelga del CANDIDATO real (no
     // se deja huérfano) — así el organigrama siempre tiene una sola
     // raíz de verdad, no varias "islas" paralelas.
@@ -234,53 +191,14 @@ router.post('/', async (req, res) => {
       parentId = candidatoRes.rows[0]?.id || null;
     }
 
-    // Aprobación en cascada: candidato/jefe/coord.general son mando
-    // de máxima confianza, sus altas quedan aprobadas directo. Todo
-    // lo demás nace PENDIENTE — necesita el visto bueno de su jefe
-    // directo (o del candidato específicamente, si es un Enlace
-    // Distrital Federal — ese nivel siempre lo aprueba el candidato
-    // en persona, es la puerta de entrada a controlar todo un distrito).
-    const rolesConfianzaTotal = ['candidato', 'jefe_campana', 'coord_general'];
-    const aprobadoDeEntrada = rolesConfianzaTotal.includes(req.usuario.rol);
-
-    // Antes se podía asignar territorio que no existe (ej. sección
-    // 99999) sin ningún aviso — esa persona quedaba "asignada" a la
-    // nada, invisible en mapas y reportes de cobertura sin que nadie
-    // se diera cuenta del error de dedo.
-    if (d.territorio_id && d.territorio_tipo) {
-      let existeTerritorio = false;
-      if (d.territorio_tipo === 'seccion') {
-        const r = await query('SELECT 1 FROM secciones WHERE estado_id=$1 AND numero=$2', [req.usuario.estado_id, d.territorio_id]);
-        existeTerritorio = r.rows.length > 0;
-      } else if (d.territorio_tipo === 'municipio') {
-        const r = await query('SELECT 1 FROM municipios WHERE estado_id=$1 AND clave_ine=$2', [req.usuario.estado_id, d.territorio_id]);
-        existeTerritorio = r.rows.length > 0;
-      } else if (d.territorio_tipo === 'distrito_local') {
-        const r = await query('SELECT 1 FROM secciones WHERE estado_id=$1 AND distrito_local=$2 LIMIT 1', [req.usuario.estado_id, d.territorio_id]);
-        existeTerritorio = r.rows.length > 0;
-      } else if (d.territorio_tipo === 'distrito_federal') {
-        const r = await query('SELECT 1 FROM secciones WHERE estado_id=$1 AND distrito_federal=$2 LIMIT 1', [req.usuario.estado_id, d.territorio_id]);
-        existeTerritorio = r.rows.length > 0;
-      } else {
-        existeTerritorio = true; // tipo desconocido — no se bloquea, pero tampoco se inventa una regla
-      }
-      if (!existeTerritorio) {
-        return res.status(400).json({ ok: false, error: `${d.territorio_tipo === 'seccion' ? 'La sección' : d.territorio_tipo === 'municipio' ? 'El municipio' : 'El distrito'} ${d.territorio_id} no existe en el catálogo oficial — revisa el número.` });
-      }
-    }
-
     const resultado = await query(
-      `INSERT INTO usuarios (campana_id, nombre, email, telefono, password_hash, rol, puesto, parent_id, territorio_tipo, territorio_id, meta_diaria, aprobado, aprobado_por, aprobado_en)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id, nombre, rol, puesto, aprobado`,
+      `INSERT INTO usuarios (campana_id, nombre, email, telefono, password_hash, rol, puesto, parent_id, territorio_tipo, territorio_id, meta_diaria)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id, nombre, rol, puesto`,
       [req.usuario.campana_id, d.nombre, d.email, d.telefono || null, passwordHash,
-       d.rol, d.puesto || null, parentId, d.territorio_tipo || null, d.territorio_id || null, d.meta_diaria,
-       aprobadoDeEntrada, aprobadoDeEntrada ? req.usuario.sub : null, aprobadoDeEntrada ? new Date() : null]
+       d.rol, d.puesto || null, parentId, d.territorio_tipo || null, d.territorio_id || null, d.meta_diaria]
     );
 
-    res.status(201).json({
-      ok: true, data: resultado.rows[0],
-      mensaje: aprobadoDeEntrada ? undefined : 'Se creó, pero queda PENDIENTE hasta que su jefe directo lo apruebe.',
-    });
+    res.status(201).json({ ok: true, data: resultado.rows[0] });
   } catch (e) {
     console.error('Error creando miembro:', e);
     res.status(500).json({ ok: false, error: 'Error al guardar' });
@@ -290,13 +208,7 @@ router.post('/', async (req, res) => {
 const esquemaEditar = z.object({
   nombre: z.string().min(2).max(200).optional(),
   telefono: z.string().max(20).optional(),
-  rol: z.enum([
-    'jefe_campana', 'coord_general', 'coord_distrital', 'coord_municipal', 'coord_seccional', 'promotor',
-    'encargado_juridico', 'encargado_finanzas', 'voluntario',
-    'coordinador_territorial', 'coordinador_politico',
-    'enlace_distrital_federal', 'enlace_distrital_local', 'enlace_municipal',
-    'enlace_jovenes', 'enlace_mujeres', 'enlace_brigadas', 'enlace_activos', 'enlace_seccional',
-  ]).optional(),
+  rol: z.enum(['jefe_campana', 'coord_general', 'coord_distrital', 'coord_municipal', 'coord_seccional', 'promotor', 'encargado_juridico', 'encargado_finanzas', 'voluntario']).optional(),
   puesto: z.string().max(100).nullable().optional(),
   parent_id: z.string().uuid().nullable().optional(),
   territorio_tipo: z.string().nullable().optional(),
@@ -798,231 +710,6 @@ router.get('/sugerir-meta', async (req, res) => {
   const metaDiaria = Math.max(1, Math.round(metaTotal / diasRestantes));
 
   res.json({ ok: true, data: { lista_nominal: listaNominal, meta_total_sugerida: metaTotal, dias_restantes: diasRestantes, meta_diaria_sugerida: metaDiaria } });
-});
-
-/**
- * GET /api/estructura/pendientes-aprobacion
- * Quién está esperando el visto bueno de ESTA persona específica —
- * ya sea porque es su jefe directo, o porque es candidato/jefe de
- * campaña y hay un Enlace Distrital Federal esperando (ese nivel
- * SIEMPRE lo aprueba el candidato en persona, sin importar quién
- * más esté arriba en la cadena).
- */
-router.get('/pendientes-aprobacion', async (req, res) => {
-  const esCandidatoOJefe = ['candidato', 'jefe_campana'].includes(req.usuario.rol);
-
-  const resultado = await query(
-    `SELECT id, nombre, rol, puesto, territorio_tipo, territorio_id, creado_en
-     FROM usuarios
-     WHERE campana_id=$1 AND aprobado=false
-       AND (parent_id=$2 ${esCandidatoOJefe ? "OR rol='enlace_distrital_federal'" : ''})
-     ORDER BY creado_en`,
-    [req.usuario.campana_id, req.usuario.sub]
-  );
-  res.json({ ok: true, data: resultado.rows });
-});
-
-/**
- * PATCH /api/estructura/:id/aprobar
- * Solo puede aprobar: el jefe directo (parent_id) de esa persona, o
- * candidato/jefe_campana cuando es un Enlace Distrital Federal (ese
- * nivel es la puerta de entrada a controlar todo un distrito, así
- * que siempre pasa por el candidato, sin excepción).
- */
-router.patch('/:id/aprobar', async (req, res) => {
-  const persona = await query('SELECT parent_id, rol FROM usuarios WHERE id=$1 AND campana_id=$2', [req.params.id, req.usuario.campana_id]);
-  if (!persona.rows[0]) return res.status(404).json({ ok: false, error: 'No encontrado' });
-
-  const esSuJefeDirecto = persona.rows[0].parent_id === req.usuario.sub;
-  const esCandidatoAprobandoEnlaceFederal = ['candidato', 'jefe_campana'].includes(req.usuario.rol) && persona.rows[0].rol === 'enlace_distrital_federal';
-
-  if (!esSuJefeDirecto && !esCandidatoAprobandoEnlaceFederal) {
-    return res.status(403).json({ ok: false, error: 'Solo su jefe directo (o el candidato, si es Enlace Distrital Federal) puede aprobar esta alta.' });
-  }
-
-  await query('UPDATE usuarios SET aprobado=true, aprobado_por=$1, aprobado_en=now() WHERE id=$2', [req.usuario.sub, req.params.id]);
-  res.json({ ok: true, mensaje: 'Aprobado — ya puede iniciar sesión.' });
-});
-
-/**
- * DELETE /api/estructura/:id/rechazar
- * Rechazar una alta pendiente — la borra directo (nunca llegó a
- * activarse, no tiene caso dejarla "desactivada" estorbando).
- */
-router.delete('/:id/rechazar', async (req, res) => {
-  const persona = await query('SELECT parent_id, rol, aprobado FROM usuarios WHERE id=$1 AND campana_id=$2', [req.params.id, req.usuario.campana_id]);
-  if (!persona.rows[0]) return res.status(404).json({ ok: false, error: 'No encontrado' });
-  if (persona.rows[0].aprobado) return res.status(400).json({ ok: false, error: 'Ya está aprobado — para quitarlo usa desactivar, no rechazar.' });
-
-  const esSuJefeDirecto = persona.rows[0].parent_id === req.usuario.sub;
-  const esCandidatoRechazandoEnlaceFederal = ['candidato', 'jefe_campana'].includes(req.usuario.rol) && persona.rows[0].rol === 'enlace_distrital_federal';
-  if (!esSuJefeDirecto && !esCandidatoRechazandoEnlaceFederal) {
-    return res.status(403).json({ ok: false, error: 'No tienes permiso para rechazar esta alta.' });
-  }
-
-  await query('DELETE FROM usuarios WHERE id=$1', [req.params.id]);
-  res.json({ ok: true });
-});
-
-/**
- * Solo candidato/jefe_campana/coord_general pueden tocar los
- * permisos de los demás roles — tiene sentido, es literalmente
- * decidir quién puede ver qué en toda la campaña.
- */
-function esMandoMaximo(req) {
-  return ['candidato', 'jefe_campana', 'coord_general'].includes(req.usuario.rol);
-}
-
-/**
- * GET /api/estructura/permisos
- * La matriz completa: cada rol, cada módulo, si está permitido (por
- * default o por excepción personalizada), y si fue personalizado —
- * para que el panel pueda mostrar claramente "esto lo cambiaste tú".
- */
-router.get('/permisos', async (req, res) => {
-  if (!esMandoMaximo(req)) return res.status(403).json({ ok: false, error: 'Solo candidato, jefe de campaña, o coordinador general pueden ver esto.' });
-
-  const excepciones = await query('SELECT rol, modulo, permitido FROM permisos_personalizados WHERE campana_id=$1', [req.usuario.campana_id]);
-  const mapaExcepciones = {};
-  excepciones.rows.forEach((e) => {
-    if (!mapaExcepciones[e.rol]) mapaExcepciones[e.rol] = {};
-    mapaExcepciones[e.rol][e.modulo] = e.permitido;
-  });
-
-  const roles = Object.keys(MODULOS_POR_ROL);
-  const matriz = roles.map((rol) => ({
-    rol,
-    modulos: TODOS_LOS_MODULOS.map((modulo) => {
-      const personalizado = mapaExcepciones[rol]?.[modulo];
-      return {
-        modulo,
-        permitido: personalizado !== undefined ? personalizado : MODULOS_POR_ROL[rol].includes(modulo),
-        esPersonalizado: personalizado !== undefined,
-        default: MODULOS_POR_ROL[rol].includes(modulo),
-      };
-    }),
-  }));
-
-  res.json({ ok: true, data: matriz });
-});
-
-/**
- * PUT /api/estructura/permisos
- * Body: { rol, modulo, permitido }
- * Guarda (o actualiza) una excepción sobre el default.
- */
-router.put('/permisos', async (req, res) => {
-  if (!esMandoMaximo(req)) return res.status(403).json({ ok: false, error: 'Solo candidato, jefe de campaña, o coordinador general pueden cambiar esto.' });
-
-  const { rol, modulo, permitido } = req.body;
-  if (!rol || !modulo || typeof permitido !== 'boolean') {
-    return res.status(400).json({ ok: false, error: 'Faltan datos (rol, modulo, permitido)' });
-  }
-  if (!TODOS_LOS_MODULOS.includes(modulo)) {
-    return res.status(400).json({ ok: false, error: `"${modulo}" no es un módulo válido` });
-  }
-  // Nunca dejar que alguien se quite (o le quiten) el acceso total al
-  // candidato — sería fácil quedar bloqueado del propio sistema sin
-  // querer.
-  if (rol === 'candidato') {
-    return res.status(400).json({ ok: false, error: 'El rol de Candidato no se puede restringir — es la cuenta dueña de la campaña.' });
-  }
-
-  await query(
-    `INSERT INTO permisos_personalizados (campana_id, rol, modulo, permitido, actualizado_por)
-     VALUES ($1,$2,$3,$4,$5)
-     ON CONFLICT (campana_id, rol, modulo) DO UPDATE SET permitido=$4, actualizado_por=$5, actualizado_en=now()`,
-    [req.usuario.campana_id, rol, modulo, permitido, req.usuario.sub]
-  );
-  invalidarCachePermisos(req.usuario.campana_id);
-
-  res.json({ ok: true, mensaje: `${modulo} ${permitido ? 'habilitado' : 'deshabilitado'} para ${rol}` });
-});
-
-/**
- * DELETE /api/estructura/permisos/:rol/:modulo
- * Quita la excepción — regresa al comportamiento default de fábrica.
- */
-router.delete('/permisos/:rol/:modulo', async (req, res) => {
-  if (!esMandoMaximo(req)) return res.status(403).json({ ok: false, error: 'Solo candidato, jefe de campaña, o coordinador general pueden cambiar esto.' });
-
-  await query('DELETE FROM permisos_personalizados WHERE campana_id=$1 AND rol=$2 AND modulo=$3', [req.usuario.campana_id, req.params.rol, req.params.modulo]);
-  invalidarCachePermisos(req.usuario.campana_id);
-
-  res.json({ ok: true, mensaje: 'Regresado al comportamiento por default' });
-});
-
-/**
- * GET /api/estructura/opciones-territorio?nivel=seccion|municipio|distrito_local|distrito_federal
- * En vez de que quien da de alta a alguien tenga que ADIVINAR o
- * escribir a mano un número de sección/distrito/municipio, esto
- * regresa exactamente las opciones válidas — recortadas al
- * territorio real de ESTA campaña. Si la campaña es de un solo
- * municipio, "municipio" solo trae ese municipio. Si es de un
- * distrito local, "municipio" trae todos los municipios que caen
- * dentro de ese distrito, para ir armando la estructura sin
- * inventar números.
- */
-router.get('/opciones-territorio', async (req, res) => {
-  const nivel = req.query.nivel;
-  const campanaRes = await query('SELECT territorio_tipo, territorio_id FROM campanas WHERE id=$1', [req.usuario.campana_id]);
-  const campana = campanaRes.rows[0];
-  const estadoId = req.usuario.estado_id;
-
-  // Filtro base: recorta cualquier consulta de secciones al
-  // territorio real de la campaña (si tiene uno definido).
-  let filtroCampana = '';
-  const paramsBase = [estadoId];
-  if (campana.territorio_tipo === 'municipio' && campana.territorio_id) {
-    filtroCampana = `AND s.municipio_id = (SELECT id FROM municipios WHERE estado_id=$1 AND clave_ine=$${paramsBase.length + 1})`;
-    paramsBase.push(campana.territorio_id);
-  } else if (campana.territorio_tipo === 'distrito_local' && campana.territorio_id) {
-    filtroCampana = `AND s.distrito_local = $${paramsBase.length + 1}`;
-    paramsBase.push(campana.territorio_id);
-  } else if (campana.territorio_tipo === 'distrito_federal' && campana.territorio_id) {
-    filtroCampana = `AND s.distrito_federal = $${paramsBase.length + 1}`;
-    paramsBase.push(campana.territorio_id);
-  } else if (campana.territorio_tipo === 'seccion' && campana.territorio_id) {
-    filtroCampana = `AND s.numero = $${paramsBase.length + 1}`;
-    paramsBase.push(campana.territorio_id);
-  }
-  // 'estatal' (Gobernador/Senador) no agrega filtro — todo el estado disponible.
-
-  if (nivel === 'seccion') {
-    const r = await query(
-      `SELECT DISTINCT s.numero, m.nombre as municipio FROM secciones s JOIN municipios m ON m.id=s.municipio_id
-       WHERE s.estado_id=$1 ${filtroCampana} ORDER BY s.numero`,
-      paramsBase
-    );
-    return res.json({ ok: true, data: r.rows.map(f => ({ valor: f.numero, etiqueta: `Sección ${f.numero} — ${f.municipio}` })) });
-  }
-
-  if (nivel === 'municipio') {
-    const r = await query(
-      `SELECT DISTINCT m.clave_ine, m.nombre FROM secciones s JOIN municipios m ON m.id=s.municipio_id
-       WHERE s.estado_id=$1 ${filtroCampana} ORDER BY m.nombre`,
-      paramsBase
-    );
-    return res.json({ ok: true, data: r.rows.map(f => ({ valor: f.clave_ine, etiqueta: `${f.nombre} — ${f.nombre}` })) });
-  }
-
-  if (nivel === 'distrito_local') {
-    const r = await query(
-      `SELECT DISTINCT s.distrito_local FROM secciones s WHERE s.estado_id=$1 ${filtroCampana} AND s.distrito_local IS NOT NULL ORDER BY s.distrito_local`,
-      paramsBase
-    );
-    return res.json({ ok: true, data: r.rows.map(f => ({ valor: f.distrito_local, etiqueta: `Distrito Local ${f.distrito_local}` })) });
-  }
-
-  if (nivel === 'distrito_federal') {
-    const r = await query(
-      `SELECT DISTINCT s.distrito_federal FROM secciones s WHERE s.estado_id=$1 ${filtroCampana} AND s.distrito_federal IS NOT NULL ORDER BY s.distrito_federal`,
-      paramsBase
-    );
-    return res.json({ ok: true, data: r.rows.map(f => ({ valor: f.distrito_federal, etiqueta: `Distrito Federal ${f.distrito_federal}` })) });
-  }
-
-  res.status(400).json({ ok: false, error: 'Nivel no reconocido — usa seccion, municipio, distrito_local o distrito_federal' });
 });
 
 export default router;

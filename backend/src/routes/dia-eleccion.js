@@ -280,21 +280,13 @@ router.post('/cerrar-captura', async (req, res) => {
  * NO han confirmado que ya votaron.
  */
 router.get('/caceria', async (req, res) => {
-  // Cada quien motiva a SU propia gente a votar — un promotor no
-  // necesita (ni debe) ver la lista completa de la campaña, solo a
-  // quienes él mismo comprometió. Altos mandos sí ven todo, para
-  // tener el panorama completo.
-  const esMandoAlto = ['candidato', 'jefe_campana', 'coord_general'].includes(req.usuario.rol);
-  const filtroPropio = esMandoAlto ? '' : 'AND p.registrado_por = $2';
-  const params = esMandoAlto ? [req.usuario.campana_id] : [req.usuario.campana_id, req.usuario.sub];
-
   const resultado = await query(
     `SELECT p.id, p.nombre, p.telefono, p.ya_voto, s.numero as seccion_numero
      FROM promovidos p
      LEFT JOIN secciones s ON s.id = p.seccion_id
-     WHERE p.campana_id = $1 AND p.clasificacion = 'base' AND p.comprometido = true AND p.ya_voto = false ${filtroPropio}
+     WHERE p.campana_id = $1 AND p.clasificacion = 'base' AND p.comprometido = true AND p.ya_voto = false
      ORDER BY s.numero`,
-    params
+    [req.usuario.campana_id]
   );
   res.json({ ok: true, data: resultado.rows, total: resultado.rows.length });
 });
@@ -314,55 +306,6 @@ router.get('/confirmados', async (req, res) => {
     [req.usuario.campana_id]
   );
   res.json({ ok: true, data: resultado.rows });
-});
-
-/**
- * GET /api/dia-eleccion/voto-por-estructura
- * Para el candidato/altos mandos: de cada rama principal (cada
- * reporte directo suyo), qué porcentaje de SUS comprometidos ya
- * confirmó haber votado — no solo el total de la campaña, sino
- * desglosado por quién está jalando bien y quién no, el día que más
- * importa.
- */
-router.get('/voto-por-estructura', async (req, res) => {
-  if (!['candidato', 'jefe_campana', 'coord_general'].includes(req.usuario.rol)) {
-    return res.status(403).json({ ok: false, error: 'Solo altos mandos ven el desglose completo por estructura' });
-  }
-
-  const ramas = await query(
-    `SELECT id, nombre, rol, puesto FROM usuarios WHERE campana_id=$1 AND parent_id=$2 AND aprobado=true`,
-    [req.usuario.campana_id, req.usuario.sub]
-  );
-
-  const resultado = [];
-  for (const rama of ramas.rows) {
-    const descendientes = await query(
-      `WITH RECURSIVE arbol AS (
-         SELECT id FROM usuarios WHERE id=$1
-         UNION ALL
-         SELECT u.id FROM usuarios u JOIN arbol a ON u.parent_id = a.id
-       )
-       SELECT id FROM arbol`,
-      [rama.id]
-    );
-    const idsRama = descendientes.rows.map((d) => d.id);
-
-    const votos = await query(
-      `SELECT COUNT(*) FILTER (WHERE ya_voto=true) as votaron, COUNT(*) as total
-       FROM promovidos WHERE campana_id=$1 AND clasificacion='base' AND comprometido=true AND registrado_por = ANY($2)`,
-      [req.usuario.campana_id, idsRama]
-    );
-
-    const votaron = parseInt(votos.rows[0].votaron) || 0;
-    const total = parseInt(votos.rows[0].total) || 0;
-    resultado.push({
-      id: rama.id, nombre: rama.nombre, rol: rama.rol, puesto: rama.puesto,
-      votaron, total, porcentaje: total > 0 ? Math.round((votaron / total) * 100) : 0,
-    });
-  }
-
-  resultado.sort((a, b) => b.porcentaje - a.porcentaje);
-  res.json({ ok: true, data: resultado });
 });
 
 router.patch('/caceria/:id/voto', async (req, res) => {

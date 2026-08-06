@@ -11,7 +11,7 @@ const router = Router();
 // así que lo leemos del disco UNA sola vez y lo servimos desde RAM después.
 // Esto es exactamente el tipo de optimización que en WordPress/Hostinger
 // nunca pudimos controlar de forma confiable.
-let cacheGeoSecciones = {}; // uno por estado, ya no un solo mapa global
+let cacheGeoSecciones = null;
 let cacheLocalidades = null;
 let cacheManzanas = null;
 
@@ -33,31 +33,18 @@ router.get('/manzanas/:seccion', (req, res) => {
 
 router.get('/secciones/:estadoId', (req, res) => {
   try {
-    const estadoId = req.params.estadoId;
-    if (!cacheGeoSecciones[estadoId]) {
-      // Antes esto SIEMPRE cargaba Tlaxcala, sin importar qué estado
-      // se pidiera — literalmente no había forma de servir el mapa
-      // de otro estado. Ahora busca el archivo específico de cada
-      // estado (subido desde el Panel de Administrador).
-      const rutaArchivo = path.join(__dirname, `../db/secciones_estado_${estadoId}.geojson`);
-      if (!fs.existsSync(rutaArchivo)) {
-        return res.status(404).json({ ok: false, error: `Todavía no hay cartografía cargada para este estado (id ${estadoId}) — súbela desde el Panel de Administrador.` });
-      }
-      cacheGeoSecciones[estadoId] = JSON.parse(fs.readFileSync(rutaArchivo, 'utf-8'));
-      console.log(`📍 GeoJSON de secciones cargado en memoria — estado ${estadoId} (${cacheGeoSecciones[estadoId].features.length} secciones)`);
+    if (!cacheGeoSecciones) {
+      const rutaArchivo = path.join(__dirname, '../db/secciones_tlaxcala.geojson');
+      cacheGeoSecciones = JSON.parse(fs.readFileSync(rutaArchivo, 'utf-8'));
+      console.log(`📍 GeoJSON de secciones cargado en memoria (${cacheGeoSecciones.features.length} secciones)`);
     }
-    res.set('Cache-Control', 'public, max-age=3600');
-    res.json({ ok: true, data: cacheGeoSecciones[estadoId] });
+    res.set('Cache-Control', 'public, max-age=3600'); // el navegador también puede cachear 1h
+    res.json({ ok: true, data: cacheGeoSecciones });
   } catch (e) {
     console.error('Error sirviendo GeoJSON:', e);
     res.status(500).json({ ok: false, error: 'No se pudo cargar el mapa' });
   }
 });
-
-/** Se llama tras subir cartografía nueva, para que se refleje sin reiniciar el servidor. */
-export function invalidarCacheGeoSecciones(estadoId) {
-  delete cacheGeoSecciones[estadoId];
-}
 
 /**
  * GET /api/geo/municipios/:estadoId
@@ -82,37 +69,6 @@ router.get('/localidades/:estadoId', (req, res) => {
     res.json({ ok: true, data: cacheLocalidades });
   } catch (e) {
     res.status(500).json({ ok: false, error: 'No se pudieron cargar las localidades' });
-  }
-});
-
-/**
- * GET /api/geo/buscar-direccion?q=...
- * Busca una dirección real y regresa sus coordenadas exactas —
- * usa Nominatim (OpenStreetMap), gratuito y sin necesitar llave de
- * API. Filtrado a México para no traer resultados de otros países
- * con nombres de calle parecidos.
- */
-router.get('/buscar-direccion', async (req, res) => {
-  const q = req.query.q;
-  if (!q || q.length < 4) return res.json({ ok: true, data: [] });
-
-  try {
-    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=5&countrycodes=mx&addressdetails=1`;
-    const respuesta = await fetch(url, { headers: { 'User-Agent': 'VotoTech-Sistema-Electoral/1.0' } });
-    if (!respuesta.ok) throw new Error(`Nominatim respondió ${respuesta.status}`);
-    const resultados = await respuesta.json();
-
-    res.json({
-      ok: true,
-      data: resultados.map((r) => ({
-        direccion: r.display_name,
-        lat: parseFloat(r.lat),
-        lng: parseFloat(r.lon),
-      })),
-    });
-  } catch (e) {
-    console.error('Error buscando dirección:', e.message);
-    res.status(500).json({ ok: false, error: 'No se pudo buscar la dirección — intenta de nuevo en un momento' });
   }
 });
 
