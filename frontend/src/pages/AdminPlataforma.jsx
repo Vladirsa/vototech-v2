@@ -155,34 +155,6 @@ export default function AdminPlataforma() {
     setReparando(false);
   };
 
-  const [generandoCasillas, setGenerandoCasillas] = useState(false);
-  const [mensajeCasillas, setMensajeCasillas] = useState('');
-  const generarCasillasOficiales = async () => {
-    setGenerandoCasillas(true);
-    setMensajeCasillas('');
-    try {
-      const { data } = await axios.post(`${API_URL}/admin/generar-casillas-oficiales`, {}, { headers });
-      setMensajeCasillas(data.mensaje);
-    } catch (e) {
-      setMensajeCasillas('⚠️ Error: ' + (e.response?.data?.error || e.message));
-    }
-    setGenerandoCasillas(false);
-  };
-
-  const [cargandoAgregados, setCargandoAgregados] = useState(false);
-  const [mensajeAgregados, setMensajeAgregados] = useState('');
-  const cargarAgregados2024 = async () => {
-    setCargandoAgregados(true);
-    setMensajeAgregados('');
-    try {
-      const { data } = await axios.post(`${API_URL}/admin/cargar-agregados-2024`, {}, { headers });
-      setMensajeAgregados(data.mensaje);
-    } catch (e) {
-      setMensajeAgregados('⚠️ Error: ' + (e.response?.data?.error || e.message));
-    }
-    setCargandoAgregados(false);
-  };
-
   if (!autenticado) {
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
@@ -221,30 +193,6 @@ export default function AdminPlataforma() {
           </button>
         </div>
         {mensajeReparar && <div className="text-xs text-slate-300 bg-slate-900/50 rounded-lg p-2">{mensajeReparar}</div>}
-
-        {/* Botones de mantenimiento de datos — para cuando no hay
-            acceso a terminal (plan gratuito de Render, sin Shell) */}
-        <div className="bg-indigo-500/10 border border-indigo-500/30 rounded-xl p-3 flex items-center justify-between">
-          <div>
-            <div className="text-xs font-bold text-indigo-300">🗳️ Generar base de casillas oficiales</div>
-            <div className="text-[10px] text-slate-500">Estima las casillas de las 634 secciones (regla INE, 750 electores) — seguro de correr más de una vez</div>
-          </div>
-          <button onClick={generarCasillasOficiales} disabled={generandoCasillas} className="px-3 py-2 rounded-lg bg-indigo-600 text-white text-xs font-bold disabled:opacity-50 flex-shrink-0">
-            {generandoCasillas ? '⏳...' : 'Generar'}
-          </button>
-        </div>
-        {mensajeCasillas && <div className="text-xs text-slate-300 bg-slate-900/50 rounded-lg p-2">{mensajeCasillas}</div>}
-
-        <div className="bg-indigo-500/10 border border-indigo-500/30 rounded-xl p-3 flex items-center justify-between">
-          <div>
-            <div className="text-xs font-bold text-indigo-300">📊 Cargar Senado/Dip. Federal/Dip. Local/Ayuntamientos 2024</div>
-            <div className="text-[10px] text-slate-500">Resultados agregados reales 2024 — seguro de correr más de una vez</div>
-          </div>
-          <button onClick={cargarAgregados2024} disabled={cargandoAgregados} className="px-3 py-2 rounded-lg bg-indigo-600 text-white text-xs font-bold disabled:opacity-50 flex-shrink-0">
-            {cargandoAgregados ? '⏳...' : 'Cargar'}
-          </button>
-        </div>
-        {mensajeAgregados && <div className="text-xs text-slate-300 bg-slate-900/50 rounded-lg p-2">{mensajeAgregados}</div>}
 
         <div>
           <button onClick={() => setMostrarBitacora((v) => !v)} className="text-xs font-bold text-slate-400">

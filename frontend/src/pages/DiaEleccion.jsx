@@ -179,7 +179,6 @@ export default function DiaEleccion() {
   const [prep, setPrep] = useState(null);
   const [conteoRapido, setConteoRapido] = useState(null);
   const [avanceEstructura, setAvanceEstructura] = useState(null);
-  const [votoPorEstructura, setVotoPorEstructura] = useState(null);
   const [alertasSinReportar, setAlertasSinReportar] = useState([]);
   const [capturaCerrada, setCapturaCerrada] = useState(false);
   const [esDemo, setEsDemo] = useState(false);
@@ -193,7 +192,6 @@ export default function DiaEleccion() {
     api.get('/dia-eleccion/conteo-rapido').then((r) => setConteoRapido(r.data.data));
     api.get('/dia-eleccion/alertas-sin-reportar').then((r) => setAlertasSinReportar(r.data.data));
     if (!vistaSimple) api.get('/dia-eleccion/avance-estructura').then((r) => setAvanceEstructura(r.data.data)).catch(() => {});
-    if (esAltoMando) api.get('/dia-eleccion/voto-por-estructura').then((r) => setVotoPorEstructura(r.data.data)).catch(() => {});
     api.get('/auth/mi-campana').then((r) => setEsDemo(r.data.data.es_demo)).catch(() => {});
   };
   useEffect(cargarTodo, []);
@@ -395,28 +393,6 @@ export default function DiaEleccion() {
                       ) : (
                         <span className="text-amber-400 font-bold flex-shrink-0">⏳ Pendiente</span>
                       )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* % de comprometidos que ya confirmaron su voto, por
-                cada rama principal — para que el candidato vea a
-                quién le está jalando bien la gente, y a quién no. */}
-            {votoPorEstructura && votoPorEstructura.length > 0 && (
-              <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
-                <div className="text-xs font-bold text-slate-400 uppercase mb-3">🗳️ % de tu gente que ya votó, por rama</div>
-                <div className="space-y-2.5">
-                  {votoPorEstructura.map((r) => (
-                    <div key={r.id}>
-                      <div className="flex justify-between text-xs mb-0.5">
-                        <span className="font-bold text-white">{r.nombre} <span className="text-slate-500 font-normal">({r.puesto || r.rol})</span></span>
-                        <span className="text-slate-300">{r.votaron}/{r.total} · {r.porcentaje}%</span>
-                      </div>
-                      <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
-                        <div className={`h-full ${r.porcentaje >= 70 ? 'bg-emerald-500' : r.porcentaje >= 40 ? 'bg-amber-500' : 'bg-red-500'}`} style={{ width: `${r.porcentaje}%` }} />
-                      </div>
                     </div>
                   ))}
                 </div>
