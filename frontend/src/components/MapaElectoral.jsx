@@ -919,7 +919,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
               <h2 className="text-lg font-black text-white">📊 Concentrado General de Campaña</h2>
               <button onClick={() => setMostrarConcentrado(false)} className="text-slate-500 text-xl">✕</button>
             </div>
-            <p className="text-[9px] text-slate-500 -mt-2">Este total incluye a TODOS tus promovidos, aunque no todos tengan ubicación exacta para verse como punto en el mapa — por eso puede ser mayor al número que ves en la capa "Con ubicación en el mapa".</p>
 
             <div className="grid grid-cols-2 gap-3">
               <div className="bg-indigo-950/60 border border-indigo-700/30 rounded-xl p-4 text-center">
@@ -1032,7 +1031,7 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
         <div className="p-3 space-y-2">
           <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
             <input type="checkbox" checked={capaPromovidos} onChange={e => setCapaPromovidos(e.target.checked)} />
-            🤝 Con ubicación en el mapa ({promovidosFiltrados.length})
+            🤝 Promovidos ({promovidosFiltrados.length})
           </label>
           {capaPromovidos && (
             <select value={filtroPartido} onChange={(e) => setFiltroPartido(e.target.value)}
@@ -1332,7 +1331,7 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
 
                 <div className="border-t border-slate-800 pt-3 space-y-2.5">
                   <span className="text-xs font-bold text-white block mb-1">📍 Capas visibles</span>
-                  <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={capaPromovidos} onChange={e => setCapaPromovidos(e.target.checked)} /> 🤝 Con ubicación en el mapa ({promovidosFiltrados.length})</label>
+                  <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={capaPromovidos} onChange={e => setCapaPromovidos(e.target.checked)} /> 🤝 Promovidos ({promovidosFiltrados.length})</label>
                   <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={capaCalor} onChange={e => setCapaCalor(e.target.checked)} /> 🔥 Mapa de calor</label>
                   <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={capaActivos} onChange={e => setCapaActivos(e.target.checked)} /> 📺 Activos ({activos.length})</label>
                   <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={capaAgenda} onChange={e => setCapaAgenda(e.target.checked)} /> 📅 Agenda ({eventosAgenda.length})</label>
