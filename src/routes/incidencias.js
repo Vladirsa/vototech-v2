@@ -36,9 +36,9 @@ router.get('/', async (req, res) => {
 });
 
 const esquemaIncidencia = z.object({
-  tipo: z.enum(['compra_votos', 'violencia', 'irregularidad', 'logistica', 'representante', 'propaganda', 'otro'], { required_error: 'Falta elegir el tipo de incidencia' }),
+  tipo: z.enum(['compra_votos', 'violencia', 'irregularidad', 'logistica', 'representante', 'propaganda', 'otro']),
   urgencia: z.enum(['urgente', 'alta', 'media', 'baja']).default('media'),
-  descripcion: z.string({ required_error: 'Falta describir lo que pasó' }).min(5, 'Describe con un poco más de detalle').max(1000),
+  descripcion: z.string().min(5).max(1000),
   seccion_numero: z.number().int().optional(),
   casilla: z.string().optional(),
   lat: z.number().optional(),

@@ -3,7 +3,6 @@ import { z } from 'zod';
 import { query } from '../db/pool.js';
 import { requiereAuth } from '../middleware/auth.js';
 import { registrarAuditoria } from '../lib/auditoria.js';
-import { filtroTerritorioUsuario } from '../lib/filtroTerritorial.js';
 
 const router = Router();
 router.use(requiereAuth); // todo este módulo requiere sesión
@@ -25,13 +24,6 @@ router.get('/', async (req, res) => {
     LEFT JOIN usuarios u ON u.id = p.registrado_por
     WHERE p.campana_id = $1`;
   const params = [req.usuario.campana_id];
-
-  // Antes esto solo filtraba por campaña — un Coordinador Municipal
-  // veía TODOS los promovidos del distrito, no solo los de su propio
-  // municipio. Ahora, si el usuario tiene un territorio individual
-  // asignado, se recorta aquí también.
-  const filtroTerritorio = await filtroTerritorioUsuario(req.usuario, 's', params.length + 1);
-  if (filtroTerritorio.sql) { sql += ` ${filtroTerritorio.sql}`; params.push(...filtroTerritorio.params); }
 
   if (seccion) { params.push(seccion); sql += ` AND s.numero = $${params.length}`; }
   if (clasificacion) { params.push(clasificacion); sql += ` AND p.clasificacion = $${params.length}`; }
@@ -130,16 +122,11 @@ const esquemaPromovido = z.object({
   partido: z.string().max(20).optional(),
   comprometido: z.boolean().default(false),
   temperatura: z.enum(['frio', 'tibio', 'caliente']).default('tibio'),
-  // El promotor debe poder marcar lo que observó EN EL MOMENTO de
-  // la captura — antes esto solo se podía cambiar después, en un
-  // paso aparte, y mientras tanto todos quedaban mal clasificados
-  // como "persuadible" por default.
-  clasificacion: z.enum(['base', 'persuadible', 'adversario']).default('persuadible'),
   lat: z.number().optional(),
   lng: z.number().optional(),
   encuesta: z.record(z.any()).optional(),
   situacion_grave: z.string().max(500).optional(),
-  consentimiento: z.boolean({ required_error: 'Falta marcar el consentimiento de datos personales del titular — es obligatorio por ley (LFPDPPP).' }),
+  consentimiento: z.boolean(),
   genero: z.enum(['hombre', 'mujer', 'otro']).optional(),
   rango_edad: z.enum(['18-29', '30-44', '45-59', '60+']).optional(),
 });
@@ -243,19 +230,11 @@ router.get('/mi-resumen', async (req, res) => {
 });
 
 router.post('/', async (req, res) => {
-  // Detectar ANTES de que Zod ponga su valor por default — si el
-  // promotor de verdad mandó una clasificación, se respeta tal cual
-  // (marcando clasificacion_manual=true para el trigger de la BD).
-  // Si no mandó nada, se deja que el sistema la infiera solo
-  // (comparando partido declarado vs. partido de la campaña).
-  const clasificacionEspecificada = req.body.clasificacion !== undefined && req.body.clasificacion !== null && req.body.clasificacion !== '';
-
   const parseado = esquemaPromovido.safeParse(req.body);
   if (!parseado.success) {
     return res.status(400).json({ ok: false, error: parseado.error.errors[0].message });
   }
   const d = parseado.data;
-  d.clasificacionEspecificada = clasificacionEspecificada;
 
   if (!d.consentimiento) {
     return res.status(400).json({ ok: false, error: 'Se requiere el consentimiento del ciudadano para registrar sus datos (LFPDPPP)' });
@@ -305,26 +284,18 @@ router.post('/', async (req, res) => {
     let seccionId = null;
     if (d.seccion_numero) {
       const s = await query('SELECT id FROM secciones WHERE estado_id=$2 AND numero=$1', [d.seccion_numero, req.usuario.estado_id]);
-      if (!s.rows[0]) {
-        return res.status(400).json({ ok: false, error: `La sección ${d.seccion_numero} no existe en el catálogo oficial — revisa el número.` });
-      }
-      seccionId = s.rows[0].id;
+      seccionId = s.rows[0]?.id || null;
     }
-
-    // Se marca "manual" si el promotor de verdad eligió una
-    // clasificación al capturar — no si simplemente se quedó en el
-    // default silencioso de "persuadible".
-    const clasificacionManual = req.body.clasificacion !== undefined;
 
     const resultado = await query(
       `INSERT INTO promovidos
         (campana_id, nombre, telefono, curp, seccion_id, calle, partido, comprometido,
-         temperatura, clasificacion, clasificacion_manual, lat, lng, encuesta, situacion_grave, registrado_por, consentimiento, genero, rango_edad)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+         temperatura, lat, lng, encuesta, situacion_grave, registrado_por, consentimiento, genero, rango_edad)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
        RETURNING *`,
       [req.usuario.campana_id, d.nombre, d.telefono || null, d.curp || null, seccionId,
-       d.calle || null, d.partido || null, d.comprometido, d.temperatura, d.clasificacion,
-       clasificacionManual, d.lat || null, d.lng || null, d.encuesta ? JSON.stringify(d.encuesta) : null,
+       d.calle || null, d.partido || null, d.comprometido, d.temperatura,
+       d.lat || null, d.lng || null, d.encuesta ? JSON.stringify(d.encuesta) : null,
        d.situacion_grave || null, req.usuario.sub, d.consentimiento, d.genero || null, d.rango_edad || null]
     );
 

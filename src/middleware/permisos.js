@@ -67,69 +67,17 @@ const MODULOS_POR_ROL = {
   voluntario: ['promovidos'],
 };
 
-import { query } from '../db/pool.js';
-
-/**
- * Cache en memoria de las excepciones de cada campaña — para no
- * consultar la base de datos en CADA petición. Se refresca solo si
- * pasaron más de 30 segundos, así que un cambio de permisos tarda
- * como máximo eso en verse reflejado.
- */
-const cachePermisos = new Map(); // campana_id -> { datos: {rol:{modulo:bool}}, expira: timestamp }
-
-async function obtenerExcepciones(campanaId) {
-  const enCache = cachePermisos.get(campanaId);
-  if (enCache && enCache.expira > Date.now()) return enCache.datos;
-
-  const resultado = await query('SELECT rol, modulo, permitido FROM permisos_personalizados WHERE campana_id=$1', [campanaId]);
-  const datos = {};
-  resultado.rows.forEach((r) => {
-    if (!datos[r.rol]) datos[r.rol] = {};
-    datos[r.rol][r.modulo] = r.permitido;
-  });
-  cachePermisos.set(campanaId, { datos, expira: Date.now() + 30000 });
-  return datos;
-}
-
-/** Se llama al guardar un cambio, para que se refleje de inmediato sin esperar los 30s. */
-export function invalidarCachePermisos(campanaId) {
-  cachePermisos.delete(campanaId);
-}
-
 /**
  * Middleware: exige que el rol del usuario tenga acceso al módulo
- * indicado. Primero revisa si el candidato personalizó una
- * excepción para ese rol+módulo en SU campaña; si no hay ninguna,
- * cae al default de siempre. Debe usarse DESPUÉS de requiereAuth.
+ * indicado. Debe usarse DESPUÉS de requiereAuth (necesita req.usuario.rol).
  */
-// Módulos que se muestran con candado en la demo pública — se
-// pueden ver en el menú (para que el candidato sepa que existen),
-// pero no se puede entrar. Son justo los que más valen la pena
-// explicar en vivo, en la cita.
-export const MODULOS_BLOQUEADOS_DEMO = ['finanzas', 'juridico', 'dia-eleccion', 'marketing'];
-
 export function requiereModulo(clave) {
-  return async (req, res, next) => {
+  return (req, res, next) => {
     if (!req.usuario) {
       return res.status(401).json({ ok: false, error: 'No autenticado' });
     }
-
-    if (req.usuario.es_demo && MODULOS_BLOQUEADOS_DEMO.includes(clave)) {
-      return res.status(403).json({
-        ok: false,
-        error: '🔒 Este módulo está disponible en la demo completa — agenda una cita para verlo con datos reales.',
-        es_demo_bloqueado: true,
-      });
-    }
-
-    const excepciones = await obtenerExcepciones(req.usuario.campana_id);
-    const excepcion = excepciones[req.usuario.rol]?.[clave];
-
-    const permitido = excepcion !== undefined
-      ? excepcion
-      : (MODULOS_POR_ROL[req.usuario.rol] || []).includes(clave);
-
-    if (!permitido) {
+    const permitidos = MODULOS_POR_ROL[req.usuario.rol] || [];
+    if (!permitidos.includes(clave)) {
       return res.status(403).json({
         ok: false,
         error: `Tu rol no tiene acceso al módulo de ${clave}. Si crees que esto es un error, contacta al jefe de campaña.`,
@@ -146,16 +94,11 @@ export function requiereModulo(clave) {
  * asignados a esa tarea específica.
  */
 export function requiereModuloMarketing() {
-  return async (req, res, next) => {
+  return (req, res, next) => {
     if (!req.usuario) return res.status(401).json({ ok: false, error: 'No autenticado' });
-    const excepciones = await obtenerExcepciones(req.usuario.campana_id);
-    const excepcion = excepciones[req.usuario.rol]?.['marketing'];
-    if (excepcion === true) return next();
-    if (excepcion === undefined) {
-      const permitidosDirecto = MODULOS_POR_ROL[req.usuario.rol] || [];
-      if (permitidosDirecto.includes('marketing')) return next();
-      if (req.usuario.rol === 'voluntario' && (req.usuario.puesto || '').toLowerCase().includes('marketing')) return next();
-    }
+    const permitidosDirecto = MODULOS_POR_ROL[req.usuario.rol] || [];
+    if (permitidosDirecto.includes('marketing')) return next();
+    if (req.usuario.rol === 'voluntario' && (req.usuario.puesto || '').toLowerCase().includes('marketing')) return next();
     return res.status(403).json({ ok: false, error: 'Tu rol no tiene acceso al módulo de marketing.' });
   };
 }

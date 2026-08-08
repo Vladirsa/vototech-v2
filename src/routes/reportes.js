@@ -879,16 +879,18 @@ router.get('/cierre-campana-pdf', async (req, res) => {
     const activosRes = await query(`SELECT tipo, COUNT(*) as total FROM activos WHERE campana_id=$1 GROUP BY tipo`, [campanaId]);
     const incidenciasRes = await query(`SELECT COUNT(*) as total FROM incidencias WHERE campana_id=$1`, [campanaId]);
 
-    // ── Generar el PDF — reutiliza el mismo membrete que todos los demás reportes ──
-    const doc = iniciarPDF(
-      res,
-      `reporte_cierre_${new Date().toISOString().slice(0, 10)}.pdf`,
-      'Reporte de Cierre de Campaña',
-      `${campana.nombre_candidato} · ${campana.partido?.toUpperCase()} · ${campana.tipo_eleccion}`,
-      req.usuario.nombre
-    );
+    // ── Generar el PDF ──
+    const doc = new PDFDocument({ margin: 50 });
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename=reporte_cierre_${new Date().toISOString().slice(0, 10)}.pdf`);
+    doc.pipe(res);
 
-    const seccion = (titulo) => { doc.moveDown(0.5); doc.fontSize(13).font('Helvetica-Bold').fillColor('#1e1b4b').text(titulo); doc.moveDown(0.3); doc.fontSize(10).font('Helvetica').fillColor('#334155'); };
+    doc.fontSize(20).fillColor('#1e1b4b').text('Reporte de Cierre de Campaña', { align: 'center' });
+    doc.fontSize(12).fillColor('#4338ca').text(campana.nombre_candidato, { align: 'center' });
+    doc.fontSize(9).fillColor('#64748b').text(`${campana.partido?.toUpperCase()} · ${campana.tipo_eleccion} · Generado el ${new Date().toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' })}`, { align: 'center' });
+    doc.moveDown(2);
+
+    const seccion = (titulo) => { doc.moveDown(0.5); doc.fontSize(13).fillColor('#1e1b4b').text(titulo); doc.moveDown(0.3); doc.fontSize(10).fillColor('#334155'); };
     const linea = (etiqueta, valor) => doc.text(`${etiqueta}: ${valor}`);
 
     seccion('Avance Electoral');
@@ -975,39 +977,20 @@ router.get('/encuestas-resumen', async (req, res) => {
   });
 });
 
-/**
- * Encabezado compartido para todos los reportes PDF — ahora con
- * membrete real (no solo texto centrado) y quién lo descargó, para
- * que un PDF que circule por WhatsApp se pueda rastrear a quién se
- * le dio originalmente.
- */
-function iniciarPDF(res, nombreArchivo, titulo, subtitulo, descargadoPor) {
-  const doc = new PDFDocument({ margin: 50, size: 'letter' });
+/** Encabezado compartido para todos los reportes PDF — mismo estilo. */
+function iniciarPDF(res, nombreArchivo, titulo, subtitulo) {
+  const doc = new PDFDocument({ margin: 50 });
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename=${nombreArchivo}`);
   doc.pipe(res);
-
-  // ── MEMBRETE ── franja superior de color + marca, no solo texto suelto
-  doc.rect(0, 0, doc.page.width, 8).fill('#1e1b4b');
-  doc.fillColor('#1e1b4b').fontSize(16).font('Helvetica-Bold').text('🗳️  VOTOTECH', 50, 28, { continued: false });
-  doc.fontSize(8).font('Helvetica').fillColor('#94a3b8').text('Plataforma Digital de Gestión Electoral', 50, 48);
-  doc.moveTo(50, 66).lineTo(doc.page.width - 50, 66).lineWidth(1.5).strokeColor('#e2e8f0').stroke();
-
-  doc.moveDown(1.2);
-  doc.fontSize(18).font('Helvetica-Bold').fillColor('#1e1b4b').text(titulo, { align: 'center' });
-  if (subtitulo) doc.fontSize(10).font('Helvetica').fillColor('#4338ca').text(subtitulo, { align: 'center' });
-  doc.fontSize(8).fillColor('#94a3b8').text(`Generado el ${new Date().toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' })} a las ${new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}`, { align: 'center' });
-  if (descargadoPor) {
-    doc.fontSize(8).fillColor('#94a3b8').text(`Descargado por: ${descargadoPor}`, { align: 'center' });
-  }
+  doc.fontSize(18).fillColor('#1e1b4b').text(titulo, { align: 'center' });
+  if (subtitulo) doc.fontSize(9).fillColor('#64748b').text(subtitulo, { align: 'center' });
+  doc.fontSize(8).fillColor('#94a3b8').text(`Generado el ${new Date().toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' })}`, { align: 'center' });
   doc.moveDown(1.5);
   return doc;
 }
-const seccionPDF = (doc, titulo) => { doc.moveDown(0.5); doc.fontSize(13).font('Helvetica-Bold').fillColor('#1e1b4b').text(titulo); doc.moveDown(0.3); doc.fontSize(10).font('Helvetica').fillColor('#334155'); };
+const seccionPDF = (doc, titulo) => { doc.moveDown(0.5); doc.fontSize(13).fillColor('#1e1b4b').text(titulo); doc.moveDown(0.3); doc.fontSize(10).fillColor('#334155'); };
 const lineaPDF = (doc, etiqueta, valor) => doc.text(`${etiqueta}: ${valor}`);
-// Para párrafos de verdad (descripciones largas) — texto justificado,
-// se ve más formal/ejecutivo que el default alineado a la izquierda.
-const parrafoPDF = (doc, texto, opts = {}) => doc.font('Helvetica').fontSize(9).fillColor('#334155').text(texto, { align: 'justify', ...opts });
 
 /**
  * GET /api/reportes/pdf/juridico
@@ -1018,7 +1001,7 @@ router.get('/pdf/juridico', async (req, res) => {
   const plazos = await query('SELECT * FROM calendario_electoral WHERE campana_id=$1 ORDER BY fecha', [campanaId]);
   const quejas = await query('SELECT * FROM quejas_recursos WHERE campana_id=$1 ORDER BY creado_en DESC', [campanaId]);
 
-  const doc = iniciarPDF(res, 'reporte_juridico.pdf', 'Reporte Juridico de Campana', campanaRes.rows[0]?.nombre_candidato, req.usuario.nombre);
+  const doc = iniciarPDF(res, 'reporte_juridico.pdf', 'Reporte Juridico de Campana', campanaRes.rows[0]?.nombre_candidato);
 
   seccionPDF(doc, 'Calendario Electoral');
   if (plazos.rows.length === 0) doc.text('Sin plazos registrados');
@@ -1028,7 +1011,7 @@ router.get('/pdf/juridico', async (req, res) => {
   if (quejas.rows.length === 0) doc.text('Sin quejas ni recursos registrados');
   quejas.rows.forEach((q) => {
     doc.font('Helvetica-Bold').text(`${q.tipo.toUpperCase()} ante ${q.autoridad.toUpperCase()} - ${q.estado}`);
-    doc.font('Helvetica').fontSize(9).text(q.descripcion, { indent: 15, align: 'justify' });
+    doc.font('Helvetica').fontSize(9).text(q.descripcion, { indent: 15 });
     doc.fontSize(10).moveDown(0.3);
   });
 
@@ -1050,7 +1033,7 @@ router.get('/pdf/estructura', async (req, res) => {
   );
   const porRol = await query('SELECT rol, COUNT(*) as total FROM usuarios WHERE campana_id=$1 AND activo != false GROUP BY rol', [campanaId]);
 
-  const doc = iniciarPDF(res, 'reporte_estructura.pdf', 'Reporte de Estructura de Campana', campanaRes.rows[0]?.nombre_candidato, req.usuario.nombre);
+  const doc = iniciarPDF(res, 'reporte_estructura.pdf', 'Reporte de Estructura de Campana', campanaRes.rows[0]?.nombre_candidato);
 
   seccionPDF(doc, 'Resumen por Nivel');
   porRol.rows.forEach((r) => lineaPDF(doc, r.rol, r.total));
@@ -1074,7 +1057,7 @@ router.get('/pdf/incidencias', async (req, res) => {
   );
   const porTipo = await query('SELECT tipo, COUNT(*) as total FROM incidencias WHERE campana_id=$1 GROUP BY tipo', [campanaId]);
 
-  const doc = iniciarPDF(res, 'reporte_incidencias.pdf', 'Reporte de Incidencias de Campana', campanaRes.rows[0]?.nombre_candidato, req.usuario.nombre);
+  const doc = iniciarPDF(res, 'reporte_incidencias.pdf', 'Reporte de Incidencias de Campana', campanaRes.rows[0]?.nombre_candidato);
 
   seccionPDF(doc, 'Resumen por Tipo');
   porTipo.rows.forEach((r) => lineaPDF(doc, r.tipo, r.total));
@@ -1082,7 +1065,7 @@ router.get('/pdf/incidencias', async (req, res) => {
   seccionPDF(doc, `Detalle (${incidencias.rows.length} incidencias)`);
   incidencias.rows.forEach((i) => {
     doc.font('Helvetica-Bold').text(`${i.tipo} - ${i.urgencia} - ${i.estado}${i.seccion_numero ? ` (Seccion ${i.seccion_numero})` : ''}`);
-    doc.font('Helvetica').fontSize(9).text(i.descripcion, { indent: 15, align: 'justify' });
+    doc.font('Helvetica').fontSize(9).text(i.descripcion, { indent: 15 });
     doc.fontSize(10).moveDown(0.3);
   });
 
@@ -1108,7 +1091,7 @@ router.get('/pdf/encuestas', async (req, res) => {
     [campanaId]
   );
 
-  const doc = iniciarPDF(res, 'reporte_encuestas.pdf', 'Reporte Concentrado de Encuestas', campanaRes.rows[0]?.nombre_candidato, req.usuario.nombre);
+  const doc = iniciarPDF(res, 'reporte_encuestas.pdf', 'Reporte Concentrado de Encuestas', campanaRes.rows[0]?.nombre_candidato);
 
   seccionPDF(doc, 'Encuestas Activas');
   if (encuestas.rows.length === 0) doc.text('Sin encuestas registradas');
@@ -1119,260 +1102,6 @@ router.get('/pdf/encuestas', async (req, res) => {
   porMunicipio.rows.forEach((m) => lineaPDF(doc, m.municipio, m.total));
 
   doc.end();
-});
-
-/**
- * GET /api/reportes/resumen-ejecutivo-pdf
- * La versión imprimible/compartible del Resumen Ejecutivo — para
- * mandarla por WhatsApp a alguien que no tiene acceso al sistema,
- * o llevarla impresa a una reunión con el candidato.
- */
-router.get('/resumen-ejecutivo-pdf', async (req, res) => {
-  const campanaId = req.usuario.campana_id;
-  const campanaRes = await query('SELECT nombre_candidato, partido FROM campanas WHERE id=$1', [campanaId]);
-  const campana = campanaRes.rows[0];
-
-  const [promovidosTotal, comprometidos, actividad7dias, promotoresActivos] = await Promise.all([
-    query('SELECT COUNT(*) as total FROM promovidos WHERE campana_id=$1', [campanaId]),
-    query(`SELECT COUNT(*) as total FROM promovidos WHERE campana_id=$1 AND comprometido=true`, [campanaId]),
-    query(`SELECT COUNT(*) as total FROM promovidos WHERE campana_id=$1 AND creado_en >= now() - interval '7 days'`, [campanaId]),
-    query(`SELECT COUNT(DISTINCT registrado_por) as total FROM promovidos WHERE campana_id=$1 AND creado_en >= now() - interval '7 days'`, [campanaId]),
-  ]);
-
-  const totalProm = parseInt(promovidosTotal.rows[0].total);
-  const totalComp = parseInt(comprometidos.rows[0].total);
-  const pctComp = totalProm > 0 ? Math.round((totalComp / totalProm) * 100) : 0;
-
-  const doc = iniciarPDF(res, 'resumen_ejecutivo.pdf', 'Resumen Ejecutivo de Campaña', campana?.nombre_candidato, req.usuario.nombre);
-
-  seccionPDF(doc, 'Los números que importan');
-  lineaPDF(doc, 'Promovidos totales', totalProm);
-  lineaPDF(doc, 'Comprometidos a votar', `${totalComp} (${pctComp}%)`);
-  lineaPDF(doc, 'Promovidos en los últimos 7 días', parseInt(actividad7dias.rows[0].total));
-  lineaPDF(doc, 'Promotores activos esta semana', parseInt(promotoresActivos.rows[0].total));
-
-  seccionPDF(doc, 'Semáforo de campaña');
-  const semaforo = (ok, texto) => { doc.fontSize(10).fillColor(ok ? '#059669' : '#dc2626').text(`${ok ? '🟢' : '🔴'} ${texto}`); doc.moveDown(0.3); };
-  semaforo(totalProm >= 30, `Muestra estadística: ${totalProm} de 30 mínimo`);
-  semaforo(parseInt(promotoresActivos.rows[0].total) > 0, 'Actividad de promotores esta semana');
-  semaforo(pctComp >= 30, `Tasa de compromiso: ${pctComp}%`);
-  semaforo(parseInt(actividad7dias.rows[0].total) > 0, 'Captación reciente de promovidos');
-
-  doc.end();
-});
-
-/**
- * GET /api/reportes/motor-riesgos
- * Detecta automáticamente 4 tipos de riesgo, sin que nadie tenga
- * que ir a buscarlos a mano:
- * 1. Operadores que se están "apagando" — dejaron de tener actividad
- * 2. Municipios/secciones con poca cobertura de promovidos
- * 3. Gente que no está llegando a su meta diaria
- * 4. Territorio sin NADIE asignado todavía
- */
-router.get('/motor-riesgos', async (req, res) => {
-  const campanaId = req.usuario.campana_id;
-
-  // 1. Operadores apagándose — tenían actividad y ya no, o nunca
-  //    han entrado desde que se les dio de alta hace más de 5 días.
-  const operadoresRiesgo = await query(
-    `SELECT id, nombre, rol, puesto, ultimo_acceso, creado_en
-     FROM usuarios
-     WHERE campana_id=$1 AND activo=true AND aprobado=true AND rol NOT IN ('candidato')
-       AND (
-         (ultimo_acceso IS NOT NULL AND ultimo_acceso < now() - interval '5 days')
-         OR (ultimo_acceso IS NULL AND creado_en < now() - interval '5 days')
-       )
-     ORDER BY COALESCE(ultimo_acceso, creado_en) ASC
-     LIMIT 15`,
-    [campanaId]
-  );
-
-  // 2. Metas incumplidas — gente con meta_diaria puesta, pero su
-  //    ritmo real de promovidos capturados está muy por debajo.
-  const metasIncumplidas = await query(
-    `SELECT u.id, u.nombre, u.rol, u.meta_diaria,
-            COUNT(p.id) FILTER (WHERE p.creado_en >= now() - interval '7 days') as promovidos_7dias
-     FROM usuarios u
-     LEFT JOIN promovidos p ON p.registrado_por = u.id AND p.campana_id=$1
-     WHERE u.campana_id=$1 AND u.activo=true AND u.aprobado=true AND u.meta_diaria > 0
-     GROUP BY u.id, u.nombre, u.rol, u.meta_diaria
-     HAVING COUNT(p.id) FILTER (WHERE p.creado_en >= now() - interval '7 days') < u.meta_diaria * 7 * 0.5
-     ORDER BY u.meta_diaria DESC
-     LIMIT 15`,
-    [campanaId]
-  );
-
-  // 3. Municipios con baja cobertura — pocos promovidos respecto al
-  //    tamaño real de su lista nominal.
-  const coberturaBaja = await query(
-    `SELECT m.nombre as municipio, SUM(s.lista_nominal) as lista_nominal, COUNT(DISTINCT pr.id) as promovidos
-     FROM secciones s
-     JOIN municipios m ON m.id = s.municipio_id
-     LEFT JOIN promovidos pr ON pr.seccion_id = s.id AND pr.campana_id=$1
-     WHERE s.estado_id=$2
-     GROUP BY m.id, m.nombre
-     HAVING SUM(s.lista_nominal) > 0
-     ORDER BY (COUNT(DISTINCT pr.id)::float / NULLIF(SUM(s.lista_nominal),0)) ASC
-     LIMIT 8`,
-    [campanaId, req.usuario.estado_id]
-  );
-
-  // 4. Territorio sin nadie asignado — secciones prioritarias (según
-  //    Priorización) que no tienen ningún coordinador ni promotor.
-  const sinEstructura = await query(
-    `SELECT s.numero as seccion, s.municipio_id, m.nombre as municipio
-     FROM secciones s
-     JOIN municipios m ON m.id = s.municipio_id
-     WHERE s.estado_id=$1
-       AND NOT EXISTS (SELECT 1 FROM usuarios u WHERE u.campana_id=$2 AND u.territorio_tipo='seccion' AND u.territorio_id=s.numero)
-     LIMIT 10`,
-    [req.usuario.estado_id, campanaId]
-  );
-
-  res.json({
-    ok: true,
-    data: {
-      operadores_riesgo: operadoresRiesgo.rows.map((o) => ({
-        ...o,
-        dias_inactivo: Math.floor((Date.now() - new Date(o.ultimo_acceso || o.creado_en)) / 86400000),
-      })),
-      metas_incumplidas: metasIncumplidas.rows,
-      cobertura_baja: coberturaBaja.rows.map((c) => ({
-        ...c,
-        pct_cobertura: c.lista_nominal > 0 ? +((c.promovidos / c.lista_nominal) * 100).toFixed(2) : 0,
-      })),
-      sin_estructura: sinEstructura.rows,
-      total_riesgos: operadoresRiesgo.rows.length + metasIncumplidas.rows.length + sinEstructura.rows.length,
-    },
-  });
-});
-
-/**
- * GET /api/reportes/ficha-territorio/:tipo/:numero
- * tipo: 'distrito_federal' | 'distrito_local' | 'municipio'
- * La ficha completa de UN distrito o municipio específico — para
- * cuando lo seleccionas en el mapa: cuántas secciones tiene, su
- * lista nominal total, y el resultado histórico si existe (los
- * distritos federales ya tienen datos reales de 2024 cargados).
- */
-router.get('/ficha-territorio/:tipo/:numero', async (req, res) => {
-  const { tipo, numero } = req.params;
-  const estadoId = req.usuario.estado_id;
-
-  // Senaduría es a nivel ESTATAL completo, no por distrito/municipio
-  // — se resuelve aparte, reusando los resultados agregados 2024.
-  if (tipo === 'senaduria') {
-    const [totales, resultados] = await Promise.all([
-      query('SELECT COUNT(*) as secciones, COUNT(DISTINCT municipio_id) as municipios, SUM(lista_nominal) as lista_nominal FROM secciones WHERE estado_id=$1', [estadoId]),
-      query(`SELECT partido, candidato, votos, porcentaje, gano FROM resultados_agregados WHERE estado_id=$1 AND tipo_eleccion='senaduria' AND nivel='estado' ORDER BY votos DESC`, [estadoId]),
-    ]);
-    return res.json({
-      ok: true,
-      data: {
-        existe: resultados.rows.length > 0,
-        tipo: 'senaduria', numero: null, nombre_municipio: null,
-        total_secciones: parseInt(totales.rows[0].secciones),
-        total_lista_nominal: parseInt(totales.rows[0].lista_nominal) || 0,
-        municipios_incluidos: parseInt(totales.rows[0].municipios),
-        historico: resultados.rows.length > 0 ? { anio: 2024, cabecera: 'Todo el estado', resultados: resultados.rows } : null,
-      },
-    });
-  }
-
-  let secciones;
-  if (tipo === 'distrito_federal') {
-    secciones = await query('SELECT id, numero, lista_nominal, municipio_id FROM secciones WHERE estado_id=$1 AND distrito_federal=$2', [estadoId, numero]);
-  } else if (tipo === 'distrito_local') {
-    secciones = await query('SELECT id, numero, lista_nominal, municipio_id FROM secciones WHERE estado_id=$1 AND distrito_local=$2', [estadoId, numero]);
-  } else if (tipo === 'municipio') {
-    const muni = await query('SELECT id, nombre FROM municipios WHERE estado_id=$1 AND clave_ine=$2', [estadoId, numero]);
-    if (!muni.rows[0]) return res.status(404).json({ ok: false, error: 'Municipio no encontrado' });
-    secciones = await query('SELECT id, numero, lista_nominal FROM secciones WHERE municipio_id=$1', [muni.rows[0].id]);
-    secciones.nombreMunicipio = muni.rows[0].nombre;
-  } else {
-    return res.status(400).json({ ok: false, error: 'Tipo de territorio no reconocido' });
-  }
-
-  if (secciones.rows.length === 0) {
-    return res.json({ ok: true, data: { existe: false } });
-  }
-
-  const totalListaNominal = secciones.rows.reduce((s, r) => s + (r.lista_nominal || 0), 0);
-  const municipiosUnicos = tipo !== 'municipio' ? new Set(secciones.rows.map((r) => r.municipio_id)).size : 1;
-
-  // Si es distrito federal, ya tenemos resultados reales 2024 cargados
-  let historico = null;
-  if (tipo === 'distrito_federal') {
-    const r = await query(
-      `SELECT partido, candidato, votos, porcentaje, gano, distrito_cabecera
-       FROM resultados_agregados WHERE estado_id=$1 AND tipo_eleccion='dip_federal' AND nivel='distrito_federal' AND distrito_numero=$2
-       ORDER BY votos DESC`,
-      [estadoId, numero]
-    );
-    if (r.rows.length > 0) {
-      historico = { anio: 2024, cabecera: r.rows[0].distrito_cabecera, resultados: r.rows };
-    }
-  }
-
-  // 👥 QUIÉN TRABAJA ESTE TERRITORIO Y SI ESTÁ CUMPLIENDO SU META —
-  // junta a cualquiera cuyo territorio individual caiga DENTRO de
-  // este (un promotor de una sección de este distrito, un enlace
-  // asignado directo al distrito completo, etc.), y compara sus
-  // promovidos reales contra su meta diaria × los días que lleva
-  // dado de alta. Antes esto no existía — solo se sabía "quién es el
-  // responsable", nunca si de verdad está cumpliendo.
-  const numerosSeccion = secciones.rows.map((s) => s.numero);
-  const equipoRes = await query(
-    `SELECT u.id, u.nombre, u.rol, u.meta_diaria, u.creado_en, u.territorio_tipo, u.territorio_id,
-            COUNT(p.id) as promovidos_reales
-     FROM usuarios u
-     LEFT JOIN promovidos p ON p.registrado_por = u.id
-     WHERE u.campana_id = $1 AND (
-       (u.territorio_tipo = $2 AND u.territorio_id = $3)
-       OR (u.territorio_tipo = 'seccion' AND u.territorio_id = ANY($4::int[]))
-     )
-     GROUP BY u.id
-     ORDER BY u.rol, u.nombre`,
-    [req.usuario.campana_id, tipo, numero, numerosSeccion]
-  );
-  const equipo = equipoRes.rows.map((m) => {
-    const diasActivo = Math.max(1, Math.ceil((Date.now() - new Date(m.creado_en)) / 86400000));
-    const metaAcumulada = (m.meta_diaria || 0) * diasActivo;
-    const promovidosReales = parseInt(m.promovidos_reales);
-    return {
-      nombre: m.nombre,
-      rol: m.rol,
-      nivel: m.territorio_tipo === tipo ? 'responsable_directo' : 'en_el_territorio',
-      meta_diaria: m.meta_diaria,
-      promovidos_reales: promovidosReales,
-      cumplimiento_pct: metaAcumulada > 0 ? Math.min(999, Math.round((promovidosReales / metaAcumulada) * 100)) : null,
-    };
-  });
-  // Cuántas de las secciones de este territorio tienen AL MENOS
-  // alguien trabajándolas (vía Sectorización) — el mismo indicador
-  // que ya existe en Cobertura, pero aquí acotado a este territorio.
-  const coberturaRes = await query(
-    `SELECT COUNT(DISTINCT z.seccion_id) as secciones_cubiertas
-     FROM zonas_asignadas z JOIN secciones s ON s.id = z.seccion_id
-     WHERE z.campana_id = $1 AND s.numero = ANY($2::int[])`,
-    [req.usuario.campana_id, numerosSeccion]
-  );
-
-  res.json({
-    ok: true,
-    data: {
-      existe: true,
-      tipo, numero,
-      nombre_municipio: secciones.nombreMunicipio || null,
-      total_secciones: secciones.rows.length,
-      total_lista_nominal: totalListaNominal,
-      municipios_incluidos: municipiosUnicos,
-      historico,
-      equipo,
-      secciones_cubiertas: parseInt(coberturaRes.rows[0].secciones_cubiertas),
-    },
-  });
 });
 
 export default router;
