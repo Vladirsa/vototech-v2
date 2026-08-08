@@ -49,7 +49,15 @@ function estaActivoReciente(ultimoAcceso) {
 const PUNTO_ACTIVIDAD = { reciente: 'bg-emerald-400', medio: 'bg-amber-400', inactivo: 'bg-red-400' };
 
 function ModalAgregarMiembro({ miembros, onCerrar, onGuardado }) {
-  const [form, setForm] = useState({ nombre: '', email: '', password: '', telefono: '', rol: 'coord_seccional', puesto: '', parent_id: '', territorio_tipo: 'seccion', territorio_id: '' });
+  const [form, setForm] = useState({ nombre: '', email: '', password: '', telefono: '', rol: 'coord_seccional', puesto: '', parent_id: '', territorio_tipo: 'seccion', territorio_id: '', meta_diaria: '' });
+  const [sugerencia, setSugerencia] = useState(null);
+
+  useEffect(() => {
+    if (!form.territorio_id) { setSugerencia(null); return; }
+    api.get(`/estructura/sugerir-meta?territorio_tipo=${form.territorio_tipo}&territorio_id=${form.territorio_id}`)
+      .then((r) => setSugerencia(r.data.data))
+      .catch(() => setSugerencia(null));
+  }, [form.territorio_tipo, form.territorio_id]);
   const [error, setError] = useState('');
   const guardar = async () => {
     try {
@@ -58,6 +66,7 @@ function ModalAgregarMiembro({ miembros, onCerrar, onGuardado }) {
         parent_id: form.parent_id || undefined,
         territorio_tipo: form.territorio_id ? form.territorio_tipo : undefined,
         territorio_id: form.territorio_id ? parseInt(form.territorio_id) : undefined,
+        meta_diaria: form.meta_diaria ? parseInt(form.meta_diaria) : undefined,
       });
       onGuardado();
     } catch (err) { setError(err.response?.data?.error || 'Error al guardar'); }
@@ -109,6 +118,16 @@ function ModalAgregarMiembro({ miembros, onCerrar, onGuardado }) {
               className="flex-1 px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
           </div>
         )}
+
+        {sugerencia && (
+          <div className="bg-indigo-500/10 border border-indigo-500/30 rounded-lg p-2.5 text-[10px] text-indigo-200">
+            📊 Su territorio tiene {sugerencia.lista_nominal.toLocaleString()} electores en lista nominal. Con {sugerencia.dias_restantes} días para la elección, la meta sugerida es <strong className="text-white">{sugerencia.meta_diaria_sugerida} promovidos/día</strong> ({sugerencia.meta_total_sugerida.toLocaleString()} en total — 8% del padrón de su zona).
+            <button onClick={() => setForm({ ...form, meta_diaria: String(sugerencia.meta_diaria_sugerida) })} className="block mt-1 font-bold text-indigo-300 underline">Usar esta meta</button>
+          </div>
+        )}
+        <input placeholder="Meta diaria de promovidos (puedes ajustarla)" type="number" value={form.meta_diaria}
+          onChange={(e) => setForm({ ...form, meta_diaria: e.target.value })}
+          className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
 
         <div>
           <label className="block text-[10px] text-slate-500 font-bold mb-1">¿A quién le reporta? (de ahí cuelga en el organigrama)</label>
