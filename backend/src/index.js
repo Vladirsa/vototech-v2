@@ -55,11 +55,9 @@ const PORT = process.env.PORT || 4000;
 // const app = express();
 // ... otros imports ...
 
+// ... tu código existente ...
+
 const { startCleanupCron } = require('./cron/cleanupTokens');
-
-// ... tu código de rutas ...
-
-// ⭐ AGREGAR ESTO antes de app.listen
 startCleanupCron();
 
 app.listen(process.env.PORT || 4000, () => {
