@@ -18,26 +18,6 @@ const NOMBRES = ['María González', 'Juan Pérez', 'Rosa Martínez', 'Carlos He
   'Jorge Vázquez', 'Elena Cruz', 'Roberto Morales', 'Patricia Reyes', 'Fernando Ortiz',
   'Gabriela Jiménez', 'Ricardo Castro', 'Verónica Romero', 'Alejandro Suárez'];
 
-// Bancos para generar CIENTOS de nombres únicos combinando nombre +
-// apellido — antes la demo solo tenía 20 promovidos fijos (se sentía
-// vacía); combinando estos bancos se generan cientos de variantes
-// realistas sin repetir.
-const NOMBRES_PILA = ['María', 'Juan', 'Rosa', 'Carlos', 'Laura', 'Pedro', 'Ana', 'Miguel', 'Sofía', 'Luis',
-  'Carmen', 'Jorge', 'Elena', 'Roberto', 'Patricia', 'Fernando', 'Gabriela', 'Ricardo', 'Verónica', 'Alejandro',
-  'Guadalupe', 'José', 'Martha', 'Francisco', 'Leticia', 'Antonio', 'Silvia', 'Manuel', 'Norma', 'Javier',
-  'Alicia', 'Raúl', 'Beatriz', 'Arturo', 'Diana', 'Sergio', 'Claudia', 'Enrique', 'Adriana', 'Héctor',
-  'Yolanda', 'Rubén', 'Mónica', 'Salvador', 'Angélica', 'Ignacio', 'Teresa', 'Rodrigo', 'Cecilia', 'Emilio'];
-const APELLIDOS = ['González', 'Pérez', 'Martínez', 'Hernández', 'Sánchez', 'Ramírez', 'Torres', 'Flores',
-  'Rivera', 'Gómez', 'Díaz', 'Vázquez', 'Cruz', 'Morales', 'Reyes', 'Ortiz', 'Jiménez', 'Castro', 'Romero',
-  'Suárez', 'Mendoza', 'Aguilar', 'Guzmán', 'Contreras', 'Vargas', 'Rojas', 'Delgado', 'Herrera', 'Medina',
-  'Castillo', 'Salazar', 'Núñez', 'Cabrera', 'Ibarra', 'Peña', 'Cortés', 'Estrada', 'Domínguez', 'Vega'];
-function nombreAleatorio(indice) {
-  const pila = NOMBRES_PILA[indice % NOMBRES_PILA.length];
-  const ap1 = APELLIDOS[(indice * 7) % APELLIDOS.length];
-  const ap2 = APELLIDOS[(indice * 13 + 3) % APELLIDOS.length];
-  return `${pila} ${ap1} ${ap2}`;
-}
-
 export async function crearDemo(opciones = {}) {
   const tipoEleccion = opciones.tipoEleccion || 'ayuntamiento';
   const municipioClaveIne = opciones.municipioClaveIne || 3; // Apizaco por defecto (tiene datos reales)
@@ -127,43 +107,6 @@ export async function crearDemo(opciones = {}) {
   }
   console.log('✅ Estructura de campaña: 1 jefe, 2 coordinadores (1 sano, 1 sobrecargado a propósito), 30 promotores');
 
-  // 3.5. Responsables por territorio (Distrito Federal/Local/Municipio)
-  // — antes esto quedaba SIEMPRE vacío en la demo, y la ficha nueva
-  // del mapa ("Quién trabaja aquí") se veía con puros "Sin asignar".
-  // Solo se crean para los niveles que de verdad apliquen al
-  // territorio real de esta campaña.
-  const seccionRef = await query(
-    `SELECT s.distrito_federal, s.distrito_local, m.clave_ine as municipio_clave
-     FROM secciones s JOIN municipios m ON m.id=s.municipio_id
-     WHERE s.estado_id=29 AND m.clave_ine=$1 LIMIT 1`,
-    [territorioTipo === 'municipio' ? territorioId : municipioClaveIne]
-  );
-  const refDF = seccionRef.rows[0]?.distrito_federal;
-  const refDL = seccionRef.rows[0]?.distrito_local;
-  const refMuni = seccionRef.rows[0]?.municipio_clave;
-  if (refDF) {
-    await query(
-      `INSERT INTO usuarios (campana_id, nombre, email, password_hash, rol, parent_id, territorio_tipo, territorio_id)
-       VALUES ($1,'Enlace Distrital Federal','enlacedf@demo.vototech.mx',$2,'enlace_distrital_federal',$3,'distrito_federal',$4)`,
-      [campanaId, passwordHash, jefeId, refDF]
-    );
-  }
-  if (refDL) {
-    await query(
-      `INSERT INTO usuarios (campana_id, nombre, email, password_hash, rol, parent_id, territorio_tipo, territorio_id)
-       VALUES ($1,'Enlace Distrital Local','enlacedl@demo.vototech.mx',$2,'enlace_distrital_local',$3,'distrito_local',$4)`,
-      [campanaId, passwordHash, jefeId, refDL]
-    );
-  }
-  if (refMuni) {
-    await query(
-      `INSERT INTO usuarios (campana_id, nombre, email, password_hash, rol, parent_id, territorio_tipo, territorio_id)
-       VALUES ($1,'Enlace Municipal','enlacemuni@demo.vototech.mx',$2,'enlace_municipal',$3,'municipio',$4)`,
-      [campanaId, passwordHash, jefeId, refMuni]
-    );
-  }
-  console.log('✅ Responsables de Distrito Federal/Local/Municipio asignados');
-
   // 4. Promovidos de ejemplo en secciones reales de Apizaco, con las 3
   // clasificaciones representadas para que se vea el motor funcionando
   let filtroSecciones = 'WHERE s.estado_id=29';
@@ -175,7 +118,7 @@ export async function crearDemo(opciones = {}) {
 
   const seccionesEjemplo = await query(
     `SELECT s.numero FROM secciones s JOIN municipios m ON m.id=s.municipio_id
-     ${filtroSecciones} ORDER BY s.numero LIMIT 60`,
+     ${filtroSecciones} ORDER BY s.numero LIMIT 20`,
     paramsSecciones
   );
   const secciones = seccionesEjemplo.rows.map(r => r.numero);
@@ -183,62 +126,24 @@ export async function crearDemo(opciones = {}) {
     throw new Error(`No se encontraron secciones para ${nombreTerritorio} — verifica que ese distrito/municipio exista en la base de datos`);
   }
 
-  // Traer de una sola vez el id de cada sección disponible — antes se
-  // hacía un SELECT por cada promovido (300 consultas innecesarias).
-  const idsPorSeccion = {};
-  for (const secc of secciones) {
-    const s = await query('SELECT id FROM secciones WHERE estado_id=29 AND numero=$1', [secc]);
-    if (s.rows[0]) idsPorSeccion[secc] = s.rows[0].id;
-  }
-
-  // Perfiles realistas: ~20% Base, ~55% Persuadible, ~15% Adversario,
-  // resto variado — mezcla que se parece a una campaña real en fase
-  // de identificación, no una donde "todos apoyan al candidato".
-  const PERFILES = [
-    ...Array(20).fill({ clasificacion: 'base', partido: 'morena', comprometido: true, temperatura: 'caliente' }),
-    ...Array(38).fill({ clasificacion: 'persuadible', partido: 'independiente', comprometido: false, temperatura: 'tibio' }),
-    ...Array(17).fill({ clasificacion: 'persuadible', partido: 'morena', comprometido: false, temperatura: 'tibio' }),
-    ...Array(15).fill({ clasificacion: 'adversario', partido: 'pan', comprometido: false, temperatura: 'frio' }),
-    ...Array(10).fill({ clasificacion: 'base', partido: 'morena', comprometido: true, temperatura: 'tibio' }),
+  const perfiles = [
+    ...Array(8).fill({ partido: 'morena', comprometido: true, temperatura: 'caliente' }),   // -> base
+    ...Array(7).fill({ partido: 'independiente', comprometido: false, temperatura: 'tibio' }), // -> persuadible
+    ...Array(3).fill({ partido: 'pan', comprometido: false, temperatura: 'frio' }),          // -> adversario
+    ...Array(2).fill({ partido: 'morena', comprometido: false, temperatura: 'tibio' }),      // -> persuadible
   ];
 
-  const TOTAL_PROMOVIDOS = 320;
-  const DIAS_HACIA_ATRAS = 45; // se reparten en 45 días, para que la
-  // gráfica de tendencia del Resumen Ejecutivo se vea como actividad
-  // real día a día, no todo capturado en el mismo instante.
-  let creados = 0;
-  for (let i = 0; i < TOTAL_PROMOVIDOS; i++) {
-    const perfil = PERFILES[i % PERFILES.length];
+  for (let i = 0; i < NOMBRES.length; i++) {
+    const perfil = perfiles[i % perfiles.length];
     const secc = secciones[i % secciones.length];
-    const seccionId = idsPorSeccion[secc];
-    if (!seccionId) continue;
-    const diasAtras = Math.floor((i / TOTAL_PROMOVIDOS) * DIAS_HACIA_ATRAS) + Math.floor(Math.random() * 2);
+    const seccionRow = await query('SELECT id FROM secciones WHERE estado_id=29 AND numero=$1', [secc]);
     await query(
-      `INSERT INTO promovidos (campana_id, nombre, telefono, seccion_id, partido, comprometido, temperatura, clasificacion, clasificacion_manual, registrado_por, consentimiento, creado_en)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,true,$9,true, now() - ($10::int || ' days')::interval)`,
-      [campanaId, nombreAleatorio(i), `246${1000000 + i * 37}`, seccionId, perfil.partido, perfil.comprometido, perfil.temperatura, perfil.clasificacion, promotorIds[i % promotorIds.length], diasAtras]
+      `INSERT INTO promovidos (campana_id, nombre, telefono, seccion_id, partido, comprometido, temperatura, registrado_por, consentimiento)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,true)`,
+      [campanaId, NOMBRES[i], `246${1000000 + i * 37}`, seccionRow.rows[0]?.id, perfil.partido, perfil.comprometido, perfil.temperatura, promotorIds[i % promotorIds.length]]
     );
-    creados++;
   }
-  console.log(`✅ ${creados} promovidos de ejemplo, repartidos en ${DIAS_HACIA_ATRAS} días (Base/Persuadible/Adversario reales)`);
-
-  // 4.6. Zonas asignadas (Sectorización) — a propósito, cubrir SOLO
-  // dos terceras partes del territorio, dejando el resto "sin
-  // cobertura" a propósito. Antes esto estaba en CERO, y tanto el
-  // mapa de Cobertura como la tercera dimensión del Motor de
-  // Priorización se veían vacíos en la demo.
-  const seccionesConCobertura = secciones.slice(0, Math.floor(secciones.length * 0.65));
-  let zonasCreadas = 0;
-  for (let i = 0; i < seccionesConCobertura.length; i++) {
-    const seccionId = idsPorSeccion[seccionesConCobertura[i]];
-    if (!seccionId) continue;
-    await query(
-      `INSERT INTO zonas_asignadas (campana_id, usuario_id, seccion_id, asignado_por) VALUES ($1,$2,$3,$4)`,
-      [campanaId, promotorIds[i % promotorIds.length], seccionId, jefeId]
-    );
-    zonasCreadas++;
-  }
-  console.log(`✅ ${zonasCreadas} secciones con estructura asignada (el resto queda "sin cobertura" a propósito, para que el Motor de Riesgos tenga algo real que detectar)`);
+  console.log(`✅ ${NOMBRES.length} promovidos de ejemplo (Base, Persuadibles y Adversarios representados)`);
 
   // 4.5. Simular duplicados reales — casos donde dos promotores
   // distintos intentaron registrar a la misma persona (pasa mucho en
@@ -260,17 +165,6 @@ export async function crearDemo(opciones = {}) {
     { titulo: 'Reunión de coordinadores', tipo: 'reunion', dias: 5, lugar: 'Oficina de campaña' },
     { titulo: 'Mitin de arranque', tipo: 'evento', dias: 10, lugar: 'Plaza principal de Apizaco' },
     { titulo: 'Entrevista radio local', tipo: 'entrevista', dias: 3, lugar: 'Radio Apizaco 98.5' },
-    { titulo: 'Reunión con líderes de colonia', tipo: 'reunion', dias: 4, lugar: 'Casa ejidal' },
-    { titulo: 'Reunión con comerciantes locales', tipo: 'reunion', dias: 7, lugar: 'Mercado municipal' },
-    { titulo: 'Reunión semanal de estructura', tipo: 'reunion', dias: 14, lugar: 'Oficina de campaña' },
-    { titulo: 'Recorrido casa por casa - Zona Sur', tipo: 'recorrido', dias: 6, lugar: 'Col. Guadalupe' },
-    { titulo: 'Recorrido mercado sobre ruedas', tipo: 'recorrido', dias: 8, lugar: 'Tianguis del jueves' },
-    { titulo: 'Reunión con jóvenes universitarios', tipo: 'reunion', dias: 11, lugar: 'Auditorio municipal' },
-    { titulo: 'Evento con mujeres emprendedoras', tipo: 'evento', dias: 13, lugar: 'Casa de la cultura' },
-    { titulo: 'Entrevista periódico local', tipo: 'entrevista', dias: 9, lugar: 'Redacción El Sol de Apizaco' },
-    { titulo: 'Reunión de cierre de etapa de identificación', tipo: 'reunion', dias: 18, lugar: 'Oficina de campaña' },
-    { titulo: 'Recorrido zona industrial', tipo: 'recorrido', dias: 16, lugar: 'Parque industrial' },
-    { titulo: 'Reunión con representantes de casilla', tipo: 'reunion', dias: 20, lugar: 'Oficina de campaña' },
   ];
   for (const e of eventos) {
     const fecha = new Date(Date.now() + e.dias * 86400000).toISOString();
@@ -279,7 +173,7 @@ export async function crearDemo(opciones = {}) {
       [campanaId, e.titulo, e.tipo, fecha, e.lugar, jefeId]
     );
   }
-  console.log(`✅ ${eventos.length} eventos de agenda de ejemplo (varias reuniones incluidas)`);
+  console.log('✅ 4 eventos de agenda de ejemplo');
 
   // 6. Una incidencia y un gasto de ejemplo
   const seccEj = await query('SELECT id FROM secciones WHERE estado_id=29 AND numero=$1', [secciones[0]]);
@@ -336,21 +230,12 @@ export async function crearDemo(opciones = {}) {
     { tipo: 'barda', direccion: 'Av. Juárez esq. Hidalgo', empresa: 'Pintores Unidos Tlax', costo: 3500 },
     { tipo: 'barda', direccion: 'Calle Morelos #45', empresa: 'Pintores Unidos Tlax', costo: 2800 },
     { tipo: 'barda', direccion: 'Carretera a San Luis Teolocholco km 2', empresa: 'Publicidad Rural', costo: 4200 },
-    { tipo: 'barda', direccion: 'Calle Independencia #112', empresa: 'Pintores Unidos Tlax', costo: 3100 },
-    { tipo: 'barda', direccion: 'Av. Reforma esq. Allende', empresa: 'Publicidad Rural', costo: 2600 },
-    { tipo: 'barda', direccion: 'Calle 5 de Mayo #78', empresa: 'Pintores Unidos Tlax', costo: 3900 },
-    { tipo: 'barda', direccion: 'Camino a Santa Cruz', empresa: 'Publicidad Rural', costo: 2200 },
     { tipo: 'espectacular', direccion: 'Carretera Federal México-Tlaxcala km 18', empresa: 'Publicidad Exterior del Centro', costo: 22000 },
     { tipo: 'espectacular', direccion: 'Entrada norte de Apizaco', empresa: 'Publicidad Exterior del Centro', costo: 19500 },
-    { tipo: 'espectacular', direccion: 'Libramiento sur, km 4', empresa: 'Publicidad Exterior del Centro', costo: 20500 },
     { tipo: 'manta', direccion: 'Puente peatonal Av. Revolución', empresa: 'Lonas y Mantas Express', costo: 1200 },
     { tipo: 'manta', direccion: 'Plaza principal', empresa: 'Lonas y Mantas Express', costo: 950 },
-    { tipo: 'manta', direccion: 'Puente vehicular salida a Tlaxco', empresa: 'Lonas y Mantas Express', costo: 1400 },
-    { tipo: 'manta', direccion: 'Explanada municipal', empresa: 'Lonas y Mantas Express', costo: 1100 },
     { tipo: 'utilitario', direccion: 'Bodega de campaña', empresa: 'Playeras y Gorras Tlax', costo: 15000, subtipo: 'playeras', cantidad: 500 },
     { tipo: 'utilitario', direccion: 'Bodega de campaña', empresa: 'Playeras y Gorras Tlax', costo: 6000, subtipo: 'gorras', cantidad: 300 },
-    { tipo: 'utilitario', direccion: 'Bodega de campaña', empresa: 'Impresos Tlax', costo: 3200, subtipo: 'volantes', cantidad: 8000 },
-    { tipo: 'utilitario', direccion: 'Bodega de campaña', empresa: 'Publicidad Rural', costo: 4500, subtipo: 'lonas pequeñas', cantidad: 150 },
   ];
   for (const a of activosEjemplo) {
     const secc = secciones[Math.floor(Math.random() * secciones.length)];
@@ -373,24 +258,21 @@ export async function crearDemo(opciones = {}) {
       [campanaId, s.rows[0]?.id, nombresRep[i], `246${2000000 + i * 11}`, jefeId]
     );
   }
-  console.log('✅ 22 activos de campaña (bardas, espectaculares, mantas, utilitarios, representantes)');
+  console.log('✅ 13 activos de campaña (bardas, espectaculares, mantas, utilitarios, representantes)');
 
   // 8. Casillas registradas con ubicación, algunas con representante
-  // confirmado — para que Día de la Elección se vea listo para operar.
-  // Cubre TODAS las secciones disponibles (antes solo 18 de 60).
-  const letrasCasilla = ['B', 'C1', 'C2', 'C3'];
-  let casillasCreadas = 0;
-  for (let i = 0; i < secciones.length; i++) {
-    const seccionId = idsPorSeccion[secciones[i]];
-    if (!seccionId) continue;
+  // confirmado — para que Día de la Elección se vea listo para operar
+  for (let i = 0; i < 18; i++) {
+    const secc = secciones[i % secciones.length];
+    const s = await query('SELECT id, numero FROM secciones WHERE estado_id=29 AND numero=$1', [secc]);
+    if (!s.rows[0]) continue;
     await query(
       `INSERT INTO casillas (campana_id, seccion_id, numero, representante_id, confirmado_asistencia)
        VALUES ($1,$2,$3,$4,$5) ON CONFLICT (campana_id, seccion_id, numero) DO NOTHING`,
-      [campanaId, seccionId, letrasCasilla[i % letrasCasilla.length], promotorIds[i % promotorIds.length], i % 3 !== 0] // 2 de cada 3 confirmadas
+      [campanaId, s.rows[0].id, 'B', promotorIds[i % promotorIds.length], i % 3 !== 0] // 2 de cada 3 confirmadas
     );
-    casillasCreadas++;
   }
-  console.log(`✅ ${casillasCreadas} casillas registradas — así se ve el Prep de Día D con volumen real`);
+  console.log('✅ 18 casillas registradas — así se ve el Prep de Día D con volumen real');
 
   // 9. Una encuesta de ejemplo con varias respuestas, algunas con ubicación
   const encuestaDemo = await query(
@@ -409,22 +291,19 @@ export async function crearDemo(opciones = {}) {
   );
   const opcionesEncuesta = ['Agua potable', 'Seguridad', 'Empleo', 'Pavimentación', 'Alumbrado público'];
   const respuestasAbiertas = ['Arreglar las calles principales', 'Más policías en las noches', 'Apoyo a comerciantes locales', 'Mejorar el drenaje', 'Programas para jóvenes'];
-  let respuestasCreadas = 0;
-  for (let i = 0; i < 55; i++) {
+  for (let i = 0; i < 18; i++) {
     const secc = secciones[i % secciones.length];
-    const seccionId = idsPorSeccion[secc];
-    if (!seccionId) continue;
+    const s = await query('SELECT id, numero FROM secciones WHERE estado_id=29 AND numero=$1', [secc]);
     await query(
       `INSERT INTO encuesta_respuestas (encuesta_id, respuestas, origen, seccion_id, capturado_por)
        VALUES ($1,$2,'campo',$3,$4)`,
       [encuestaDemo.rows[0].id, JSON.stringify({
         [preguntaOpcion.rows[0].id]: opcionesEncuesta[i % opcionesEncuesta.length],
         [preguntaAbierta.rows[0].id]: respuestasAbiertas[i % respuestasAbiertas.length],
-      }), seccionId, promotorIds[i % promotorIds.length]]
+      }), s.rows[0]?.id, promotorIds[i % promotorIds.length]]
     );
-    respuestasCreadas++;
   }
-  console.log(`✅ 1 encuesta con ${respuestasCreadas} respuestas de ejemplo (con ubicación para la capa del mapa)`);
+  console.log('✅ 1 encuesta con 18 respuestas de ejemplo (con ubicación para la capa del mapa)');
 
   // 10. Calendario electoral y una queja resuelta — para que Jurídico
   // no se vea vacío en la primera visita

@@ -5,6 +5,7 @@ import { requiereSuperAdmin } from '../middleware/superAdmin.js';
 import { generarToken } from '../middleware/auth.js';
 import { crearDemo } from '../../seed-demo.js';
 import { repararListaNominal } from '../../seed.js';
+import { listarRespaldos, generarLinkDescarga, ejecutarRestauracion } from '../lib/respaldoAutomatico.js';
 
 const router = Router();
 router.use(requiereSuperAdmin); // TODO en este archivo requiere la clave secreta
@@ -238,6 +239,70 @@ router.post('/reparar-lista-nominal', async (req, res) => {
     console.error('Error reparando lista nominal:', e);
     res.status(500).json({ ok: false, error: 'No se pudo reparar: ' + e.message });
   }
+});
+
+/** GET /api/admin/respaldos/:campanaId — lista de respaldos de CUALQUIER campaña, libre, sin pedir permiso a nadie */
+router.get('/respaldos/:campanaId', async (req, res) => {
+  const lista = await listarRespaldos(req.params.campanaId);
+  res.json({ ok: true, data: lista });
+});
+
+/** GET /api/admin/respaldos/:campanaId/descargar/:archivo — link temporal de descarga, libre */
+router.get('/respaldos/:campanaId/descargar/:archivo', async (req, res) => {
+  try {
+    const url = await generarLinkDescarga(req.params.campanaId, req.params.archivo);
+    res.json({ ok: true, url });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: 'No se pudo generar el link: ' + e.message });
+  }
+});
+
+/** GET /api/admin/solicitudes-restauracion — todas las solicitudes pendientes, de todas las campañas */
+router.get('/solicitudes-restauracion', async (req, res) => {
+  const r = await query(
+    `SELECT s.*, c.nombre_candidato, u.nombre as solicitado_por_nombre FROM solicitudes_restauracion s
+     JOIN campanas c ON c.id = s.campana_id
+     LEFT JOIN usuarios u ON u.id = s.solicitado_por
+     WHERE s.estado='pendiente' ORDER BY s.creado_en DESC`
+  );
+  res.json({ ok: true, data: r.rows });
+});
+
+/**
+ * POST /api/admin/solicitar-restauracion
+ * Vladir inicia la solicitud (por ejemplo, porque el candidato le
+ * llamó pidiéndole ayuda). Su propia solicitud ya cuenta como su
+ * aprobación — falta que el candidato apruebe de su lado.
+ */
+router.post('/solicitar-restauracion', async (req, res) => {
+  const { campana_id, fecha_respaldo } = req.body;
+  if (!campana_id || !fecha_respaldo) return res.status(400).json({ ok: false, error: 'Falta campana_id o fecha_respaldo' });
+  const resultado = await query(
+    `INSERT INTO solicitudes_restauracion (campana_id, fecha_respaldo, solicitado_por_admin, aprobado_admin)
+     VALUES ($1,$2,true,true) RETURNING *`,
+    [campana_id, fecha_respaldo]
+  );
+  res.status(201).json({ ok: true, data: resultado.rows[0], mensaje: 'Solicitud creada — falta que el candidato la apruebe de su lado.' });
+});
+
+/** POST /api/admin/aprobar-restauracion/:id — Vladir aprueba una solicitud que el candidato inició */
+router.post('/aprobar-restauracion/:id', async (req, res) => {
+  const solicitud = await query('SELECT * FROM solicitudes_restauracion WHERE id=$1', [req.params.id]);
+  if (!solicitud.rows[0]) return res.status(404).json({ ok: false, error: 'Solicitud no encontrada' });
+  if (solicitud.rows[0].estado !== 'pendiente') return res.status(400).json({ ok: false, error: 'Esta solicitud ya fue procesada' });
+
+  await query('UPDATE solicitudes_restauracion SET aprobado_admin=true WHERE id=$1', [req.params.id]);
+  const actualizada = (await query('SELECT * FROM solicitudes_restauracion WHERE id=$1', [req.params.id])).rows[0];
+
+  if (actualizada.aprobado_candidato && actualizada.aprobado_admin) {
+    try {
+      await ejecutarRestauracion(req.params.id);
+      return res.json({ ok: true, mensaje: '✅ Restauración completada.' });
+    } catch (e) {
+      return res.status(500).json({ ok: false, error: 'Error al restaurar: ' + e.message });
+    }
+  }
+  res.json({ ok: true, mensaje: 'Aprobado de tu lado — falta la aprobación del candidato.' });
 });
 
 export default router;
