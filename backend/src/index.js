@@ -51,19 +51,6 @@ import adminRoutes from './routes/admin.js';
 
 const app = express();
 const PORT = process.env.PORT || 4000;
-// const express = require('express');
-// const app = express();
-// ... otros imports ...
-
-// ... tu código existente ...
-
-const { startCleanupCron } = require('./cron/cleanupTokens');
-startCleanupCron();
-
-app.listen(process.env.PORT || 4000, () => {
-  console.log(`🚀 Backend corriendo en puerto ${process.env.PORT || 4000}`);
-  console.log('📅 Cron jobs iniciados');
-});
 
 // ── SEGURIDAD ANTI-HACKEO ────────────────────────────────────
 // helmet agrega ~15 headers de seguridad automáticamente (protección

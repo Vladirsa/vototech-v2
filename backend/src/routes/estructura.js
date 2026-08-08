@@ -668,48 +668,4 @@ router.delete('/casillas-oficiales/:id', async (req, res) => {
   res.json({ ok: true });
 });
 
-/**
- * GET /api/estructura/sugerir-meta?territorio_tipo=X&territorio_id=Y
- * Meta diaria sugerida según el tamaño real del territorio asignado
- * — no un número al azar. Se calcula: 8% de la lista nominal de su
- * territorio (una meta realista de contacto personal, no todo el
- * padrón) entre los días que faltan para la elección. Es una
- * SUGERENCIA — se puede editar a mano en el formulario.
- */
-const PORCENTAJE_META_PERSONAL = 0.08;
-
-router.get('/sugerir-meta', async (req, res) => {
-  const { territorio_tipo, territorio_id } = req.query;
-  if (!territorio_tipo || !territorio_id) return res.json({ ok: true, data: null });
-
-  let listaNominal = 0;
-  if (territorio_tipo === 'seccion') {
-    const r = await query('SELECT lista_nominal FROM secciones WHERE estado_id=$1 AND numero=$2', [req.usuario.estado_id, territorio_id]);
-    listaNominal = r.rows[0]?.lista_nominal || 0;
-  } else if (territorio_tipo === 'municipio') {
-    const r = await query(
-      `SELECT SUM(s.lista_nominal) as total FROM secciones s
-       JOIN municipios m ON m.id = s.municipio_id
-       WHERE s.estado_id=$1 AND m.clave_ine=$2`,
-      [req.usuario.estado_id, territorio_id]
-    );
-    listaNominal = parseInt(r.rows[0]?.total) || 0;
-  } else if (territorio_tipo === 'distrito_local') {
-    const r = await query('SELECT SUM(lista_nominal) as total FROM secciones WHERE estado_id=$1 AND distrito_local=$2', [req.usuario.estado_id, territorio_id]);
-    listaNominal = parseInt(r.rows[0]?.total) || 0;
-  } else if (territorio_tipo === 'distrito_federal') {
-    const r = await query('SELECT SUM(lista_nominal) as total FROM secciones WHERE estado_id=$1 AND distrito_federal=$2', [req.usuario.estado_id, territorio_id]);
-    listaNominal = parseInt(r.rows[0]?.total) || 0;
-  }
-
-  const campana = await query('SELECT fecha_eleccion FROM campanas WHERE id=$1', [req.usuario.campana_id]);
-  const fechaEleccion = campana.rows[0]?.fecha_eleccion;
-  const diasRestantes = fechaEleccion ? Math.max(1, Math.ceil((new Date(fechaEleccion) - new Date()) / 86400000)) : 180;
-
-  const metaTotal = Math.round(listaNominal * PORCENTAJE_META_PERSONAL);
-  const metaDiaria = Math.max(1, Math.round(metaTotal / diasRestantes));
-
-  res.json({ ok: true, data: { lista_nominal: listaNominal, meta_total_sugerida: metaTotal, dias_restantes: diasRestantes, meta_diaria_sugerida: metaDiaria } });
-});
-
 export default router;

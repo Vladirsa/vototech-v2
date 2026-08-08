@@ -51,12 +51,12 @@ async function respaldarCampana(campanaId, supabase) {
   return nombreArchivo;
 }
 
-/** Borra respaldos de más de 90 días — se queda con 2 semanas de historial, sin crecer sin límite. */
+/** Borra respaldos de más de 14 días — se queda con 2 semanas de historial, sin crecer sin límite. */
 async function limpiarRespaldosViejos(campanaId, supabase) {
   const { data: archivos } = await supabase.storage.from('respaldos').list(campanaId);
   if (!archivos) return;
   const limite = new Date();
-  limite.setDate(limite.getDate() - 90);
+  limite.setDate(limite.getDate() - 14);
 
   for (const archivo of archivos) {
     const fechaStr = archivo.name.match(/respaldo-(\d{4}-\d{2}-\d{2})\.json/)?.[1];
