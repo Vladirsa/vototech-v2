@@ -21,7 +21,6 @@ import authRoutes from './routes/auth.js';
 import geoRoutes from './routes/geo.js';
 import resultadosRoutes from './routes/resultados.js';
 import promovidosRoutes from './routes/promovidos.js';
-import respaldosRoutes from './routes/respaldos.js';
 import priorizacionRoutes from './routes/priorizacion.js';
 import estructuraRoutes from './routes/estructura.js';
 import reportesRoutes from './routes/reportes.js';
@@ -58,8 +57,7 @@ const PORT = process.env.PORT || 4000;
 // contra XSS, clickjacking, sniffing de tipo MIME, etc.) — esto es
 // exactamente lo que NO teníamos control fino en el hosting compartido.
 app.use(helmet());
-// Sirve la página de ventas (public-marketing) en la raíz del sitio
-app.use(express.static(require('path').join(__dirname, '../public-marketing')));
+
 // CORS: solo se permite acceso desde los dominios de VotoTech
 // (los subdominios de cada candidato + dominios propios que registren)
 app.use(cors({
@@ -116,10 +114,6 @@ app.use('/api/auth', authRoutes);
 app.use('/api/geo', geoRoutes);
 app.use('/api/resultados', resultadosRoutes);
 app.use('/api/promovidos', requiereAuth, requiereModulo('promovidos'), promovidosRoutes);
-// Respaldos maneja su propia autenticación adentro — por eso no
-// lleva requiereModulo (no es uno de los 11 módulos normales, es
-// una función de mando máximo, sin importar el rol de cada quien).
-app.use('/api/respaldos', respaldosRoutes);
 app.use('/api/priorizacion', requiereAuth, requiereModulo('priorizacion'), priorizacionRoutes);
 app.use('/api/estructura', requiereAuth, requiereModulo('estructura'), estructuraRoutes);
 app.use('/api/reportes', requiereAuth, requiereModulo('reportes'), reportesRoutes);
@@ -280,4 +274,3 @@ httpServer.listen(PORT, async () => {
     setInterval(respaldarTodasLasCampanas, 24 * 60 * 60 * 1000);
   }, 5 * 60 * 1000);
 });
-"agregar servidor de página de ventas"
