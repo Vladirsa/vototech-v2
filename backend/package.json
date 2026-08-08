@@ -1,19 +1,11 @@
 {
   "name": "vototech-backend",
-  "version": "2.0.0",
-  "type": "module",
-  "scripts": {
-    "dev": "node --watch src/index.js",
-    "start": "node src/index.js",
-    "seed": "node seed.js",
-    "seed:demo": "node seed-demo.js"
-  },
+  "version": "1.0.0",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.111.0",
     "@supabase/supabase-js": "^2.110.7",
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
-    "csv-parse": "^7.0.1",
     "dotenv": "^16.4.5",
     "exceljs": "^4.4.0",
     "express": "^4.19.2",
@@ -22,6 +14,7 @@
     "helmet": "^7.1.0",
     "jsonwebtoken": "^9.0.2",
     "multer": "^2.2.0",
+    "node-cron": "^3.0.3",
     "pdfkit": "^0.19.1",
     "pg": "^8.13.1",
     "qrcode": "^1.5.4",
