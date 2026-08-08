@@ -1,0 +1,618 @@
+import { Router } from 'express';
+import { query } from '../db/pool.js';
+import { requiereAuth } from '../middleware/auth.js';
+import { filtroTerritorioUsuario } from '../lib/filtroTerritorial.js';
+
+const router = Router();
+router.use(requiereAuth);
+
+/**
+ * Función reutilizable — el mismo cálculo que usa el endpoint GET /
+ * de abajo, pero como función independiente para poder llamarla
+ * también desde la captura automática diaria (snapshot) sin
+ * necesitar una petición HTTP real. Regresa null si no hay
+ * históricos todavía para ese tipo de elección (nada que predecir).
+ */
+export async function calcularPriorizacion(campanaId, estadoId, diasParam = null) {
+  const campanaRes = await query(
+    `SELECT partido, tipo_eleccion, territorio_tipo, territorio_id, fecha_eleccion
+     FROM campanas WHERE id = $1`,
+    [campanaId]
+  );
+  const campana = campanaRes.rows[0];
+  if (!campana) return null;
+
+  const diasRestantes = diasParam || (campana.fecha_eleccion
+    ? Math.max(1, Math.ceil((new Date(campana.fecha_eleccion) - new Date()) / 86400000))
+    : 365);
+
+  let filtroTerritorio = '';
+  const params = [campana.tipo_eleccion];
+  if (campana.territorio_tipo === 'municipio' && campana.territorio_id) {
+    filtroTerritorio = `AND s.municipio_id = (SELECT id FROM municipios WHERE estado_id=${estadoId} AND clave_ine=$2)`;
+    params.push(campana.territorio_id);
+  } else if (campana.territorio_tipo === 'distrito_local' && campana.territorio_id) {
+    filtroTerritorio = 'AND s.distrito_local = $2';
+    params.push(campana.territorio_id);
+  } else if (campana.territorio_tipo === 'distrito_federal' && campana.territorio_id) {
+    filtroTerritorio = 'AND s.distrito_federal = $2';
+    params.push(campana.territorio_id);
+  } else if (campana.territorio_tipo === 'seccion' && campana.territorio_id) {
+    filtroTerritorio = 'AND s.numero = $2';
+    params.push(campana.territorio_id);
+  }
+
+  const anioReciente = await query(
+    `SELECT MAX(anio) as anio FROM resultados_historicos WHERE tipo_eleccion=$1`,
+    [campana.tipo_eleccion]
+  );
+  const anio = anioReciente.rows[0]?.anio;
+  if (!anio) return null;
+  params.push(anio);
+
+  const historico = await query(
+    `SELECT s.id as seccion_id, s.numero as seccion, s.lista_nominal,
+            r.partido, r.votos
+     FROM resultados_historicos r
+     JOIN secciones s ON s.id = r.seccion_id
+     WHERE r.tipo_eleccion = $1 ${filtroTerritorio} AND r.anio = $${params.length}
+     ORDER BY s.numero`,
+    params
+  );
+
+  const promosRes = await query(
+    `SELECT s.numero as seccion, p.clasificacion, COUNT(*) as total
+     FROM promovidos p
+     JOIN secciones s ON s.id = p.seccion_id
+     WHERE p.campana_id = $1
+     GROUP BY s.numero, p.clasificacion`,
+    [campanaId]
+  );
+  const promosPorSeccion = {};
+  for (const fila of promosRes.rows) {
+    if (!promosPorSeccion[fila.seccion]) promosPorSeccion[fila.seccion] = { base: 0, persuadible: 0, adversario: 0 };
+    promosPorSeccion[fila.seccion][fila.clasificacion] = parseInt(fila.total);
+  }
+
+  const estructuraRes = await query(
+    `SELECT s.numero as seccion, COUNT(DISTINCT z.usuario_id) as personas
+     FROM zonas_asignadas z JOIN secciones s ON s.id = z.seccion_id
+     WHERE z.campana_id = $1 GROUP BY s.numero`,
+    [campanaId]
+  );
+  const estructuraPorSeccion = {};
+  estructuraRes.rows.forEach((r) => { estructuraPorSeccion[r.seccion] = parseInt(r.personas); });
+
+  const porSeccion = {};
+  for (const fila of historico.rows) {
+    if (!porSeccion[fila.seccion]) {
+      porSeccion[fila.seccion] = { seccion_id: fila.seccion_id, lista_nominal: fila.lista_nominal, votos: {}, total: 0 };
+    }
+    porSeccion[fila.seccion].votos[fila.partido] = fila.votos;
+    porSeccion[fila.seccion].total += fila.votos;
+  }
+
+  const CONVERSION_PROMOVIDO_A_VOTO = 0.65;
+  const analisis = [];
+
+  for (const [seccNum, datos] of Object.entries(porSeccion)) {
+    const votosPartido = datos.votos[campana.partido] || 0;
+    const ganador = Object.entries(datos.votos).sort((a, b) => b[1] - a[1])[0]?.[0];
+    const margenPct = datos.total > 0 ? (votosPartido / datos.total * 100 - 50) : 0;
+
+    const promos = promosPorSeccion[seccNum] || { base: 0, persuadible: 0, adversario: 0 };
+    const votosConPromovidos = votosPartido + (promos.base + promos.persuadible) * CONVERSION_PROMOVIDO_A_VOTO;
+    const votosNecesarios = Math.floor(datos.total / 2) + 1;
+    const deficit = Math.max(0, votosNecesarios - votosConPromovidos);
+    const promosNecesarios = Math.ceil(deficit / CONVERSION_PROMOVIDO_A_VOTO);
+    const ritmoDiario = diasRestantes > 0 ? +(promosNecesarios / diasRestantes).toFixed(1) : promosNecesarios;
+
+    let prioridad, score;
+    const gana = ganador === campana.partido;
+
+    if (gana && Math.abs(margenPct) <= 10) { prioridad = 'consolidar'; score = 40; }
+    else if (gana) { prioridad = 'consolidar'; score = 15; }
+    else if (Math.abs(margenPct) <= 8) { prioridad = 'critica'; score = 100 - Math.abs(margenPct); }
+    else if (Math.abs(margenPct) <= 20) { prioridad = 'recuperable'; score = 70 - Math.abs(margenPct); }
+    else if (Math.abs(margenPct) <= 5) { prioridad = 'disputa'; score = 85; }
+    else { prioridad = 'perdida'; score = 5; }
+
+    const factorUrgencia = diasRestantes < 30 ? 1.5 : diasRestantes < 90 ? 1.2 : 1;
+    score = score * factorUrgencia * (1 - Math.min(0.7, (promos.base + promos.persuadible) / Math.max(1, promosNecesarios) * 0.5));
+
+    const personasAsignadas = estructuraPorSeccion[seccNum] || 0;
+    const esPrioritaria = ['critica', 'recuperable', 'disputa'].includes(prioridad);
+    let ajusteEstructura = 1;
+    if (esPrioritaria && personasAsignadas === 0) ajusteEstructura = 1.25;
+    else if (esPrioritaria && personasAsignadas >= 3) ajusteEstructura = 0.85;
+    score = score * ajusteEstructura;
+
+    analisis.push({
+      seccion: parseInt(seccNum),
+      seccion_id: datos.seccion_id,
+      lista_nominal: datos.lista_nominal,
+      votos_totales: datos.total,
+      votos_partido: votosPartido,
+      ganador_historico: ganador,
+      margen_pct: +margenPct.toFixed(1),
+      promovidos_base: promos.base,
+      promovidos_persuadibles: promos.persuadible,
+      promovidos_adversarios: promos.adversario,
+      deficit_votos: Math.round(deficit),
+      promovidos_necesarios: promosNecesarios,
+      ritmo_diario_necesario: ritmoDiario,
+      personas_asignadas: personasAsignadas,
+      sin_cobertura: esPrioritaria && personasAsignadas === 0,
+      prioridad,
+      score: +score.toFixed(1),
+      gana_esperado: gana,
+    });
+  }
+
+  analisis.sort((a, b) => b.score - a.score);
+
+  return {
+    analisis,
+    diasRestantes,
+    tipoEleccion: campana.tipo_eleccion,
+    partido: campana.partido,
+    resumen: {
+      criticas: analisis.filter(a => a.prioridad === 'critica').length,
+      recuperables: analisis.filter(a => a.prioridad === 'recuperable').length,
+      disputa: analisis.filter(a => a.prioridad === 'disputa').length,
+      consolidar: analisis.filter(a => a.prioridad === 'consolidar').length,
+      perdidas: analisis.filter(a => a.prioridad === 'perdida').length,
+      promovidos_necesarios_total: analisis.reduce((s, a) => s + a.promovidos_necesarios, 0),
+      secciones_prioritarias_sin_cobertura: analisis.filter(a => a.sin_cobertura).length,
+    },
+  };
+}
+
+router.get('/', async (req, res) => {
+  const campanaId = req.usuario.campana_id;
+  const diasParam = parseInt(req.query.dias) || null;
+
+  try {
+    const resultado = await calcularPriorizacion(campanaId, req.usuario.estado_id, diasParam);
+    if (!resultado) {
+      return res.json({ ok: true, data: [], mensaje: 'Sin datos históricos para este tipo de elección todavía' });
+    }
+    res.json({ ok: true, data: resultado.analisis, dias_restantes: resultado.diasRestantes, resumen: resultado.resumen });
+  } catch (e) {
+    console.error('Error en priorización:', e);
+    res.status(500).json({ ok: false, error: 'Error calculando priorización' });
+  }
+});
+
+/**
+ * Guarda automáticamente, para TODAS las campañas activas, una
+ * "foto" de qué está prediciendo el sistema hoy — solo números
+ * agregados por sección (prioridad + conteo de promovidos), NUNCA
+ * nombres ni datos personales. Se llama una vez al día desde el
+ * cron del servidor. No hace nada si una campaña todavía no tiene
+ * históricos cargados (nada que predecir todavía).
+ */
+export async function guardarSnapshotDiario() {
+  const campanas = await query(`SELECT id, estado_id, tipo_eleccion FROM campanas WHERE activa=true`);
+  let guardadas = 0;
+
+  for (const c of campanas.rows) {
+    try {
+      const resultado = await calcularPriorizacion(c.id, c.estado_id);
+      if (!resultado) continue; // sin históricos todavía, nada que guardar
+
+      for (const fila of resultado.analisis) {
+        await query(
+          `INSERT INTO predicciones_snapshot
+            (campana_id, seccion_id, fecha, tipo_eleccion, prioridad, promovidos_base, promovidos_persuadible, promovidos_adversario)
+           VALUES ($1,$2,CURRENT_DATE,$3,$4,$5,$6,$7)
+           ON CONFLICT (campana_id, seccion_id, fecha) DO UPDATE SET
+             prioridad=$4, promovidos_base=$5, promovidos_persuadible=$6, promovidos_adversario=$7`,
+          [c.id, fila.seccion_id, resultado.tipoEleccion, fila.prioridad, fila.promovidos_base, fila.promovidos_persuadibles, fila.promovidos_adversarios]
+        );
+      }
+      guardadas++;
+    } catch (e) {
+      console.error(`⚠️ Error guardando snapshot de campaña ${c.id}:`, e.message);
+    }
+  }
+  console.log(`📸 Snapshot diario de predicciones: ${guardadas} campañas procesadas`);
+  return guardadas;
+}
+
+/**
+ * Se llama automáticamente cuando llegan resultados oficiales
+ * REALES nuevos (desde el panel de carga de CSV). Busca, para cada
+ * campaña que compita en ese tipo de elección/estado, la ÚLTIMA foto
+ * de predicción guardada ANTES de que llegaran estos resultados, y
+ * calcula qué tan bien acertó — comparando solo agregados (cuántas
+ * secciones predijo bien, no promovido por promovido). Se guarda
+ * para siempre en precision_electoral, sin intervención manual.
+ */
+export async function calcularPrecisionAutomatica(estadoId, tipoEleccion, anio) {
+  const campanas = await query(
+    `SELECT id, partido FROM campanas WHERE estado_id=$1 AND tipo_eleccion=$2`,
+    [estadoId, tipoEleccion]
+  );
+  let calculadas = 0;
+
+  for (const c of campanas.rows) {
+    try {
+      const ultimoSnapshot = await query(
+        `SELECT fecha FROM predicciones_snapshot WHERE campana_id=$1 ORDER BY fecha DESC LIMIT 1`,
+        [c.id]
+      );
+      const fechaSnapshot = ultimoSnapshot.rows[0]?.fecha;
+      if (!fechaSnapshot) continue; // esta campaña nunca tuvo snapshot, nada que comparar
+
+      const comparacion = await query(
+        `SELECT
+           COUNT(*) as total,
+           COUNT(*) FILTER (
+             WHERE (ps.prioridad IN ('consolidar','disputa')) = (rh_ganador.partido = $4)
+           ) as aciertos
+         FROM predicciones_snapshot ps
+         JOIN LATERAL (
+           SELECT partido FROM resultados_historicos r
+           WHERE r.seccion_id = ps.seccion_id AND r.tipo_eleccion = $2 AND r.anio = $3
+           ORDER BY r.votos DESC LIMIT 1
+         ) rh_ganador ON true
+         WHERE ps.campana_id = $1 AND ps.fecha = $5`,
+        [c.id, tipoEleccion, anio, c.partido, fechaSnapshot]
+      );
+
+      const total = parseInt(comparacion.rows[0]?.total || 0);
+      if (total === 0) continue;
+      const aciertos = parseInt(comparacion.rows[0].aciertos);
+      const precisionPct = +((aciertos / total) * 100).toFixed(2);
+
+      await query(
+        `INSERT INTO precision_electoral (campana_id, tipo_eleccion, anio, fecha_snapshot_usado, total_secciones_comparadas, secciones_acertadas, precision_pct)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)
+         ON CONFLICT (campana_id, tipo_eleccion, anio) DO UPDATE SET
+           fecha_snapshot_usado=$4, total_secciones_comparadas=$5, secciones_acertadas=$6, precision_pct=$7, calculado_en=now()`,
+        [c.id, tipoEleccion, anio, fechaSnapshot, total, aciertos, precisionPct]
+      );
+      calculadas++;
+    } catch (e) {
+      console.error(`⚠️ Error calculando precisión de campaña ${c.id}:`, e.message);
+    }
+  }
+  console.log(`🎯 Precisión electoral calculada automáticamente para ${calculadas} campaña(s)`);
+  return calculadas;
+}
+
+/**
+ * GET /api/priorizacion/hoy
+ * "¿Qué hacer hoy?" — traduce el análisis de priorización en UNA
+ * recomendación clara y accionable, según la fase de la campaña
+ * (identificación / persuasión / cierre / movilización).
+ */
+router.get('/hoy', async (req, res) => {
+  const campanaId = req.usuario.campana_id;
+
+  try {
+    const campanaRes = await query('SELECT fecha_eleccion FROM campanas WHERE id=$1', [campanaId]);
+    const fechaEleccion = campanaRes.rows[0]?.fecha_eleccion;
+    const dias = fechaEleccion
+      ? Math.max(0, Math.ceil((new Date(fechaEleccion) - new Date()) / 86400000))
+      : null;
+
+    let fase, mensaje, icono;
+    if (dias === null) {
+      fase = 'sin_fecha'; icono = '📅';
+      mensaje = 'Configura la fecha de tu elección para recibir recomendaciones diarias.';
+    } else if (dias > 180) {
+      fase = 'identificacion'; icono = '🔍';
+      mensaje = 'Fase de identificación: enfócate en registrar promovidos y detectar quién es Base, Persuadible o Adversario en cada sección.';
+    } else if (dias > 30) {
+      fase = 'persuasion'; icono = '🤝';
+      mensaje = 'Fase de persuasión: dale seguimiento a tus Persuadibles. Cada contacto extra suma — no dejes que pasen 15 días sin hablarles.';
+    } else if (dias > 7) {
+      fase = 'cierre'; icono = '🎯';
+      mensaje = 'Fase de cierre: concentra el 80% del esfuerzo en las secciones Críticas y en Disputa. Ya no es momento de dispersarse.';
+    } else if (dias > 0) {
+      fase = 'movilizacion'; icono = '📢';
+      mensaje = 'Última semana: confirma con todos tus Base que sepan dónde votar. Ya no busques persuadir, asegura que SALGAN A VOTAR.';
+    } else {
+      fase = 'dia_d'; icono = '🗳️';
+      mensaje = '¡Es el día! Activa la lista de cacería: identifica quién de tus confirmados no ha votado.';
+    }
+
+    // Sección más urgente ahora mismo (la de mayor score)
+    const topSeccion = await query(
+      `SELECT s.numero FROM secciones s WHERE s.estado_id=${req.usuario.estado_id} LIMIT 1` // placeholder simplificado
+    );
+
+    res.json({ ok: true, data: { dias_restantes: dias, fase, icono, mensaje } });
+  } catch (e) {
+    console.error('Error en recomendación diaria:', e);
+    res.status(500).json({ ok: false, error: 'Error calculando recomendación' });
+  }
+});
+
+/**
+ * GET /api/priorizacion/seccion/:numero
+ * Ficha técnica completa de UNA sección: padrón, resultados históricos
+ * reales, promovidos actuales por clasificación, y qué falta para
+ * ganarla — todo lo que el equipo necesita ver al tocar una sección
+ * en el mapa.
+ */
+router.get('/seccion/:numero', async (req, res) => {
+  const campanaId = req.usuario.campana_id;
+  const numero = parseInt(req.params.numero);
+
+  try {
+    const campanaRes = await query('SELECT partido, tipo_eleccion, fecha_eleccion FROM campanas WHERE id=$1', [campanaId]);
+    const campana = campanaRes.rows[0];
+
+    const seccionRes = await query(
+      `SELECT s.id, s.numero, s.lista_nominal, s.distrito_federal, s.distrito_local, m.nombre as municipio
+       FROM secciones s JOIN municipios m ON m.id=s.municipio_id
+       WHERE s.estado_id=${req.usuario.estado_id} AND s.numero=$1`,
+      [numero]
+    );
+    if (!seccionRes.rows[0]) return res.status(404).json({ ok: false, error: 'Sección no encontrada' });
+    const seccion = seccionRes.rows[0];
+
+    // Resultados históricos reales (año más reciente disponible)
+    const anioRes = await query('SELECT MAX(anio) as anio FROM resultados_historicos WHERE tipo_eleccion=$1', [campana.tipo_eleccion]);
+    const anio = anioRes.rows[0]?.anio;
+    let votos = {}, totalVotos = 0, ganador = null, casillasSeccion = 0;
+    if (anio) {
+      const historico = await query(
+        `SELECT partido, votos, casillas FROM resultados_historicos WHERE seccion_id=$1 AND tipo_eleccion=$2 AND anio=$3 ORDER BY votos DESC`,
+        [seccion.id, campana.tipo_eleccion, anio]
+      );
+      historico.rows.forEach((r) => { votos[r.partido] = r.votos; totalVotos += r.votos; });
+      ganador = historico.rows[0]?.partido || null;
+      casillasSeccion = historico.rows[0]?.casillas || 0;
+    }
+
+    // Promovidos actuales de esta sección, por clasificación
+    const promosRes = await query(
+      `SELECT clasificacion, COUNT(*) as total FROM promovidos WHERE campana_id=$1 AND seccion_id=$2 GROUP BY clasificacion`,
+      [campanaId, seccion.id]
+    );
+    const promos = { base: 0, persuadible: 0, adversario: 0 };
+    promosRes.rows.forEach((r) => { promos[r.clasificacion] = parseInt(r.total); });
+
+    // 🗣️ Contexto humano para el candidato antes de visitar la sección:
+    // qué necesidades declara la gente (encuesta rápida) y si hay algo
+    // grave que deba saber para ser empático, no solo llegar a pedir el voto.
+    const encuestaRes = await query(
+      `SELECT encuesta FROM promovidos WHERE campana_id=$1 AND seccion_id=$2 AND encuesta IS NOT NULL`,
+      [campanaId, seccion.id]
+    );
+    const conteoNecesidades = {};
+    encuestaRes.rows.forEach((r) => {
+      const necesidad = r.encuesta?.necesidad_principal;
+      if (necesidad) conteoNecesidades[necesidad] = (conteoNecesidades[necesidad] || 0) + 1;
+    });
+
+    const situacionesRes = await query(
+      `SELECT nombre, situacion_grave, creado_en FROM promovidos
+       WHERE campana_id=$1 AND seccion_id=$2 AND situacion_grave IS NOT NULL AND situacion_grave != ''
+       ORDER BY creado_en DESC LIMIT 10`,
+      [campanaId, seccion.id]
+    );
+
+    // Cálculo de déficit — misma fórmula que el Motor de Priorización general
+    const CONVERSION = 0.65;
+    const votosPartido = votos[campana.partido] || 0;
+    const votosConPromovidos = votosPartido + (promos.base + promos.persuadible) * CONVERSION;
+    const votosNecesarios = totalVotos > 0 ? Math.floor(totalVotos / 2) + 1 : 0;
+    const deficit = Math.max(0, votosNecesarios - votosConPromovidos);
+    const promovidosNecesarios = Math.ceil(deficit / CONVERSION);
+
+    const diasRestantes = campana.fecha_eleccion
+      ? Math.max(1, Math.ceil((new Date(campana.fecha_eleccion) - new Date()) / 86400000))
+      : null;
+
+    // 👥 Quién trabaja esta sección — la gente asignada directo aquí
+    // (normalmente promotores/coord. seccional), para saber de un
+    // vistazo si hay alguien cubriendo el territorio o está vacío.
+    const equipoSeccionRes = await query(
+      `SELECT id, nombre, rol, puesto FROM usuarios
+       WHERE campana_id=$1 AND territorio_tipo='seccion' AND territorio_id=$2
+       ORDER BY rol`,
+      [campanaId, numero]
+    );
+
+    // 🔗 Cadena de mando — quién responde por el Distrito Federal, el
+    // Distrito Local, y el Municipio donde cae esta sección. Si no
+    // hay nadie asignado en algún nivel, sale null (hueco real de
+    // cobertura, no un error).
+    const [respDF, respDL, respMuni] = await Promise.all([
+      query(`SELECT nombre, rol FROM usuarios WHERE campana_id=$1 AND territorio_tipo='distrito_federal' AND territorio_id=$2 LIMIT 1`, [campanaId, seccion.distrito_federal]),
+      query(`SELECT nombre, rol FROM usuarios WHERE campana_id=$1 AND territorio_tipo='distrito_local' AND territorio_id=$2 LIMIT 1`, [campanaId, seccion.distrito_local]),
+      query(`SELECT u.nombre, u.rol FROM usuarios u JOIN municipios m ON m.clave_ine=u.territorio_id WHERE u.campana_id=$1 AND u.territorio_tipo='municipio' AND m.nombre=$2 LIMIT 1`, [campanaId, seccion.municipio]),
+    ]);
+
+    // 🔁 Duplicados — promovidos de esta sección que alguien intentó
+    // capturar más de una vez (veces_intentado > 1 significa que el
+    // sistema detectó y bloqueó un segundo intento).
+    const duplicadosRes = await query(
+      `SELECT COUNT(*) as total FROM promovidos WHERE campana_id=$1 AND seccion_id=$2 AND veces_intentado > 1`,
+      [campanaId, seccion.id]
+    );
+
+    res.json({
+      ok: true,
+      data: {
+        seccion: seccion.numero,
+        municipio: seccion.municipio,
+        lista_nominal: seccion.lista_nominal,
+        distrito_federal: seccion.distrito_federal,
+        distrito_local: seccion.distrito_local,
+        partido_campana: campana.partido,
+        anio_historico: anio,
+        votos_historicos: votos,
+        total_votos_historico: totalVotos,
+        ganador_historico: ganador,
+        casillas: casillasSeccion,
+        participacion_pct: seccion.lista_nominal > 0 && totalVotos > 0 ? +((totalVotos / seccion.lista_nominal) * 100).toFixed(1) : null,
+        promovidos: promos,
+        total_promovidos: promos.base + promos.persuadible + promos.adversario,
+        duplicados: parseInt(duplicadosRes.rows[0].total),
+        equipo_en_seccion: equipoSeccionRes.rows,
+        responsable_distrito_federal: respDF.rows[0] || null,
+        responsable_distrito_local: respDL.rows[0] || null,
+        responsable_municipio: respMuni.rows[0] || null,
+        deficit_votos: Math.round(deficit),
+        promovidos_necesarios: promovidosNecesarios,
+        ritmo_diario: diasRestantes ? +(promovidosNecesarios / diasRestantes).toFixed(1) : null,
+        necesidades_declaradas: conteoNecesidades,
+        situaciones_graves: situacionesRes.rows,
+      },
+    });
+  } catch (e) {
+    console.error('Error en ficha técnica de sección:', e);
+    res.status(500).json({ ok: false, error: 'Error al cargar la ficha técnica' });
+  }
+});
+
+/**
+ * GET /api/priorizacion/municipio/:claveIne
+ * Ficha técnica del MUNICIPIO completo: cuántas secciones tiene,
+ * quién lo gobierna actualmente, población electoral agregada,
+ * semáforo de cuántas secciones se ganan/disputan/hay que recuperar,
+ * y resultados históricos acumulados de todo el municipio.
+ */
+router.get('/municipio/:claveIne', async (req, res) => {
+  const campanaId = req.usuario.campana_id;
+  const claveIne = parseInt(req.params.claveIne);
+
+  try {
+    const campanaRes = await query('SELECT partido, tipo_eleccion FROM campanas WHERE id=$1', [campanaId]);
+    const campana = campanaRes.rows[0];
+
+    const municipioRes = await query(`SELECT nombre FROM municipios WHERE estado_id=${req.usuario.estado_id} AND clave_ine=$1`, [claveIne]);
+    if (!municipioRes.rows[0]) return res.status(404).json({ ok: false, error: 'Municipio no encontrado' });
+
+    const secciones = await query(
+      `SELECT s.id, s.numero, s.lista_nominal FROM secciones s
+       JOIN municipios m ON m.id=s.municipio_id WHERE m.estado_id=${req.usuario.estado_id} AND m.clave_ine=$1`,
+      [claveIne]
+    );
+    const seccionIds = secciones.rows.map((s) => s.id);
+    const listaNominalTotal = secciones.rows.reduce((s, r) => s + (r.lista_nominal || 0), 0);
+
+    const anioRes = await query('SELECT MAX(anio) as anio FROM resultados_historicos WHERE tipo_eleccion=$1', [campana.tipo_eleccion]);
+    const anio = anioRes.rows[0]?.anio;
+
+    let votosPorPartido = {}, totalVotos = 0, totalCasillas = 0, ganador = null;
+    let semaforo = { ganamos: 0, disputa: 0, recuperar: 0 };
+
+    if (anio && seccionIds.length > 0) {
+      const historico = await query(
+        `SELECT seccion_id, partido, votos, casillas FROM resultados_historicos
+         WHERE tipo_eleccion=$1 AND anio=$2 AND seccion_id = ANY($3)`,
+        [campana.tipo_eleccion, anio, seccionIds]
+      );
+
+      const porSeccion = {};
+      const casillasVistas = new Set();
+      historico.rows.forEach((r) => {
+        votosPorPartido[r.partido] = (votosPorPartido[r.partido] || 0) + r.votos;
+        totalVotos += r.votos;
+        if (!porSeccion[r.seccion_id]) porSeccion[r.seccion_id] = {};
+        porSeccion[r.seccion_id][r.partido] = r.votos;
+        if (!casillasVistas.has(`${r.seccion_id}`)) { casillasVistas.add(`${r.seccion_id}`); totalCasillas += r.casillas || 0; }
+      });
+
+      ganador = Object.entries(votosPorPartido).sort((a, b) => b[1] - a[1])[0]?.[0] || null;
+
+      // Semáforo: clasificar cada sección según margen del partido de la campaña
+      Object.values(porSeccion).forEach((votos) => {
+        const totalSecc = Object.values(votos).reduce((s, v) => s + v, 0);
+        const votosPartido = votos[campana.partido] || 0;
+        const ordenados = Object.entries(votos).sort((a, b) => b[1] - a[1]);
+        const ganadorSecc = ordenados[0]?.[0];
+        const margen = totalSecc > 0 ? (votosPartido / totalSecc * 100 - 50) : 0;
+
+        if (ganadorSecc === campana.partido) semaforo.ganamos++;
+        else if (Math.abs(margen) <= 10) semaforo.disputa++;
+        else semaforo.recuperar++;
+      });
+    }
+
+    // Promovidos actuales del municipio completo
+    const promosRes = await query(
+      `SELECT clasificacion, COUNT(*) as total FROM promovidos p
+       JOIN secciones s ON s.id = p.seccion_id
+       WHERE p.campana_id=$1 AND s.id = ANY($2) GROUP BY clasificacion`,
+      [campanaId, seccionIds]
+    );
+    const promovidos = { base: 0, persuadible: 0, adversario: 0 };
+    promosRes.rows.forEach((r) => { promovidos[r.clasificacion] = parseInt(r.total); });
+    const totalPromovidos = promovidos.base + promovidos.persuadible + promovidos.adversario;
+
+    res.json({
+      ok: true,
+      data: {
+        municipio: municipioRes.rows[0].nombre,
+        clave_ine: claveIne,
+        total_secciones: secciones.rows.length,
+        gobierna_actualmente: ganador,
+        poblacion_electoral: {
+          lista_nominal: listaNominalTotal,
+          votos_totales: totalVotos,
+          participacion_pct: listaNominalTotal > 0 ? +((totalVotos / listaNominalTotal) * 100).toFixed(1) : null,
+          casillas: totalCasillas,
+        },
+        semaforo,
+        resultados_historicos: { anio, votos_por_partido: votosPorPartido, total_votos: totalVotos },
+        promovidos,
+        total_promovidos: totalPromovidos,
+        penetracion_pct: listaNominalTotal > 0 ? +((totalPromovidos / listaNominalTotal) * 100).toFixed(2) : 0,
+      },
+    });
+  } catch (e) {
+    console.error('Error en ficha técnica de municipio:', e);
+    res.status(500).json({ ok: false, error: 'Error al cargar la ficha técnica del municipio' });
+  }
+});
+
+/**
+ * GET /api/priorizacion/densidad-promovidos
+ * Solo el trabajo REAL de la campaña actual por sección — cuántos
+ * promovidos tiene cada una, sin depender de si hay resultados
+ * históricos cargados (a diferencia de la lista de priorización).
+ * Es lo que alimenta el modo "Campaña [año]" del mapa: apaga todo lo
+ * histórico y muestra nada más lo que se está trabajando hoy.
+ */
+router.get('/densidad-promovidos', async (req, res) => {
+  const params = [req.usuario.campana_id];
+  const filtroTerritorio = await filtroTerritorioUsuario(req.usuario, 's', 2);
+  const resultado = await query(
+    `SELECT s.numero as seccion,
+            COUNT(*) as total,
+            COUNT(*) FILTER (WHERE p.clasificacion='base') as base,
+            COUNT(*) FILTER (WHERE p.clasificacion='persuadible') as persuadible,
+            COUNT(*) FILTER (WHERE p.clasificacion='adversario') as adversario
+     FROM promovidos p JOIN secciones s ON s.id = p.seccion_id
+     WHERE p.campana_id = $1 ${filtroTerritorio.sql}
+     GROUP BY s.numero`,
+    [...params, ...filtroTerritorio.params]
+  );
+  res.json({ ok: true, data: resultado.rows });
+});
+
+/**
+ * GET /api/priorizacion/precision-historica
+ * La base que se auto-guarda, ya lista para consultar: qué tan bien
+ * ha acertado el Motor de Priorización de ESTA campaña, elección
+ * tras elección — comparado contra resultados oficiales públicos,
+ * nunca contra datos personales de nadie.
+ */
+router.get('/precision-historica', async (req, res) => {
+  const resultado = await query(
+    `SELECT tipo_eleccion, anio, total_secciones_comparadas, secciones_acertadas, precision_pct, fecha_snapshot_usado, calculado_en
+     FROM precision_electoral WHERE campana_id=$1 ORDER BY anio DESC`,
+    [req.usuario.campana_id]
+  );
+  res.json({ ok: true, data: resultado.rows });
+});
+
+export default router;
