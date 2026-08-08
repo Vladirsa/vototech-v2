@@ -34,12 +34,12 @@ class TwoFAService {
       secret: secret,
       encoding: 'base32',
       token: token,
-      window: 2 // Permite ±2 ventanas de 30 segundos
+      window: 2
     });
   }
 
   /**
-   * Genera códigos de backup (para acceso si pierden el teléfono)
+   * Genera códigos de backup
    * @returns {Array} - Array de 10 códigos
    */
   static generateBackupCodes() {
