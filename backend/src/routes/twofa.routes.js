@@ -7,13 +7,11 @@ const { authMiddleware } = require('../middleware/auth');
 /**
  * POST /api/2fa/setup
  * El usuario inicia el setup de 2FA
- * Retorna QR code y secret
  */
 router.post('/setup', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.id;
 
-    // Verificar que el usuario no tenga 2FA ya activo
     const { rows } = await db.query(
       'SELECT dos_factores_activo FROM usuarios WHERE id = $1',
       [userId]
@@ -25,15 +23,12 @@ router.post('/setup', authMiddleware, async (req, res) => {
       });
     }
 
-    // Generar secret y QR
     const { secret, qrCode, otpauth_url } = await TwoFAService.generateSecret(
       req.user.email
     );
 
-    // Generar códigos de backup
     const backupCodes = TwoFAService.generateBackupCodes();
 
-    // Guardar TEMPORALMENTE (aún no confirmado)
     await db.query(
       `UPDATE usuarios 
        SET dos_factores_secreto = $1
@@ -55,7 +50,7 @@ router.post('/setup', authMiddleware, async (req, res) => {
 
 /**
  * POST /api/2fa/confirm
- * El usuario confirma 2FA ingresando un código del autenticador
+ * El usuario confirma 2FA
  */
 router.post('/confirm', authMiddleware, async (req, res) => {
   try {
@@ -66,7 +61,6 @@ router.post('/confirm', authMiddleware, async (req, res) => {
       return res.status(400).json({ error: 'Token inválido' });
     }
 
-    // Obtener el secret temporal
     const { rows } = await db.query(
       'SELECT dos_factores_secreto FROM usuarios WHERE id = $1',
       [userId]
@@ -78,25 +72,21 @@ router.post('/confirm', authMiddleware, async (req, res) => {
       });
     }
 
-    // Verificar token
     const isValid = TwoFAService.verifyToken(rows[0].dos_factores_secreto, token);
 
     if (!isValid) {
       return res.status(401).json({ error: 'Token incorrecto' });
     }
 
-    // Confirmar 2FA
-    const backupCodes = TwoFAService.generateBackupCodes();
-
     await db.query(
       `UPDATE usuarios 
-       SET dos_factores_activo = true,
-           dos_factores_secreto = $1
-       WHERE id = $2`,
-      [rows[0].dos_factores_secreto, userId]
+       SET dos_factores_activo = true
+       WHERE id = $1`,
+      [userId]
     );
 
-    // Guardar códigos de backup (encriptados en producción)
+    const backupCodes = TwoFAService.generateBackupCodes();
+
     await db.query(
       `INSERT INTO dos_factores_backup_codes (usuario_id, codigos)
        VALUES ($1, $2)`,
@@ -115,7 +105,7 @@ router.post('/confirm', authMiddleware, async (req, res) => {
 
 /**
  * POST /api/2fa/verify
- * Durante el login, verifica el código 2FA
+ * Verifica el código 2FA durante login
  */
 router.post('/verify', async (req, res) => {
   try {
