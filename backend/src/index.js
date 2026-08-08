@@ -58,7 +58,8 @@ const PORT = process.env.PORT || 4000;
 // contra XSS, clickjacking, sniffing de tipo MIME, etc.) — esto es
 // exactamente lo que NO teníamos control fino en el hosting compartido.
 app.use(helmet());
-
+// Sirve la página de ventas (public-marketing) en la raíz del sitio
+app.use(express.static(require('path').join(__dirname, '../public-marketing')));
 // CORS: solo se permite acceso desde los dominios de VotoTech
 // (los subdominios de cada candidato + dominios propios que registren)
 app.use(cors({
