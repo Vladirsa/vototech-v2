@@ -21,10 +21,6 @@ const ROL_LABEL = {
   encargado_juridico: 'Encargado Jurídico', encargado_finanzas: 'Encargado de Finanzas', voluntario: 'Voluntario',
 };
 
-// Catálogo real de puestos de campaña — investigado de estructuras
-// reales mexicanas (coordinación general, territorial, político,
-// jurídico, enlaces sectoriales) — organizado por el nivel jerárquico
-// sano al que normalmente corresponde cada uno.
 const PUESTOS_POR_ROL = {
   jefe_campana: ['Secretario Particular', 'Coordinador General de Campaña', 'Coordinador Jurídico', 'Coordinador Territorial', 'Coordinador Político', 'Coordinador de Comunicación', 'Coordinador de Finanzas'],
   coord_general: ['Coordinador de Enlace con Partidos', 'Coordinador de Alianzas', 'Coordinador de Vinculación Social', 'Coordinador de Prensa', 'Coordinador de Redes Sociales'],
@@ -34,8 +30,6 @@ const PUESTOS_POR_ROL = {
   promotor: ['Promotor de Campaña', 'Estructura Territorial'],
   encargado_juridico: ['Abogado de Campaña', 'Asistente Jurídico'],
   encargado_finanzas: ['Tesorero de Campaña', 'Auxiliar Contable'],
-  // El puesto de voluntario define QUÉ puede hacer, no solo cómo se
-  // llama — "Marketing" es el único que además desbloquea ese módulo.
   voluntario: ['Marketing', 'Pinta de bardas', 'Reparto de publicidad', 'Apoyo logístico', 'Apoyo en eventos'],
 };
 
@@ -51,7 +45,6 @@ const PUNTO_ACTIVIDAD = { reciente: 'bg-emerald-400', medio: 'bg-amber-400', ina
 function ModalAgregarMiembro({ miembros, onCerrar, onGuardado }) {
   const [form, setForm] = useState({ nombre: '', email: '', password: '', telefono: '', rol: 'coord_seccional', puesto: '', parent_id: '', territorio_tipo: 'seccion', territorio_id: '', meta_diaria: '' });
   const [sugerencia, setSugerencia] = useState(null);
-
   useEffect(() => {
     if (!form.territorio_id) { setSugerencia(null); return; }
     api.get(`/estructura/sugerir-meta?territorio_tipo=${form.territorio_tipo}&territorio_id=${form.territorio_id}`)
@@ -76,7 +69,6 @@ function ModalAgregarMiembro({ miembros, onCerrar, onGuardado }) {
       <div className="bg-slate-900 border border-slate-700 rounded-t-2xl md:rounded-2xl w-full max-w-md p-5 space-y-3 max-h-[90vh] overflow-y-auto">
         <h2 className="text-lg font-black text-white">+ Agregar al Organigrama</h2>
         {error && <div className="bg-red-500/10 text-red-400 text-xs rounded-lg px-3 py-2">{error}</div>}
-
         <input placeholder="Nombre completo" value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })}
           className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
         <input placeholder="Correo" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })}
@@ -85,7 +77,6 @@ function ModalAgregarMiembro({ miembros, onCerrar, onGuardado }) {
           className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
         <input placeholder="Teléfono (para contactarlo por WhatsApp)" value={form.telefono} onChange={(e) => setForm({ ...form, telefono: e.target.value })}
           className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
-
         <div>
           <label className="block text-[10px] text-slate-500 font-bold mb-1">Nivel jerárquico (controla cuánta gente sana puede tener a cargo)</label>
           <select value={form.rol} onChange={(e) => setForm({ ...form, rol: e.target.value, puesto: '' })}
@@ -93,7 +84,6 @@ function ModalAgregarMiembro({ miembros, onCerrar, onGuardado }) {
             {Object.entries(ROL_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
           </select>
         </div>
-
         <div>
           <label className="block text-[10px] text-slate-500 font-bold mb-1">Puesto específico (el título real de campaña)</label>
           <input list="lista-puestos" value={form.puesto} onChange={(e) => setForm({ ...form, puesto: e.target.value })}
@@ -103,7 +93,6 @@ function ModalAgregarMiembro({ miembros, onCerrar, onGuardado }) {
             {PUESTOS_POR_ROL[form.rol]?.map((p) => <option key={p} value={p} />)}
           </datalist>
         </div>
-
         {(form.rol === 'coord_seccional' || form.rol === 'coord_municipal' || form.rol === 'coord_distrital' || form.rol === 'coord_general') && (
           <div className="flex gap-2">
             <select value={form.territorio_tipo} onChange={(e) => setForm({ ...form, territorio_tipo: e.target.value })}
@@ -118,7 +107,6 @@ function ModalAgregarMiembro({ miembros, onCerrar, onGuardado }) {
               className="flex-1 px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
           </div>
         )}
-
         {sugerencia && (
           <div className="bg-indigo-500/10 border border-indigo-500/30 rounded-lg p-2.5 text-[10px] text-indigo-200">
             📊 Su territorio tiene {sugerencia.lista_nominal.toLocaleString()} electores en lista nominal. Con {sugerencia.dias_restantes} días para la elección, la meta sugerida es <strong className="text-white">{sugerencia.meta_diaria_sugerida} promovidos/día</strong> ({sugerencia.meta_total_sugerida.toLocaleString()} en total — 8% del padrón de su zona).
@@ -128,7 +116,6 @@ function ModalAgregarMiembro({ miembros, onCerrar, onGuardado }) {
         <input placeholder="Meta diaria de promovidos (puedes ajustarla)" type="number" value={form.meta_diaria}
           onChange={(e) => setForm({ ...form, meta_diaria: e.target.value })}
           className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
-
         <div>
           <label className="block text-[10px] text-slate-500 font-bold mb-1">¿A quién le reporta? (de ahí cuelga en el organigrama)</label>
           <select value={form.parent_id} onChange={(e) => setForm({ ...form, parent_id: e.target.value })}
@@ -137,7 +124,6 @@ function ModalAgregarMiembro({ miembros, onCerrar, onGuardado }) {
             {miembros.filter(m => m.rol !== 'promotor').map(m => <option key={m.id} value={m.id}>{m.nombre} — {m.puesto || ROL_LABEL[m.rol]}</option>)}
           </select>
         </div>
-
         <div className="flex gap-2 pt-1">
           <button onClick={onCerrar} className="flex-1 py-2.5 rounded-lg bg-slate-800 text-slate-300 text-sm font-bold">Cancelar</button>
           <button onClick={guardar} disabled={!form.nombre || !form.email || form.password.length < 8}
@@ -159,9 +145,7 @@ function ModalDetalleMiembro({ miembro, miembros, onCerrar, onActualizado }) {
   const [nuevoDestino, setNuevoDestino] = useState('');
   const [editando, setEditando] = useState(false);
   const [form, setForm] = useState({ nombre: miembro.nombre, telefono: miembro.telefono || '', rol: miembro.rol, puesto: miembro.puesto || '', parent_id: miembro.parent_id || '', meta_diaria: miembro.meta_diaria || '', territorio_tipo: miembro.territorio_tipo || 'seccion', territorio_id: miembro.territorio_id || '' });
-
   const hijosDirectos = miembros.filter((m) => m.parent_id === miembro.id);
-
   useEffect(() => {
     api.get(`/estructura/cadena/${miembro.id}`).then((r) => setCadena(r.data.data));
     api.get(`/estructura/${miembro.id}/zonas`).then((r) => setZonas(r.data.data));
@@ -170,7 +154,6 @@ function ModalDetalleMiembro({ miembro, miembros, onCerrar, onActualizado }) {
       api.get(`/estructura/${miembro.id}/rendimiento-rama`).then((r) => setRendimientoRama(r.data.data));
     }
   }, [miembro.id]);
-
   const reasignarEquipo = async () => {
     if (!nuevoDestino) return;
     const { data } = await api.post(`/estructura/${miembro.id}/reasignar-equipo`, { nuevo_parent_id: nuevoDestino });
@@ -179,12 +162,10 @@ function ModalDetalleMiembro({ miembro, miembros, onCerrar, onActualizado }) {
     onActualizado();
     onCerrar();
   };
-
   const generarCodigoParaEl = async () => {
     const { data } = await api.post('/codigos', { rol_asignado: 'promotor', usos_maximos: 1 });
     setCodigoPropio(data.data.codigo);
   };
-
   const guardarCambios = async () => {
     await api.patch(`/estructura/${miembro.id}`, {
       nombre: form.nombre, telefono: form.telefono || null, rol: form.rol, puesto: form.puesto || null,
@@ -196,16 +177,13 @@ function ModalDetalleMiembro({ miembro, miembros, onCerrar, onActualizado }) {
     setEditando(false);
     onActualizado();
   };
-
   const desactivar = async () => {
     if (!confirm(`¿Dar de baja a ${miembro.nombre}? Su historial se conserva, pero ya no podrá entrar al sistema.`)) return;
     await api.patch(`/estructura/${miembro.id}`, { activo: false });
     onActualizado();
     onCerrar();
   };
-
   const actividad = estaActivoReciente(miembro.ultimo_acceso);
-
   return (
     <div className="fixed inset-0 bg-black/70 flex items-end md:items-center justify-center z-50" onClick={onCerrar}>
       <div className="bg-slate-900 border border-slate-700 rounded-t-2xl md:rounded-2xl w-full max-w-md p-5 space-y-4 max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
@@ -216,7 +194,6 @@ function ModalDetalleMiembro({ miembro, miembros, onCerrar, onActualizado }) {
           </div>
           <button onClick={onCerrar} className="text-slate-500">✕</button>
         </div>
-
         {!editando ? (
           <>
             <div className="flex items-center gap-2 text-xs">
@@ -226,8 +203,6 @@ function ModalDetalleMiembro({ miembro, miembros, onCerrar, onActualizado }) {
                 {miembro.ultimo_acceso ? `Último acceso: ${new Date(miembro.ultimo_acceso).toLocaleDateString('es-MX')}` : 'Nunca ha entrado'}
               </span>
             </div>
-
-            {/* Rendimiento de TODA la rama hacia abajo — no solo gente directa */}
             {rendimientoRama && (
               <div className="bg-gradient-to-br from-indigo-950/60 to-purple-950/40 border border-indigo-800/30 rounded-xl p-3">
                 <div className="text-[10px] font-bold text-indigo-300 uppercase mb-2">🌳 Rendimiento de toda su rama</div>
@@ -252,8 +227,6 @@ function ModalDetalleMiembro({ miembro, miembros, onCerrar, onActualizado }) {
                 )}
               </div>
             )}
-
-            {/* Cadena de invitación — quién lo invitó, hasta el candidato */}
             {cadena && cadena.length > 1 && (
               <div>
                 <div className="text-[10px] font-bold text-slate-500 uppercase mb-1.5">🔗 Cadena de invitación (de dónde llegó)</div>
@@ -267,8 +240,6 @@ function ModalDetalleMiembro({ miembro, miembros, onCerrar, onActualizado }) {
                 </div>
               </div>
             )}
-
-            {/* Código propio para invitar hacia abajo */}
             <div>
               <div className="text-[10px] font-bold text-slate-500 uppercase mb-1.5">🎟️ Código para que invite a su gente</div>
               {codigoPropio ? (
@@ -283,8 +254,6 @@ function ModalDetalleMiembro({ miembro, miembros, onCerrar, onActualizado }) {
                 <button onClick={generarCodigoParaEl} className="w-full py-2 rounded-lg bg-indigo-600/80 text-white text-xs font-bold">Generar código nuevo</button>
               )}
             </div>
-
-            {/* Zonas asignadas (de Sectorización en el mapa) */}
             <div>
               <div className="text-[10px] font-bold text-slate-500 uppercase mb-1.5">🗺️ Influencia territorial (capa del mapa)</div>
               {!zonas || zonas.length === 0 ? (
@@ -295,15 +264,12 @@ function ModalDetalleMiembro({ miembro, miembros, onCerrar, onActualizado }) {
                 </div>
               )}
             </div>
-
             {miembro.meta_diaria > 0 && (
               <div>
                 <div className="text-[10px] font-bold text-slate-500 uppercase mb-1.5">🎯 Meta diaria</div>
                 <div className="text-sm text-white">{miembro.meta_diaria} promovidos/día</div>
               </div>
             )}
-
-            {/* Reasignar en bloque — mover a todo su equipo directo */}
             {hijosDirectos.length > 0 && (
               <div>
                 {!reasignando ? (
@@ -326,8 +292,6 @@ function ModalDetalleMiembro({ miembro, miembros, onCerrar, onActualizado }) {
                 )}
               </div>
             )}
-
-            {/* Historial de movimientos */}
             {historial?.length > 0 && (
               <div>
                 <button onClick={() => setMostrarHistorial(v => !v)} className="text-[10px] font-bold text-slate-400">
@@ -344,7 +308,6 @@ function ModalDetalleMiembro({ miembro, miembros, onCerrar, onActualizado }) {
                 )}
               </div>
             )}
-
             <div className="flex gap-2 pt-2 border-t border-slate-800">
               <button onClick={() => setEditando(true)} className="flex-1 py-2 rounded-lg bg-indigo-600/80 text-white text-xs font-bold">✏️ Editar</button>
               {miembro.activo !== false && (
@@ -397,14 +360,12 @@ function ModalDetalleMiembro({ miembro, miembros, onCerrar, onActualizado }) {
   );
 }
 
-/** Nodo del organigrama visual — se dibuja a sí mismo y a sus hijos recursivamente */
 function NodoOrganigrama({ miembro, hijos, onClick, esRaiz, busqueda }) {
   const est = SALUD_ESTILO[miembro.salud] || SALUD_ESTILO.na;
   const actividad = estaActivoReciente(miembro.ultimo_acceso);
   const propios = hijos.filter((h) => h.parent_id === miembro.id);
   const coincide = busqueda && (miembro.nombre.toLowerCase().includes(busqueda.toLowerCase()) || miembro.puesto?.toLowerCase().includes(busqueda.toLowerCase()));
   const opacado = busqueda && !coincide;
-
   return (
     <div className="flex flex-col items-center">
       <button onClick={() => onClick(miembro)}
@@ -435,10 +396,8 @@ function PanelCodigosMasivos() {
   const [rol, setRol] = useState('promotor');
   const [usos, setUsos] = useState(10);
   const [copiado, setCopiado] = useState(null);
-
   const cargar = () => api.get('/codigos').then((r) => setCodigos(r.data.data));
   useEffect(() => { cargar(); }, []);
-
   const generar = async () => {
     await api.post('/codigos', { rol_asignado: rol, usos_maximos: usos });
     cargar();
@@ -448,11 +407,9 @@ function PanelCodigosMasivos() {
     setCopiado(codigo);
     setTimeout(() => setCopiado(null), 1500);
   };
-
   return (
     <div className="space-y-3">
       <p className="text-[11px] text-slate-500">Para cuando reparte UN código a varias personas de un jalón (ej. en un mitin) — distinto al código personal de cada quien, que sí queda ligado a su cadena de invitación.</p>
-
       <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 flex flex-col md:flex-row gap-2">
         <select value={rol} onChange={(e) => setRol(e.target.value)} className="flex-1 px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
           <option value="promotor">🤝 Promotor</option>
@@ -466,7 +423,6 @@ function PanelCodigosMasivos() {
           className="w-24 px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" title="Usos máximos" />
         <button onClick={generar} className="px-5 py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-bold">Generar</button>
       </div>
-
       <div className="space-y-2">
         {codigos.length === 0 ? (
           <div className="text-center text-slate-500 text-xs py-6">Sin códigos masivos generados todavía</div>
@@ -481,6 +437,105 @@ function PanelCodigosMasivos() {
             </button>
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 🔐 PANEL DE PERMISOS POR ROL — NUEVO
+// Llama a /estructura/permisos (GET/PUT/DELETE) — esos endpoints
+// deben existir en el backend para que esto funcione de verdad.
+// ═══════════════════════════════════════════════════════════════
+const TODOS_LOS_MODULOS = [
+  { clave: 'promovidos', label: 'Promovidos' }, { clave: 'priorizacion', label: 'Priorización' },
+  { clave: 'estructura', label: 'Estructura' }, { clave: 'reportes', label: 'Reportes' },
+  { clave: 'agenda', label: 'Agenda' }, { clave: 'dia-eleccion', label: 'Día de la Elección' },
+  { clave: 'incidencias', label: 'Incidencias' }, { clave: 'finanzas', label: 'Finanzas' },
+  { clave: 'activos', label: 'Activos' }, { clave: 'marketing', label: 'Marketing' },
+  { clave: 'juridico', label: 'Jurídico' },
+];
+const ROLES_PARA_PERMISOS = Object.keys(ROL_LABEL).filter((r) => r !== 'candidato');
+
+function PanelPermisosPorRol() {
+  const [excepciones, setExcepciones] = useState({});
+  const [cargando, setCargando] = useState(true);
+  const [error, setError] = useState('');
+
+  const cargar = () => {
+    api.get('/estructura/permisos')
+      .then((r) => { setExcepciones(r.data.data || {}); setCargando(false); })
+      .catch((err) => { setError(err.response?.data?.error || 'No se pudieron cargar los permisos'); setCargando(false); });
+  };
+  useEffect(cargar, []);
+
+  const alternarPermiso = async (rol, modulo) => {
+    const actual = excepciones[rol]?.[modulo];
+    const nuevoValor = actual === undefined ? false : !actual;
+    try {
+      await api.put('/estructura/permisos', { rol, modulo, permitido: nuevoValor });
+      setExcepciones((prev) => ({ ...prev, [rol]: { ...prev[rol], [modulo]: nuevoValor } }));
+    } catch (err) {
+      alert('No se pudo guardar: ' + (err.response?.data?.error || err.message));
+    }
+  };
+
+  const restaurarDefault = async (rol, modulo) => {
+    try {
+      await api.delete('/estructura/permisos', { data: { rol, modulo } });
+      setExcepciones((prev) => {
+        const copia = { ...prev, [rol]: { ...prev[rol] } };
+        delete copia[rol][modulo];
+        return copia;
+      });
+    } catch (err) {
+      alert('No se pudo restaurar: ' + (err.response?.data?.error || err.message));
+    }
+  };
+
+  if (cargando) return <div className="text-center text-slate-500 text-sm py-10">⏳ Cargando permisos...</div>;
+  if (error) return <div className="bg-red-500/10 text-red-400 text-xs rounded-lg p-4">{error}</div>;
+
+  return (
+    <div className="space-y-3">
+      <p className="text-[11px] text-slate-500">
+        Prende o apaga módulos por rol — el punto morado marca que ya lo personalizaste distinto al default. El Candidato nunca se puede restringir, por seguridad.
+      </p>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs border-collapse">
+          <thead>
+            <tr>
+              <th className="text-left px-2 py-2 text-slate-500 sticky left-0 bg-slate-950">Rol</th>
+              {TODOS_LOS_MODULOS.map((m) => (
+                <th key={m.clave} className="px-2 py-2 text-slate-500 font-bold text-center whitespace-nowrap">{m.label}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {ROLES_PARA_PERMISOS.map((rol) => (
+              <tr key={rol} className="border-t border-slate-800">
+                <td className="px-2 py-2 text-white font-bold sticky left-0 bg-slate-950 whitespace-nowrap">{ROL_LABEL[rol]}</td>
+                {TODOS_LOS_MODULOS.map((m) => {
+                  const personalizado = excepciones[rol]?.[m.clave];
+                  const activo = personalizado !== undefined ? personalizado : true;
+                  return (
+                    <td key={m.clave} className="px-2 py-2 text-center">
+                      <button onClick={() => alternarPermiso(rol, m.clave)}
+                        className={`w-8 h-5 rounded-full relative transition-colors ${activo ? 'bg-emerald-600' : 'bg-slate-700'}`}>
+                        <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${activo ? 'left-3.5' : 'left-0.5'}`} />
+                      </button>
+                      {personalizado !== undefined && (
+                        <button onClick={() => restaurarDefault(rol, m.clave)} className="block mx-auto mt-1 text-[9px] text-purple-400" title="Restaurar default">
+                          ● reset
+                        </button>
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );
@@ -507,7 +562,6 @@ export default function Estructura() {
   const [expandido, setExpandido] = useState(null);
   const [exportando, setExportando] = useState(false);
   const refOrganigrama = useRef(null);
-
   const cargar = () => {
     setErrorCarga('');
     Promise.all([api.get('/estructura'), api.get('/estructura/salud')])
@@ -519,8 +573,6 @@ export default function Estructura() {
         setErrorCarga(err.response?.data?.error || err.message || 'Error desconocido al cargar la estructura');
         setCargando(false);
       });
-    // Estas 3 son mejoras nuevas — si CUALQUIERA falla, no debe tumbar
-    // el resto de la pantalla (por eso cada una tiene su propio .catch).
     api.get('/estructura/vacantes/catalogo').then((r) => setVacantes(r.data.data)).catch(() => setVacantes([]));
     api.get('/estructura/alertas/rama-dormida').then((r) => setAlertasRama(r.data.data)).catch(() => setAlertasRama([]));
     api.get('/estructura/ranking/coordinadores').then((r) => setRanking(r.data.data)).catch(() => setRanking([]));
@@ -529,7 +581,6 @@ export default function Estructura() {
     api.get('/estructura/cobertura-casillas').then((r) => setCobertura(r.data.data)).catch(() => setCobertura(null));
   };
   useEffect(cargar, []);
-
   const agregarCasillaOficial = async (seccionNumero) => {
     if (!nuevaCasilla.tipo) return;
     await api.post('/estructura/casillas-oficiales', {
@@ -544,11 +595,10 @@ export default function Estructura() {
     await api.delete(`/estructura/casillas-oficiales/${id}`);
     cargar();
   };
-
   const exportarImagen = async () => {
     if (!refOrganigrama.current) return;
     setExportando(true);
-    const { default: html2canvas } = await import('html2canvas'); // se descarga solo aquí, no en cada visita
+    const { default: html2canvas } = await import('html2canvas');
     const canvas = await html2canvas(refOrganigrama.current, { backgroundColor: '#020617', scale: 2 });
     const enlace = document.createElement('a');
     enlace.download = `organigrama-${new Date().toISOString().slice(0, 10)}.png`;
@@ -556,11 +606,8 @@ export default function Estructura() {
     enlace.click();
     setExportando(false);
   };
-
   const nombreCoincide = (m) => !busqueda || m.nombre.toLowerCase().includes(busqueda.toLowerCase()) || m.puesto?.toLowerCase().includes(busqueda.toLowerCase());
-
   if (cargando) return <div className="min-h-screen bg-slate-950 flex items-center justify-center text-slate-500">⏳ Cargando...</div>;
-
   if (errorCarga) {
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6">
@@ -573,9 +620,7 @@ export default function Estructura() {
       </div>
     );
   }
-
   const raiz = miembros.filter((m) => !m.parent_id);
-
   return (
     <div className="min-h-screen bg-slate-950 p-4 md:p-8">
       <div className="max-w-4xl mx-auto space-y-5">
@@ -586,7 +631,6 @@ export default function Estructura() {
           </div>
           <button onClick={() => setMostrarModal(true)} className="px-4 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-bold">+ Agregar</button>
         </div>
-
         {salud && (
           <div className="grid grid-cols-4 gap-2">
             {Object.entries(salud.resumen).map(([key, n]) => {
@@ -610,8 +654,6 @@ export default function Estructura() {
             ))}
           </div>
         )}
-
-        {/* 🌙 Ramas completas dormidas — no solo un coordinador, TODA su cadena sin actividad */}
         {alertasRama.length > 0 && (
           <div className="space-y-1.5">
             {alertasRama.map((a) => (
@@ -621,8 +663,6 @@ export default function Estructura() {
             ))}
           </div>
         )}
-
-        {/* 🈳 Vacantes del catálogo típico de campaña */}
         {vacantes.length > 0 && (
           <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-3">
             <div className="text-[10px] font-bold text-amber-300 uppercase mb-1.5">🈳 Puestos aún vacantes</div>
@@ -631,9 +671,8 @@ export default function Estructura() {
             </div>
           </div>
         )}
-
         <div className="flex items-center justify-between gap-2 flex-wrap">
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
             <button onClick={() => setVista('organigrama')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'organigrama' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🌳 Organigrama</button>
             <button onClick={() => setVista('lista')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'lista' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📋 Lista</button>
             <button onClick={() => setVista('ranking')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'ranking' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🏆 Ranking</button>
@@ -641,6 +680,7 @@ export default function Estructura() {
             <button onClick={() => setVista('representantes-ine')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'representantes-ine' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🗳️ Representantes INE</button>
             <button onClick={() => setVista('gamificacion')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'gamificacion' ? 'bg-amber-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🏆 Ranking del Equipo</button>
             <button onClick={() => setVista('cobertura-casillas')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'cobertura-casillas' ? 'bg-red-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🗳️ Cobertura de Casillas</button>
+            <button onClick={() => setVista('permisos')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'permisos' ? 'bg-purple-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🔐 Permisos por Rol</button>
           </div>
           {vista === 'organigrama' && (
             <div className="flex gap-2 items-center">
@@ -652,7 +692,6 @@ export default function Estructura() {
             </div>
           )}
         </div>
-
         {vista === 'codigos' ? (
           <PanelCodigosMasivos />
         ) : vista === 'organigrama' ? (
@@ -787,6 +826,8 @@ export default function Estructura() {
               ))}
             </div>
           </div>
+        ) : vista === 'permisos' ? (
+          <PanelPermisosPorRol />
         ) : (
           <div className="space-y-2">
             {miembros.map((m) => {
