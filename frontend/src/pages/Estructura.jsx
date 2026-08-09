@@ -138,6 +138,8 @@ function ModalDetalleMiembro({ miembro, miembros, onCerrar, onActualizado }) {
   const [cadena, setCadena] = useState(null);
   const [zonas, setZonas] = useState(null);
   const [rendimientoRama, setRendimientoRama] = useState(null);
+  const [reporteEquipo, setReporteEquipo] = useState(null);
+  const [ramaExpandida, setRamaExpandida] = useState(null);
   const [codigoPropio, setCodigoPropio] = useState(null);
   const [historial, setHistorial] = useState(null);
   const [mostrarHistorial, setMostrarHistorial] = useState(false);
@@ -152,6 +154,10 @@ function ModalDetalleMiembro({ miembro, miembros, onCerrar, onActualizado }) {
     api.get(`/estructura/${miembro.id}/historial`).then((r) => setHistorial(r.data.data));
     if (miembro.rol !== 'promotor') {
       api.get(`/estructura/${miembro.id}/rendimiento-rama`).then((r) => setRendimientoRama(r.data.data));
+      // Reporte jerárquico — solo tiene sentido si esta persona tiene
+      // "nietos" (gente que reporta a su gente), como un Coordinador
+      // Municipal con Enlaces Seccionales que a su vez tienen Promotores.
+      api.get(`/estructura/${miembro.id}/reporte-equipo`).then((r) => setReporteEquipo(r.data.data)).catch(() => setReporteEquipo(null));
     }
   }, [miembro.id]);
   const reasignarEquipo = async () => {
@@ -225,6 +231,49 @@ function ModalDetalleMiembro({ miembro, miembros, onCerrar, onActualizado }) {
                     🏆 Mejor promotor de la rama: <strong className="text-white">{rendimientoRama.mejor_promotor.nombre}</strong> ({rendimientoRama.mejor_promotor.total_promovidos})
                   </div>
                 )}
+              </div>
+            )}
+            {/* 📊 REPORTE JERÁRQUICO — solo aparece si esta persona
+                tiene "nietos" (gente que reporta a su gente), como un
+                Coordinador Municipal con Enlaces Seccionales que a su
+                vez tienen Promotores debajo. */}
+            {reporteEquipo && reporteEquipo.ramas.length > 0 && (
+              <div>
+                <div className="text-[10px] font-bold text-slate-500 uppercase mb-1.5">📊 Reporte de equipo por nivel</div>
+                <div className="space-y-1.5">
+                  {reporteEquipo.ramas.map((rama) => (
+                    <div key={rama.id} className="bg-slate-800/40 rounded-lg overflow-hidden">
+                      <button onClick={() => setRamaExpandida(ramaExpandida === rama.id ? null : rama.id)}
+                        className="w-full flex items-center justify-between px-2.5 py-2 text-left">
+                        <div>
+                          <div className="text-xs font-bold text-white">{rama.nombre}</div>
+                          <div className="text-[9px] text-slate-500">{rama.puesto || ROL_LABEL[rama.rol]} · {rama.total_personas_directas} a su cargo</div>
+                        </div>
+                        <div className="text-right flex items-center gap-2">
+                          <div>
+                            <div className="text-xs font-black text-emerald-400">{rama.total_promovidos}</div>
+                            {rama.total_duplicados > 0 && <div className="text-[9px] text-red-400">⚠️ {rama.total_duplicados} duplicados</div>}
+                          </div>
+                          <span className="text-slate-500 text-[10px]">{ramaExpandida === rama.id ? '▼' : '▶'}</span>
+                        </div>
+                      </button>
+                      {ramaExpandida === rama.id && (
+                        <div className="border-t border-slate-700 px-2.5 py-2 space-y-1">
+                          {rama.personas.length === 0 ? (
+                            <p className="text-[9px] text-slate-500">Sin gente asignada todavía</p>
+                          ) : rama.personas.map((p) => (
+                            <div key={p.id} className="flex items-center justify-between text-[10px]">
+                              <span className="text-slate-300">{p.nombre}</span>
+                              <span className={p.duplicados > 0 ? 'text-red-400' : 'text-slate-400'}>
+                                {p.total_promovidos} promovidos{p.duplicados > 0 && ` · ${p.duplicados} dup.`}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
             {cadena && cadena.length > 1 && (
@@ -541,6 +590,59 @@ function PanelPermisosPorRol() {
   );
 }
 
+// ═══════════════════════════════════════════════════════════════
+// 🔁 PANEL DE DUPLICADOS — NUEVO
+// Mismo nombre + misma sección, capturado por 2 o más personas
+// distintas — para detectar de un vistazo cuando varios promotores
+// están trabajando la misma calle sin saberlo.
+// ═══════════════════════════════════════════════════════════════
+function PanelDuplicados() {
+  const [duplicados, setDuplicados] = useState(null);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    api.get('/estructura/duplicados')
+      .then((r) => setDuplicados(r.data.data))
+      .catch((err) => setError(err.response?.data?.error || 'No se pudieron cargar los duplicados'));
+  }, []);
+
+  if (error) return <div className="bg-red-500/10 text-red-400 text-xs rounded-lg p-4">{error}</div>;
+  if (!duplicados) return <div className="text-center text-slate-500 text-sm py-10">⏳ Cargando...</div>;
+
+  return (
+    <div className="space-y-3">
+      <p className="text-[11px] text-slate-500">
+        Mismo nombre + misma sección, capturado por más de una persona — útil para saber si dos promotores están trabajando la misma calle sin darse cuenta.
+      </p>
+      {duplicados.length === 0 ? (
+        <div className="text-center text-slate-500 text-sm py-10">✅ Sin duplicados detectados por ahora</div>
+      ) : (
+        <div className="space-y-1.5">
+          {duplicados.map((d, i) => (
+            <div key={i} className="bg-slate-900/60 border border-orange-800/30 rounded-xl p-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-sm font-bold text-white">{d.nombre}</div>
+                  <div className="text-[10px] text-slate-500">Sección {d.seccion_numero}</div>
+                </div>
+                <div className="text-right">
+                  <div className="text-sm font-black text-orange-400">{d.personas_distintas} {d.personas_distintas == 1 ? 'persona' : 'personas'}</div>
+                  <div className="text-[9px] text-slate-500">{d.veces_registrado} intentos en total</div>
+                </div>
+              </div>
+              <div className="mt-1.5 flex flex-wrap gap-1">
+                {(d.registrado_por_nombres || []).filter(Boolean).map((n, j) => (
+                  <span key={j} className="text-[9px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full">{n}</span>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Estructura() {
   const [miembros, setMiembros] = useState([]);
   const [salud, setSalud] = useState(null);
@@ -681,6 +783,7 @@ export default function Estructura() {
             <button onClick={() => setVista('gamificacion')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'gamificacion' ? 'bg-amber-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🏆 Ranking del Equipo</button>
             <button onClick={() => setVista('cobertura-casillas')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'cobertura-casillas' ? 'bg-red-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🗳️ Cobertura de Casillas</button>
             <button onClick={() => setVista('permisos')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'permisos' ? 'bg-purple-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🔐 Permisos por Rol</button>
+            <button onClick={() => setVista('duplicados')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'duplicados' ? 'bg-orange-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🔁 Duplicados</button>
           </div>
           {vista === 'organigrama' && (
             <div className="flex gap-2 items-center">
@@ -828,6 +931,8 @@ export default function Estructura() {
           </div>
         ) : vista === 'permisos' ? (
           <PanelPermisosPorRol />
+        ) : vista === 'duplicados' ? (
+          <PanelDuplicados />
         ) : (
           <div className="space-y-2">
             {miembros.map((m) => {
