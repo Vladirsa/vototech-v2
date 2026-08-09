@@ -560,11 +560,37 @@ router.get('/representantes-ine', async (req, res) => {
 });
 
 router.get('/cobertura-casillas', async (req, res) => {
+  // Antes esto SIEMPRE traía las 634 secciones del estado completo,
+  // sin importar que la campaña fuera municipal — un candidato a
+  // Presidente Municipal veía casillas de municipios que ni siquiera
+  // le corresponden. Ahora se recorta al territorio real de SU
+  // campaña, igual que ya se hace en el Mapa y en Priorización.
+  const campana = await query('SELECT territorio_tipo, territorio_id FROM campanas WHERE id=$1', [req.usuario.campana_id]);
+  const { territorio_tipo, territorio_id } = campana.rows[0] || {};
+
+  let filtroTerritorio = '';
+  const params = [req.usuario.estado_id];
+  if (territorio_tipo === 'municipio' && territorio_id) {
+    filtroTerritorio = `AND s.municipio_id = (SELECT id FROM municipios WHERE estado_id=$1 AND clave_ine=$2)`;
+    params.push(territorio_id);
+  } else if (territorio_tipo === 'distrito_local' && territorio_id) {
+    filtroTerritorio = 'AND s.distrito_local = $2';
+    params.push(territorio_id);
+  } else if (territorio_tipo === 'distrito_federal' && territorio_id) {
+    filtroTerritorio = 'AND s.distrito_federal = $2';
+    params.push(territorio_id);
+  } else if (territorio_tipo === 'seccion' && territorio_id) {
+    filtroTerritorio = 'AND s.numero = $2';
+    params.push(territorio_id);
+  }
+  // territorio_tipo 'estatal' (Gobernador/Senador) o sin definir —
+  // no se agrega filtro, sí les corresponde ver todo el estado.
+
   const oficiales = await query(
     `SELECT co.id, co.seccion_id, co.tipo, co.electores_estimados, s.numero as seccion_numero
      FROM casillas_oficiales co JOIN secciones s ON s.id = co.seccion_id
-     WHERE s.estado_id=$1 ORDER BY s.numero, co.tipo`,
-    [req.usuario.estado_id]
+     WHERE s.estado_id=$1 ${filtroTerritorio} ORDER BY s.numero, co.tipo`,
+    params
   );
   const asignadas = await query(
     `SELECT seccion_id, numero, representante_id FROM casillas WHERE campana_id=$1`,
