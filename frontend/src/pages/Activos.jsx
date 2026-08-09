@@ -1,169 +1,180 @@
-import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
-import api from '../lib/api';
-import BuscadorCalle from '../components/BuscadorCalle';
+import { Router } from 'express';
+import { z } from 'zod';
+import { query } from '../db/pool.js';
+import { requiereAuth } from '../middleware/auth.js';
 
-const TIPO_LABEL = {
-  espectacular: { ic: '📺', label: 'Espectacular' },
-  barda: { ic: '🧱', label: 'Barda' },
-  manta: { ic: '🎏', label: 'Manta/Lona' },
-  ine_representante: { ic: '🗳️', label: 'Representante INE' },
-  utilitario: { ic: '👕', label: 'Utilitario (playeras, gorras, etc.)' },
-};
-const ESTADO_COLOR = { activo: 'text-emerald-400 bg-emerald-500/10', vencido: 'text-red-400 bg-red-500/10', retirado: 'text-slate-500 bg-slate-500/10' };
+const router = Router();
+router.use(requiereAuth);
 
-function ModalAgregarActivo({ onCerrar, onGuardado }) {
-  const [form, setForm] = useState({ tipo: 'espectacular', seccion_numero: '', direccion: '', empresa: '', costo: '', fecha_ini: '', fecha_vence: '', nombre_rep: '', telefono_rep: '', lat: null, lng: null });
-  const [error, setError] = useState('');
+router.get('/', async (req, res) => {
+  const campanaRes = await query('SELECT fecha_inicio_campana_oficial FROM campanas WHERE id=$1', [req.usuario.campana_id]);
+  const fechaOficial = campanaRes.rows[0]?.fecha_inicio_campana_oficial;
 
-  const guardar = async () => {
-    try {
-      const { data } = await api.post('/activos', {
-        ...form,
-        seccion_numero: form.seccion_numero ? parseInt(form.seccion_numero) : undefined,
-        costo: form.costo ? parseFloat(form.costo) : undefined,
-      });
-      if (data.alerta_legal) alert(data.alerta_legal); // el activo ya quedó guardado, esto solo informa
-      onGuardado();
-    } catch (err) { setError(err.response?.data?.error || 'Error al guardar'); }
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black/70 flex items-end md:items-center justify-center z-50">
-      <div className="bg-slate-900 border border-slate-700 rounded-t-2xl md:rounded-2xl w-full max-w-md p-5 space-y-3 max-h-[90vh] overflow-y-auto">
-        <h2 className="text-lg font-black text-white">+ Nuevo Activo</h2>
-        {error && <div className="bg-red-500/10 text-red-400 text-xs rounded-lg px-3 py-2">{error}</div>}
-
-        <select value={form.tipo} onChange={(e) => setForm({ ...form, tipo: e.target.value })}
-          className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
-          {Object.entries(TIPO_LABEL).map(([k, v]) => <option key={k} value={k}>{v.ic} {v.label}</option>)}
-        </select>
-
-        <input placeholder="Sección electoral" type="number" value={form.seccion_numero} onChange={(e) => setForm({ ...form, seccion_numero: e.target.value })}
-          className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
-
-        <BuscadorCalle valor={form.direccion} onSeleccion={(d) => setForm({ ...form, direccion: d.direccion_completa, lat: d.lat, lng: d.lng })} />
-
-        {form.tipo === 'ine_representante' ? (
-          <>
-            <input placeholder="Nombre del representante" value={form.nombre_rep} onChange={(e) => setForm({ ...form, nombre_rep: e.target.value })}
-              className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
-            <input placeholder="Teléfono" value={form.telefono_rep} onChange={(e) => setForm({ ...form, telefono_rep: e.target.value })}
-              className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
-          </>
-        ) : (
-          <>
-            <input placeholder="Empresa/proveedor" value={form.empresa} onChange={(e) => setForm({ ...form, empresa: e.target.value })}
-              className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
-            <div className="flex gap-2">
-              <input placeholder="Costo" type="number" value={form.costo} onChange={(e) => setForm({ ...form, costo: e.target.value })}
-                className="flex-1 px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
-              <div className="flex-1">
-                <label className="text-[9px] text-slate-500">Fecha de colocación</label>
-                <input type="date" value={form.fecha_ini} onChange={(e) => setForm({ ...form, fecha_ini: e.target.value })}
-                  className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
-              </div>
-            </div>
-            {['barda', 'espectacular', 'manta'].includes(form.tipo) && (
-              <p className="text-[9px] text-amber-400">⚠️ Si se coloca antes del inicio oficial de campaña, el sistema te avisará al guardar (riesgo de "acto anticipado")</p>
-            )}
-            <input placeholder="Vence" type="date" value={form.fecha_vence} onChange={(e) => setForm({ ...form, fecha_vence: e.target.value })}
-              className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
-          </>
-        )}
-
-        <div className="flex gap-2 pt-1">
-          <button onClick={onCerrar} className="flex-1 py-2.5 rounded-lg bg-slate-800 text-slate-300 text-sm font-bold">Cancelar</button>
-          <button onClick={guardar} className="flex-[2] py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-bold">Guardar</button>
-        </div>
-      </div>
-    </div>
+  const resultado = await query(
+    `SELECT a.*, s.numero as seccion_numero, u.nombre as registrado_por_nombre
+     FROM activos a
+     LEFT JOIN secciones s ON s.id = a.seccion_id
+     LEFT JOIN usuarios u ON u.id = a.registrado_por
+     WHERE a.campana_id = $1 ORDER BY a.creado_en DESC`,
+    [req.usuario.campana_id]
   );
-}
 
-export default function Activos() {
-  const [lista, setLista] = useState([]);
-  const [filtro, setFiltro] = useState('todos');
-  const [mostrarModal, setMostrarModal] = useState(false);
+  const filas = resultado.rows.map((a) => ({
+    ...a,
+    riesgo_acto_anticipado: !!(fechaOficial && ['barda', 'espectacular', 'manta'].includes(a.tipo) && a.fecha_ini && new Date(a.fecha_ini) < new Date(fechaOficial)),
+  }));
 
-  const [error, setError] = useState('');
-  const cargar = () => {
-    setError('');
-    api.get('/activos').then((r) => setLista(r.data.data)).catch((e) => {
-      // Antes, si esto fallaba por cualquier razón (sesión vencida,
-      // sin conexión, lo que sea), la pantalla se quedaba mostrando
-      // "Sin activos registrados" — igual a como se ve si de verdad
-      // no hay nada, sin ninguna pista de que en realidad falló algo.
-      setError(e.response?.data?.error || 'No se pudo cargar la lista de activos. Revisa tu conexión e intenta de nuevo.');
-    });
-  };
-  useEffect(cargar, []);
+  res.json({ ok: true, data: filas, fecha_inicio_campana_oficial: fechaOficial });
+});
 
-  const cambiarEstado = async (id, estado) => {
-    try { await api.patch(`/activos/${id}/estado`, { estado }); cargar(); }
-    catch (e) { alert(e.response?.data?.error || 'No se pudo cambiar el estado'); }
-  };
-  const eliminar = async (id) => {
-    if (!confirm('¿Eliminar este activo?')) return;
-    try { await api.delete(`/activos/${id}`); cargar(); }
-    catch (e) { alert(e.response?.data?.error || 'No se pudo eliminar'); }
-  };
+const esquemaActivo = z.object({
+  tipo: z.enum(['espectacular', 'barda', 'manta', 'ine_representante', 'utilitario']),
+  seccion_numero: z.number().int().optional(),
+  direccion: z.string().max(255).optional(),
+  lat: z.number().optional(),
+  lng: z.number().optional(),
+  empresa: z.string().max(200).optional(),
+  costo: z.number().optional(),
+  fecha_ini: z.string().optional(),
+  fecha_vence: z.string().optional(),
+  nombre_rep: z.string().max(200).optional(),
+  telefono_rep: z.string().max(20).optional(),
+  notas: z.string().max(300).optional(),
+  cantidad: z.number().int().optional(),
+  subtipo: z.string().max(50).optional(),
+  // 🆕 Solo aplican a utilitarios (playeras, gorras, lapiceros) —
+  // cada vez que se registra uno CON estos 3 datos, se guarda de
+  // una vez como una entrega real, no solo como inventario suelto.
+  motivo: z.enum(['promocion_voto', 'reunion', 'otro']).optional(),
+  destinatario: z.string().max(200).optional(),
+});
 
-  const filtrados = filtro === 'todos' ? lista : lista.filter((a) => a.tipo === filtro);
+router.post('/', async (req, res) => {
+  const parseado = esquemaActivo.safeParse(req.body);
+  if (!parseado.success) return res.status(400).json({ ok: false, error: parseado.error.errors[0].message });
+  const d = parseado.data;
 
-  return (
-    <div className="min-h-screen bg-slate-950 p-4 md:p-8">
-      <div className="max-w-4xl mx-auto space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-black text-white">📺 Activos de Campaña</h1>
-            <Link to="/dashboard" className="text-xs text-indigo-400">← Dashboard</Link>
-          </div>
-          <button onClick={() => setMostrarModal(true)} className="px-4 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-bold">+ Agregar</button>
-        </div>
+  let seccionId = null;
+  if (d.seccion_numero) {
+    const s = await query('SELECT id FROM secciones WHERE estado_id=$2 AND numero=$1', [d.seccion_numero, req.usuario.estado_id]);
+    seccionId = s.rows[0]?.id || null;
+  }
 
-        <div className="flex gap-2 flex-wrap">
-          <button onClick={() => setFiltro('todos')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${filtro === 'todos' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>Todos ({lista.length})</button>
-          {Object.entries(TIPO_LABEL).map(([k, v]) => (
-            <button key={k} onClick={() => setFiltro(k)} className={`px-3 py-1.5 rounded-full text-xs font-bold ${filtro === k ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
-              {v.ic} {v.label} ({lista.filter((a) => a.tipo === k).length})
-            </button>
-          ))}
-        </div>
-
-        <div className="space-y-2">
-          {error && <div className="bg-red-500/10 text-red-400 text-xs rounded-lg px-3 py-2.5">⚠️ {error} <button onClick={cargar} className="underline font-bold ml-1">Reintentar</button></div>}
-          {filtrados.length === 0 ? (
-            <div className="text-center text-slate-500 py-10">Sin activos registrados en esta categoría</div>
-          ) : filtrados.map((a) => (
-            <div key={a.id} className="rounded-xl border border-slate-800 bg-slate-900/60 p-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-sm font-bold text-white">{(TIPO_LABEL[a.tipo]?.ic || '📦')} {a.tipo === 'ine_representante' ? a.nombre_rep : (a.direccion || 'Sin dirección')}</div>
-                  <div className="text-[10px] text-slate-500">
-                    {a.seccion_numero && `Sección ${a.seccion_numero} · `}
-                    {a.tipo === 'ine_representante' ? a.telefono_rep : a.empresa}
-                    {a.fecha_vence && ` · vence ${new Date(a.fecha_vence).toLocaleDateString('es-MX')}`}
-                  </div>
-                </div>
-                <span className={`text-[9px] font-bold px-2 py-1 rounded-full ${ESTADO_COLOR[a.estado]}`}>{a.estado}</span>
-              </div>
-              {a.riesgo_acto_anticipado && (
-                <div className="mt-2 text-[9px] bg-red-500/10 text-red-400 rounded-lg px-2 py-1.5">
-                  ⚠️ Colocado antes del inicio oficial de campaña — riesgo de "acto anticipado", el ITE ha sancionado casos similares
-                </div>
-              )}
-              <div className="flex gap-1.5 mt-2">
-                {a.estado !== 'activo' && <button onClick={() => cambiarEstado(a.id, 'activo')} className="text-[10px] text-emerald-400 font-bold">✅ Marcar activo</button>}
-                {a.estado !== 'vencido' && <button onClick={() => cambiarEstado(a.id, 'vencido')} className="text-[10px] text-amber-400 font-bold">⏰ Marcar vencido</button>}
-                {a.estado !== 'retirado' && <button onClick={() => cambiarEstado(a.id, 'retirado')} className="text-[10px] text-slate-400 font-bold">📦 Marcar retirado</button>}
-                <button onClick={() => eliminar(a.id)} className="text-[10px] text-red-400 font-bold ml-auto">🗑️</button>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-      {mostrarModal && <ModalAgregarActivo onCerrar={() => setMostrarModal(false)} onGuardado={() => { setMostrarModal(false); cargar(); }} />}
-    </div>
+  const resultado = await query(
+    `INSERT INTO activos (campana_id, tipo, seccion_id, direccion, lat, lng, empresa, costo, fecha_ini, fecha_vence, nombre_rep, telefono_rep, notas, cantidad, subtipo, registrado_por)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *`,
+    [req.usuario.campana_id, d.tipo, seccionId, d.direccion || null, d.lat || null, d.lng || null,
+     d.empresa || null, d.costo || null, d.fecha_ini || null, d.fecha_vence || null,
+     d.nombre_rep || null, d.telefono_rep || null, d.notas || null, d.cantidad || null, d.subtipo || null, req.usuario.sub]
   );
-}
+
+  // 🆕 Si es utilitario y vino con motivo+destinatario+cantidad, ya se
+  // registra de una vez como una entrega real — así no hay que crear
+  // el artículo Y LUEGO por separado ir a registrar quién se lo llevó.
+  if (d.tipo === 'utilitario' && d.motivo && d.destinatario && d.cantidad) {
+    await query(
+      `INSERT INTO activos_entregas (activo_id, campana_id, cantidad, motivo, destinatario, seccion_id, fecha, entregado_por)
+       VALUES ($1,$2,$3,$4,$5,$6,CURRENT_DATE,$7)`,
+      [resultado.rows[0].id, req.usuario.campana_id, d.cantidad, d.motivo, d.destinatario, seccionId, req.usuario.sub]
+    );
+  }
+
+  // ── ALERTA LEGAL: acto anticipado de campaña ──
+  // El ITE de Tlaxcala está sancionando activamente esto (junio-julio
+  // 2026): bardas/espectaculares colocados ANTES del arranque oficial
+  // de campaña. No bloqueamos el registro (la decisión es del equipo
+  // jurídico), pero sí avisamos con toda claridad en el momento.
+  let alertaLegal = null;
+  if (['barda', 'espectacular', 'manta'].includes(d.tipo) && d.fecha_ini) {
+    const campanaRes = await query('SELECT fecha_inicio_campana_oficial FROM campanas WHERE id=$1', [req.usuario.campana_id]);
+    const fechaOficial = campanaRes.rows[0]?.fecha_inicio_campana_oficial;
+    if (fechaOficial && new Date(d.fecha_ini) < new Date(fechaOficial)) {
+      alertaLegal = `⚠️ Este ${d.tipo} tiene fecha de colocación (${d.fecha_ini}) ANTERIOR al inicio oficial de campaña (${fechaOficial.toISOString().slice(0, 10)}). El ITE ha sancionado casos similares por "actos anticipados de campaña" — consulta con tu equipo jurídico antes de continuar.`;
+    }
+  }
+
+  res.status(201).json({ ok: true, data: resultado.rows[0], alerta_legal: alertaLegal });
+});
+
+/**
+ * POST /api/activos/:id/entregas
+ * Registrar una entrega adicional de un artículo utilitario que YA
+ * existe (ej. ya diste de alta "Playeras talla M" con 500 en
+ * existencia, y hoy repartes 100 más en una reunión distinta).
+ */
+const esquemaEntrega = z.object({
+  cantidad: z.number().int().positive(),
+  motivo: z.enum(['promocion_voto', 'reunion', 'otro']),
+  destinatario: z.string().min(2).max(200),
+  seccion_numero: z.number().int().optional(),
+  notas: z.string().max(300).optional(),
+});
+router.post('/:id/entregas', async (req, res) => {
+  const parseado = esquemaEntrega.safeParse(req.body);
+  if (!parseado.success) return res.status(400).json({ ok: false, error: parseado.error.errors[0].message });
+  const d = parseado.data;
+
+  const activo = await query('SELECT id FROM activos WHERE id=$1 AND campana_id=$2', [req.params.id, req.usuario.campana_id]);
+  if (!activo.rows[0]) return res.status(404).json({ ok: false, error: 'Artículo no encontrado' });
+
+  let seccionId = null;
+  if (d.seccion_numero) {
+    const s = await query('SELECT id FROM secciones WHERE estado_id=$2 AND numero=$1', [d.seccion_numero, req.usuario.estado_id]);
+    seccionId = s.rows[0]?.id || null;
+  }
+
+  const resultado = await query(
+    `INSERT INTO activos_entregas (activo_id, campana_id, cantidad, motivo, destinatario, seccion_id, notas, fecha, entregado_por)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,CURRENT_DATE,$8) RETURNING *`,
+    [req.params.id, req.usuario.campana_id, d.cantidad, d.motivo, d.destinatario, seccionId, d.notas || null, req.usuario.sub]
+  );
+  res.status(201).json({ ok: true, data: resultado.rows[0] });
+});
+
+/**
+ * GET /api/activos/:id/entregas
+ * Historial de entregas de un artículo específico, con cuántos
+ * promovidos se generaron cerca de cada una — cruzando la sección y
+ * la fecha de la entrega contra cuándo se capturó cada promovido,
+ * en la ventana de 7 días después (la señal de que "sí sirvió").
+ */
+router.get('/:id/entregas', async (req, res) => {
+  const entregas = await query(
+    `SELECT e.*, s.numero as seccion_numero, u.nombre as entregado_por_nombre
+     FROM activos_entregas e
+     LEFT JOIN secciones s ON s.id = e.seccion_id
+     LEFT JOIN usuarios u ON u.id = e.entregado_por
+     WHERE e.activo_id=$1 AND e.campana_id=$2 ORDER BY e.fecha DESC`,
+    [req.params.id, req.usuario.campana_id]
+  );
+
+  const conPromovidos = [];
+  for (const e of entregas.rows) {
+    let promovidosGenerados = 0;
+    if (e.seccion_id) {
+      const conteo = await query(
+        `SELECT COUNT(*) as total FROM promovidos
+         WHERE campana_id=$1 AND seccion_id=$2 AND creado_en::date BETWEEN $3::date AND ($3::date + interval '7 days')`,
+        [req.usuario.campana_id, e.seccion_id, e.fecha]
+      );
+      promovidosGenerados = parseInt(conteo.rows[0].total);
+    }
+    conPromovidos.push({ ...e, promovidos_generados: promovidosGenerados });
+  }
+
+  res.json({ ok: true, data: conPromovidos });
+});
+
+router.patch('/:id/estado', async (req, res) => {
+  const estado = req.body.estado;
+  if (!['activo', 'vencido', 'retirado'].includes(estado)) return res.status(400).json({ ok: false, error: 'Estado inválido' });
+  await query('UPDATE activos SET estado=$1 WHERE id=$2 AND campana_id=$3', [estado, req.params.id, req.usuario.campana_id]);
+  res.json({ ok: true });
+});
+
+router.delete('/:id', async (req, res) => {
+  await query('DELETE FROM activos WHERE id=$1 AND campana_id=$2', [req.params.id, req.usuario.campana_id]);
+  res.json({ ok: true });
+});
+
+export default router;
