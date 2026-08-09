@@ -2,9 +2,13 @@ name: Mantener el servidor despierto
 
 # Corre solo, cada 10 minutos, sin que nadie tenga que hacer nada —
 # Render duerme el servicio gratuito tras 15 minutos sin actividad,
-# así que un ping cada 10 minutos evita que llegue a dormirse. Como
-# la página de vototech.com.mx vive en el MISMO servidor que la API,
-# este ping mantiene despiertos ambos a la vez.
+# así que un ping cada 10 minutos evita que llegue a dormirse.
+#
+# Apunta a /api/salud (una respuesta chiquita de JSON) en vez de la
+# raíz "/" — desde que la raíz empezó a servir la página de ventas
+# completa, pegarle ahí cada 10 minutos descargaba todo el HTML de
+# la home de balde. /api/salud hace exactamente lo mismo (mantiene
+# el proceso despierto) pesando una fracción de eso.
 #
 # No necesita ninguna cuenta externa (UptimeRobot, cron-job.org,
 # etc.) — vive directo en tu repositorio de GitHub, gratis.
@@ -21,4 +25,4 @@ jobs:
       - name: Ping al servidor
         run: |
           echo "Haciendo ping a VotoTech..."
-          curl -sf -o /dev/null -w "Respuesta: %{http_code} en %{time_total}s\n" https://vototech-backend.onrender.com/ || echo "⚠️ El ping falló — revisa si la URL sigue siendo correcta o si el servicio está caído"
+          curl -sf -o /dev/null -w "Respuesta: %{http_code} en %{time_total}s\n" https://vototech-backend.onrender.com/api/salud || echo "⚠️ El ping falló — revisa si la URL sigue siendo correcta o si el servicio está caído"
