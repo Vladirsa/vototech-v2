@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { useAuth } from '../lib/authStore';
 import { useNavigate } from 'react-router-dom';
@@ -189,6 +189,13 @@ export default function AdminPlataforma() {
   const [archivoBlog, setArchivoBlog] = useState(null);
   const [subiendoBlog, setSubiendoBlog] = useState(false);
   const [mensajeBlog, setMensajeBlog] = useState('');
+  // 🆕 Imagen de portada — ahora se sube como archivo, no como URL de texto
+  const [archivoPortada, setArchivoPortada] = useState(null);
+  const [previewPortada, setPreviewPortada] = useState(null);
+  // 🆕 Referencia al textarea de contenido, para saber dónde insertar
+  // el formato (negrita, imagen, etc.) exactamente donde está el cursor.
+  const refContenido = useRef(null);
+  const [subiendoImagenInline, setSubiendoImagenInline] = useState(false);
 
   const cargarBlog = async () => {
     const { data } = await axios.get(`${API_URL}/blog/admin`, { headers });
@@ -199,6 +206,8 @@ export default function AdminPlataforma() {
   const limpiarFormBlog = () => {
     setFormBlog({ titulo: '', tipo: 'articulo', resumen: '', contenido: '', url_video: '', etiquetas: '', meta_descripcion: '', publicado: false });
     setArchivoBlog(null);
+    setArchivoPortada(null);
+    setPreviewPortada(null);
     setEditandoBlogId(null);
     setMostrarFormBlog(false);
   };
@@ -209,8 +218,53 @@ export default function AdminPlataforma() {
       url_video: post.tipo === 'video' ? post.url_archivo || '' : '', etiquetas: (post.etiquetas || []).join(', '),
       meta_descripcion: post.meta_descripcion || '', publicado: post.publicado,
     });
+    setPreviewPortada(post.imagen_portada || null);
+    setArchivoPortada(null);
     setEditandoBlogId(post.id);
     setMostrarFormBlog(true);
+  };
+
+  // 🆕 Al elegir un archivo de portada, se muestra una vista previa
+  // de inmediato (sin esperar a guardar) para confirmar que sí es la imagen correcta.
+  const elegirPortada = (archivo) => {
+    setArchivoPortada(archivo);
+    if (archivo) setPreviewPortada(URL.createObjectURL(archivo));
+  };
+
+  // 🆕 Inserta texto de formato (Markdown) en el textarea, justo donde
+  // está el cursor — o envolviendo el texto seleccionado, si hay algo
+  // seleccionado (ej. seleccionas una palabra y tocas "Negrita").
+  const insertarFormato = (antes, despues = '') => {
+    const textarea = refContenido.current;
+    if (!textarea) return;
+    const inicio = textarea.selectionStart;
+    const fin = textarea.selectionEnd;
+    const textoActual = formBlog.contenido || '';
+    const seleccionado = textoActual.slice(inicio, fin);
+    const nuevoTexto = textoActual.slice(0, inicio) + antes + seleccionado + despues + textoActual.slice(fin);
+    setFormBlog({ ...formBlog, contenido: nuevoTexto });
+    // Regresa el foco y el cursor a un lugar razonable después de insertar
+    setTimeout(() => {
+      textarea.focus();
+      const nuevaPos = inicio + antes.length + seleccionado.length + despues.length;
+      textarea.setSelectionRange(nuevaPos, nuevaPos);
+    }, 0);
+  };
+
+  // 🆕 Botón "📷 Insertar imagen" — sube la imagen de una vez y mete
+  // la sintaxis de Markdown (![descripción](url)) en el cursor.
+  const insertarImagenEnContenido = async (archivo) => {
+    if (!archivo) return;
+    setSubiendoImagenInline(true);
+    try {
+      const fd = new FormData();
+      fd.append('imagen', archivo);
+      const { data } = await axios.post(`${API_URL}/blog/admin/subir-imagen`, fd, { headers: { ...headers, 'Content-Type': 'multipart/form-data' } });
+      insertarFormato(`\n\n![Descripción de la imagen](${data.url})\n\n`);
+    } catch (e) {
+      alert('No se pudo subir la imagen: ' + (e.response?.data?.error || e.message));
+    }
+    setSubiendoImagenInline(false);
   };
 
   const guardarBlog = async () => {
@@ -219,6 +273,7 @@ export default function AdminPlataforma() {
     const fd = new FormData();
     Object.entries(formBlog).forEach(([k, v]) => fd.append(k, v));
     if (archivoBlog) fd.append('archivo', archivoBlog);
+    if (archivoPortada) fd.append('imagen_portada_archivo', archivoPortada); // 🆕
     try {
       if (editandoBlogId) {
         await axios.patch(`${API_URL}/blog/admin/${editandoBlogId}`, fd, { headers: { ...headers, 'Content-Type': 'multipart/form-data' } });
@@ -537,14 +592,49 @@ export default function AdminPlataforma() {
                 </label>
               </div>
 
+              {/* 🆕 Imagen de portada — ahora sí se puede subir un archivo real,
+                  no solo pegar una URL. Aparece para cualquier tipo de
+                  publicación (hasta un PDF o video se ve mejor con portada). */}
+              <div>
+                <label className="text-[10px] text-slate-500 font-bold block mb-1">🖼️ Imagen de portada (aparece en la tarjeta del blog y al compartir en redes)</label>
+                <div className="flex items-center gap-3">
+                  {previewPortada && (
+                    <img src={previewPortada} alt="Vista previa" className="w-16 h-16 object-cover rounded-lg border border-slate-700" />
+                  )}
+                  <input type="file" accept="image/*" onChange={(e) => elegirPortada(e.target.files[0])}
+                    className="flex-1 text-[10px] text-slate-300" />
+                </div>
+              </div>
+
               <textarea placeholder="Resumen corto (se usa también como descripción para Google)" value={formBlog.resumen}
                 onChange={(e) => setFormBlog({ ...formBlog, resumen: e.target.value })} rows={2}
                 className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white text-xs" />
 
               {formBlog.tipo === 'articulo' && (
-                <textarea placeholder="Contenido completo del artículo" value={formBlog.contenido}
-                  onChange={(e) => setFormBlog({ ...formBlog, contenido: e.target.value })} rows={8}
-                  className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white text-xs font-mono" />
+                <div>
+                  {/* 🆕 Barra de formato — inserta sintaxis Markdown simple
+                      en el cursor. El sitio público ya la convierte a texto
+                      con formato real (negritas, títulos, imágenes). */}
+                  <div className="flex items-center gap-1 mb-1.5 flex-wrap">
+                    <button type="button" onClick={() => insertarFormato('**', '**')} title="Negrita"
+                      className="w-8 h-8 rounded bg-slate-900 border border-slate-700 text-white text-xs font-black">B</button>
+                    <button type="button" onClick={() => insertarFormato('*', '*')} title="Cursiva"
+                      className="w-8 h-8 rounded bg-slate-900 border border-slate-700 text-white text-xs italic">I</button>
+                    <button type="button" onClick={() => insertarFormato('\n## ', '')} title="Título"
+                      className="px-2 h-8 rounded bg-slate-900 border border-slate-700 text-white text-xs font-bold">Título</button>
+                    <button type="button" onClick={() => insertarFormato('[', '](https://)')} title="Link"
+                      className="w-8 h-8 rounded bg-slate-900 border border-slate-700 text-white text-xs">🔗</button>
+                    <label className="w-8 h-8 rounded bg-slate-900 border border-slate-700 text-white text-xs flex items-center justify-center cursor-pointer" title="Insertar imagen">
+                      {subiendoImagenInline ? '⏳' : '📷'}
+                      <input type="file" accept="image/*" className="hidden" disabled={subiendoImagenInline}
+                        onChange={(e) => { insertarImagenEnContenido(e.target.files[0]); e.target.value = ''; }} />
+                    </label>
+                    <span className="text-[9px] text-slate-500 ml-1">Selecciona texto y toca B o I — o pon el cursor donde quieras y toca 📷</span>
+                  </div>
+                  <textarea ref={refContenido} placeholder="Contenido completo del artículo — usa los botones de arriba para dar formato" value={formBlog.contenido}
+                    onChange={(e) => setFormBlog({ ...formBlog, contenido: e.target.value })} rows={10}
+                    className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white text-xs font-mono" />
+                </div>
               )}
 
               {formBlog.tipo === 'pdf' && (
@@ -582,8 +672,11 @@ export default function AdminPlataforma() {
             {blogPosts.length === 0 ? (
               <p className="text-[10px] text-slate-500">Sin publicaciones todavía.</p>
             ) : blogPosts.map((post) => (
-              <div key={post.id} className="flex items-center justify-between bg-slate-800/40 rounded-lg px-3 py-2">
-                <div className="min-w-0">
+              <div key={post.id} className="flex items-center justify-between bg-slate-800/40 rounded-lg px-3 py-2 gap-2">
+                {post.imagen_portada && (
+                  <img src={post.imagen_portada} alt="" className="w-9 h-9 object-cover rounded flex-shrink-0" />
+                )}
+                <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-1.5">
                     <span className="text-[10px]">{post.tipo === 'pdf' ? '📎' : post.tipo === 'video' ? '🎬' : '📄'}</span>
                     <span className="text-xs font-bold text-white truncate">{post.titulo}</span>
