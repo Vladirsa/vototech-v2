@@ -741,7 +741,19 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
   const alPasarMouse = (feature, capa) => {
     capa.on({
       mouseover: (e) => {
-        e.target.setStyle({ weight: 2.5, fillOpacity: 0.75 });
+        // 🆕 Antes solo se mandaba { weight, fillOpacity } —sin
+        // "fillColor"— confiando en que Leaflet conservara el color
+        // que ya tenía. Eso fallaba justo al cambiar de modo de
+        // coloreado (prioridad/campaña/partido): el color se perdía
+        // al pasar el mouse. Ahora se recalcula el estilo COMPLETO
+        // desde estiloSeccion() y solo se le suma el realce de hover
+        // encima — nunca depende de que Leaflet "recuerde" nada.
+        const estiloBase = estiloSeccion(feature);
+        e.target.setStyle({
+          ...estiloBase,
+          weight: 2.5,
+          fillOpacity: Math.min(0.9, estiloBase.fillOpacity + 0.2),
+        });
         e.target.bringToFront();
       },
       mouseout: (e) => {
