@@ -738,6 +738,23 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
       dashArray: !colorBorde && sinCobertura && !esSeleccionada ? '4,3' : null,
     };
   };
+
+  // 🆕 LA CORRECCIÓN REAL DEL "COLOR ANTERIOR" AL PASAR EL MOUSE —
+  // Leaflet engancha mouseover/mouseout UNA sola vez por sección
+  // cuando se dibuja el mapa. Si el candidato cambia de modo de
+  // coloreado (partido → prioridad → campaña) muy rápido, el mapa
+  // puede tardar un instante en "reconstruirse" — y mientras tanto,
+  // esos enganches viejos seguían usando la función de color DE ESE
+  // momento viejo (el "cierre" de JavaScript se queda congelado en
+  // el instante en que se creó).
+  //
+  // Esta referencia se actualiza en CADA render con la función de
+  // color más reciente — así, sin importar cuándo se disparó el
+  // evento de mouse, siempre usa el color correcto del momento
+  // actual, nunca uno atrasado.
+  const refEstiloSeccion = useRef(estiloSeccion);
+  refEstiloSeccion.current = estiloSeccion;
+
   const alPasarMouse = (feature, capa) => {
     capa.on({
       mouseover: (e) => {
@@ -748,7 +765,7 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
         // al pasar el mouse. Ahora se recalcula el estilo COMPLETO
         // desde estiloSeccion() y solo se le suma el realce de hover
         // encima — nunca depende de que Leaflet "recuerde" nada.
-        const estiloBase = estiloSeccion(feature);
+        const estiloBase = refEstiloSeccion.current(feature);
         e.target.setStyle({
           ...estiloBase,
           weight: 2.5,
@@ -757,7 +774,7 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
         e.target.bringToFront();
       },
       mouseout: (e) => {
-        e.target.setStyle(estiloSeccion(feature));
+        e.target.setStyle(refEstiloSeccion.current(feature));
       },
       click: () => {
         if (modoCapa === 'secciones') { alClickSeccion(feature.properties.seccion); return; }
