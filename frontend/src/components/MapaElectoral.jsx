@@ -58,6 +58,23 @@ function CapturarRefMapa({ mapRef }) {
   return null;
 }
 
+/** 🆕 Botón para recentrar el mapa en el territorio de la campaña
+ *  (no en todo Tlaxcala) — vive dentro del MapContainer para poder
+ *  usar useMap(). Recibe el centro ya calculado desde afuera. */
+function ControlCentrarMapa({ centro, zoom }) {
+  const map = useMap();
+  return (
+    <button
+      onClick={() => map.flyTo(centro, zoom, { duration: 1 })}
+      title="Centrar mapa en tu territorio"
+      className="absolute top-2 right-2 z-[1000] w-9 h-9 rounded-lg bg-slate-900/95 backdrop-blur border border-slate-700 text-white text-base shadow-lg flex items-center justify-center hover:bg-slate-800"
+      style={{ marginTop: '52px' }} // debajo del selector de capas base de Leaflet
+    >
+      🎯
+    </button>
+  );
+}
+
 const ANIOS_DISPONIBLES = {
   ayuntamiento: [2024, 2021],
   pres_comunidad: [2024, 2021],
@@ -69,8 +86,13 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
   const navigate = useNavigate();
   const idMontajeMapa = useRef(`mapa-${Date.now()}-${Math.random().toString(36).slice(2)}`).current;
   const aniosDelTipo = ANIOS_DISPONIBLES[tipoEleccion] || [];
-  const [anio, setAnio] = useState(aniosDelTipo[0] || null);
-  useEffect(() => { setAnio((ANIOS_DISPONIBLES[tipoEleccion] || [])[0] || null); }, [tipoEleccion]);
+  // 🆕 "actual" (2027) es un valor especial de año — no es histórico,
+  // representa TU propio avance de campaña, coloreado por
+  // clasificación (Base/Persuadible/Adversario) en vez de partido
+  // ganador. Por eso vive fuera de ANIOS_DISPONIBLES (que sí varía
+  // según tipo de elección) — 2027 siempre está disponible.
+  const [anio, setAnio] = useState('actual');
+  useEffect(() => { setAnio('actual'); }, [tipoEleccion]);
 
   const [esMobile, setEsMobile] = useState(window.innerWidth < 1024);
   useEffect(() => {
@@ -113,6 +135,29 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
     return mapa;
   }, [geoSecciones]);
 
+  // 🆕 Centro del TERRITORIO DE LA CAMPAÑA (no de todo Tlaxcala) —
+  // promedio de los centroides de sus propias secciones. Se usa
+  // tanto para el botón de recentrar como para el primer encuadre.
+  const centroTerritorioCampana = useMemo(() => {
+    if (!geoSecciones) return null;
+    const secciones = territorioTipo && territorioTipo !== 'estatal'
+      ? geoSecciones.features.filter((f) => {
+          if (territorioTipo === 'municipio') return f.properties.municipio === territorioId;
+          if (territorioTipo === 'seccion') return f.properties.seccion === territorioId;
+          if (territorioTipo === 'distrito_local') return f.properties.distrito_local === territorioId;
+          if (territorioTipo === 'distrito_federal') return f.properties.distrito_federal === territorioId;
+          return true;
+        })
+      : geoSecciones.features;
+    if (secciones.length === 0) return null;
+    let sumaLat = 0, sumaLng = 0, total = 0;
+    secciones.forEach((f) => {
+      const c = centroidesSeccion[f.properties.seccion];
+      if (c) { sumaLat += c[0]; sumaLng += c[1]; total++; }
+    });
+    return total > 0 ? [sumaLat / total, sumaLng / total] : null;
+  }, [geoSecciones, centroidesSeccion, territorioTipo, territorioId]);
+
   const promovidosConPosicion = useMemo(() => {
     return promovidos
       .map((p) => {
@@ -125,6 +170,26 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
       .filter(Boolean);
   }, [promovidos, centroidesSeccion]);
 
+  // 🆕 Clasificación DOMINANTE por sección, calculada de tus propios
+  // promovidos — esto es lo que colorea el mapa en el modo "2027"
+  // (tu avance real, no un resultado histórico de otro partido).
+  const clasificacionPorSeccion = useMemo(() => {
+    const conteos = {};
+    promovidos.forEach((p) => {
+      if (!p.seccion_numero || !p.clasificacion) return;
+      if (!conteos[p.seccion_numero]) conteos[p.seccion_numero] = { base: 0, persuadible: 0, adversario: 0 };
+      conteos[p.seccion_numero][p.clasificacion] = (conteos[p.seccion_numero][p.clasificacion] || 0) + 1;
+    });
+    const dominante = {};
+    Object.entries(conteos).forEach(([num, c]) => {
+      const total = c.base + c.persuadible + c.adversario;
+      const max = Math.max(c.base, c.persuadible, c.adversario);
+      const clase = c.base === max ? 'base' : c.persuadible === max ? 'persuadible' : 'adversario';
+      dominante[num] = { clasificacion: clase, total };
+    });
+    return dominante;
+  }, [promovidos]);
+
   useEffect(() => {
     api.get('/geo/secciones/29').then(r => setGeoSecciones(r.data.data));
     api.get('/promovidos')
@@ -134,7 +199,7 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
   }, []);
 
   useEffect(() => {
-    if (!anio) { setResultados({}); return; }
+    if (!anio || anio === 'actual') { setResultados({}); return; }
     api.get(`/resultados/${tipoEleccion}/${anio}`)
       .then(r => setResultados(r.data.data))
       .catch(() => setResultados({}));
@@ -239,8 +304,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
     api.get('/activos').then(r => setActivos(r.data.data.filter(a => a.lat && a.lng))).catch(() => setActivos([]));
   }, []);
 
-  // 🆕 Faltaba "utilitario" aquí — sin esta entrada, playeras/gorras/
-  // lapiceros se veían con el pin genérico 📍 en vez de su propio ícono.
   const ICONO_ACTIVO = { espectacular: '📺', barda: '🧱', manta: '🎏', ine_representante: '🗳️', utilitario: '👕' };
   const iconoActivo = (tipo) => new L.DivIcon({
     className: '',
@@ -434,9 +497,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
           tipo: tipoColocando, direccion: formPunto.direccion || '',
           empresa: formPunto.empresa, costo: formPunto.costo ? parseFloat(formPunto.costo) : undefined,
           cantidad: formPunto.cantidad ? parseInt(formPunto.cantidad) : undefined,
-          // 🆕 Motivo y destinatario — antes un utilitario colocado
-          // desde el mapa nunca guardaba a quién se le dio ni por qué,
-          // aunque el formulario ya pedía la cantidad.
           motivo: formPunto.motivo || undefined,
           destinatario: formPunto.destinatario || undefined,
           nombre_rep: formPunto.nombre_rep, telefono_rep: formPunto.telefono_rep,
@@ -544,6 +604,11 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
     if (coloreadoActivo && modoColoreado === 'prioridad') {
       const prio = prioridadPorSeccion[num];
       if (prio) { colorRelleno = COLOR_PRIORIDAD[prio.prioridad] || colorRelleno; opacidad = 0.55; }
+    } else if (coloreadoActivo && anio === 'actual') {
+      // 🆕 Modo 2027 — colorea con TU clasificación real, no con un
+      // resultado histórico de otro año/partido.
+      const propio = clasificacionPorSeccion[num];
+      if (propio) { colorRelleno = COLOR_CLASIFICACION[propio.clasificacion] || colorRelleno; opacidad = 0.55; }
     } else if (coloreadoActivo && resultado?.ganador) {
       colorRelleno = PARTIDOS[resultado.ganador]?.color || colorRelleno;
       opacidad = 0.55;
@@ -635,7 +700,7 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
 
         {seccionesFiltradas && (
           <GeoJSON
-            key={`${coloreadoActivo}-${seccionActiva}-${territorioId}-${tipoEleccion}-${anio}-${modoColoreado}-${mostrarCobertura}-${Object.keys(prioridadPorSeccion).length}-${seccionesCubiertas.size}-${modoSectorizacion}-${seccionesSeleccionadas.size}-${capaPulso}-${seccionesActivas7d.size}-${zonasAsignadas.length}`}
+            key={`${coloreadoActivo}-${seccionActiva}-${territorioId}-${tipoEleccion}-${anio}-${modoColoreado}-${mostrarCobertura}-${Object.keys(prioridadPorSeccion).length}-${seccionesCubiertas.size}-${modoSectorizacion}-${seccionesSeleccionadas.size}-${capaPulso}-${seccionesActivas7d.size}-${zonasAsignadas.length}-${Object.keys(clasificacionPorSeccion).length}`}
             data={seccionesFiltradas}
             style={estiloSeccion}
             onEachFeature={alPasarMouse}
@@ -784,6 +849,9 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
         <CapturarRefMapa mapRef={mapRef} />
         <CapturaClicMapa activo={!!tipoColocando} onClick={(lat, lng) => setPuntoNuevo({ lat, lng })} />
 
+        {/* 🆕 Botón para recentrar en el territorio de la campaña */}
+        {centroTerritorioCampana && <ControlCentrarMapa centro={centroTerritorioCampana} zoom={territorioTipo === 'seccion' ? 15 : territorioTipo === 'municipio' ? 12 : 10} />}
+
         {puntoNuevo && (
           <Marker
             position={[puntoNuevo.lat, puntoNuevo.lng]}
@@ -869,24 +937,36 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
 
       {coloreadoActivo && modoColoreado === 'partido' && (
         <div className="absolute top-2 left-1/2 -translate-x-1/2 z-[1000] bg-slate-900/95 backdrop-blur border border-slate-700 rounded-xl shadow-xl px-3 py-2 flex flex-col items-center gap-1.5 max-w-[92%]">
-          {aniosDelTipo.length > 0 ? (
-            <div className="flex items-center gap-1.5">
-              <span className="text-[7px] md:text-[9px] text-slate-500 font-bold uppercase">Ver:</span>
-              <div className="flex gap-1">
-                {aniosDelTipo.map((a) => (
-                  <button key={a} onClick={() => setAnio(a)}
-                    className={`px-1.5 md:px-2.5 py-0.5 md:py-1 rounded-full text-[8px] md:text-[10px] font-bold ${anio === a ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
-                    {a}
-                  </button>
-                ))}
-              </div>
+          <div className="flex items-center gap-1.5">
+            <span className="text-[7px] md:text-[9px] text-slate-500 font-bold uppercase">Ver:</span>
+            <div className="flex gap-1">
+              {/* 🆕 Botón 2027 — tu propio avance, siempre disponible sin importar el tipo de elección */}
+              <button onClick={() => setAnio('actual')}
+                className={`px-1.5 md:px-2.5 py-0.5 md:py-1 rounded-full text-[8px] md:text-[10px] font-bold ${anio === 'actual' ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-emerald-400'}`}>
+                🗳️ 2027
+              </button>
+              {aniosDelTipo.map((a) => (
+                <button key={a} onClick={() => setAnio(a)}
+                  className={`px-1.5 md:px-2.5 py-0.5 md:py-1 rounded-full text-[8px] md:text-[10px] font-bold ${anio === a ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
+                  {a}
+                </button>
+              ))}
             </div>
-          ) : (
+          </div>
+          {aniosDelTipo.length === 0 && anio !== 'actual' && (
             <span className="text-[8px] md:text-[9px] text-amber-400 font-bold">⚠️ Sin datos históricos para este tipo de elección</span>
           )}
-          <div className="flex flex-wrap gap-x-1 md:gap-x-2 gap-y-1 justify-center max-w-[280px] md:max-w-none">
-            {Object.entries(PARTIDOS).map(([id]) => <InsigniaPartido key={id} partido={id} tamano="mini" />)}
-          </div>
+          {anio === 'actual' ? (
+            <div className="flex items-center gap-2 text-[8px] md:text-[9px]">
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: COLOR_CLASIFICACION.base }} /> Base</span>
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: COLOR_CLASIFICACION.persuadible }} /> Persuadible</span>
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: COLOR_CLASIFICACION.adversario }} /> Adversario</span>
+            </div>
+          ) : (
+            <div className="flex flex-wrap gap-x-1 md:gap-x-2 gap-y-1 justify-center max-w-[280px] md:max-w-none">
+              {Object.entries(PARTIDOS).map(([id]) => <InsigniaPartido key={id} partido={id} tamano="mini" />)}
+            </div>
+          )}
         </div>
       )}
 
@@ -1214,6 +1294,14 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
                         className={`flex-1 py-2 rounded-lg text-xs font-bold ${modoColoreado === 'prioridad' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🎯 Prioridad</button>
                     </div>
                   )}
+                  <div className="flex gap-1.5 mt-1.5">
+                    <button onClick={() => setAnio('actual')}
+                      className={`flex-1 py-2 rounded-lg text-xs font-bold ${anio === 'actual' ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-emerald-400'}`}>🗳️ 2027 (mi avance)</button>
+                    {aniosDelTipo.map((a) => (
+                      <button key={a} onClick={() => setAnio(a)}
+                        className={`flex-1 py-2 rounded-lg text-xs font-bold ${anio === a ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>{a}</button>
+                    ))}
+                  </div>
                 </div>
 
                 <div className="border-t border-slate-800 pt-3 space-y-2.5">
@@ -1353,8 +1441,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
                   className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
                 <input placeholder="Cantidad entregada" type="number" value={formPunto.cantidad || ''} onChange={(e) => setFormPunto({ ...formPunto, cantidad: e.target.value })}
                   className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
-                {/* 🆕 Motivo y destinatario — antes faltaban aquí, aunque
-                    ya existían en el formulario de Activos "normal". */}
                 <select value={formPunto.motivo || 'promocion_voto'} onChange={(e) => setFormPunto({ ...formPunto, motivo: e.target.value })}
                   className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
                   <option value="promocion_voto">🗳️ Promoción del voto</option>
