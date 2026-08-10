@@ -31,21 +31,21 @@ async function subirImagenAStorage(archivo) {
   const supabase = clienteSupabase();
   if (!supabase) throw new Error('Almacenamiento no configurado en el servidor');
   const ruta = `blog/imagenes/${crypto.randomBytes(8).toString('hex')}-${archivo.originalname}`;
-  const { error } = await supabase.storage.from('documentos').upload(ruta, archivo.buffer, { contentType: archivo.mimetype });
+  const { error } = await supabase.storage.from('blog-publico').upload(ruta, archivo.buffer, { contentType: archivo.mimetype });
   if (error) throw new Error('No se pudo subir la imagen: ' + error.message);
-  return supabase.storage.from('documentos').getPublicUrl(ruta).data.publicUrl;
+  return supabase.storage.from('blog-publico').getPublicUrl(ruta).data.publicUrl;
 }
 
 const esquemaPublicacion = z.object({
   titulo: z.string({ required_error: 'Falta el título' }).min(5, 'El título es muy corto').max(200),
   tipo: z.enum(['articulo', 'pdf', 'video']).default('articulo'),
-  resumen: z.string().max(300).optional(),
+  resumen: z.string().max(500).optional(),
   contenido: z.string().optional(),
   url_video: z.preprocess((v) => (v === '' ? undefined : v), z.string().url('El link del video no es válido').optional()),
   imagen_portada: z.preprocess((v) => (v === '' ? undefined : v), z.string().url().optional()),
   etiquetas: z.array(z.string()).default([]),
   meta_titulo: z.string().max(200).optional(),
-  meta_descripcion: z.string().max(300).optional(),
+  meta_descripcion: z.string().max(320).optional(),
   publicado: z.boolean().default(false),
 });
 
@@ -105,9 +105,9 @@ router.post('/admin', requiereSuperAdmin, upload.fields([{ name: 'archivo', maxC
     const supabase = clienteSupabase();
     if (!supabase) return res.status(500).json({ ok: false, error: 'Almacenamiento no configurado en el servidor' });
     const ruta = `blog/${crypto.randomBytes(8).toString('hex')}-${archivoPdf.originalname}`;
-    const { error: errorSubida } = await supabase.storage.from('documentos').upload(ruta, archivoPdf.buffer, { contentType: archivoPdf.mimetype });
+    const { error: errorSubida } = await supabase.storage.from('blog-publico').upload(ruta, archivoPdf.buffer, { contentType: archivoPdf.mimetype });
     if (errorSubida) return res.status(500).json({ ok: false, error: 'No se pudo subir el PDF' });
-    urlArchivo = supabase.storage.from('documentos').getPublicUrl(ruta).data.publicUrl;
+    urlArchivo = supabase.storage.from('blog-publico').getPublicUrl(ruta).data.publicUrl;
   }
 
   // 🆕 Imagen de portada — ya sea que la subieron como archivo, o
@@ -157,9 +157,9 @@ router.patch('/admin/:id', requiereSuperAdmin, upload.fields([{ name: 'archivo',
     const supabase = clienteSupabase();
     if (!supabase) return res.status(500).json({ ok: false, error: 'Almacenamiento no configurado' });
     const ruta = `blog/${crypto.randomBytes(8).toString('hex')}-${archivoPdf.originalname}`;
-    const { error: errorSubida } = await supabase.storage.from('documentos').upload(ruta, archivoPdf.buffer, { contentType: archivoPdf.mimetype });
+    const { error: errorSubida } = await supabase.storage.from('blog-publico').upload(ruta, archivoPdf.buffer, { contentType: archivoPdf.mimetype });
     if (errorSubida) return res.status(500).json({ ok: false, error: 'No se pudo subir el archivo' });
-    urlArchivo = supabase.storage.from('documentos').getPublicUrl(ruta).data.publicUrl;
+    urlArchivo = supabase.storage.from('blog-publico').getPublicUrl(ruta).data.publicUrl;
   }
 
   // 🆕 Imagen de portada nueva (si subieron una) — si no, se conserva la que ya había
