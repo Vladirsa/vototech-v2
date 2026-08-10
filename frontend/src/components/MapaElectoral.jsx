@@ -6,13 +6,11 @@ import 'leaflet.heat';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import api from '../lib/api';
-
 // Colores por clasificación estratégica (Base/Persuadible/Adversario) —
 // mismo lenguaje visual que ya usamos en Dashboard y Promovidos.
 const COLOR_CLASIFICACION = {
   base: '#10b981', persuadible: '#f59e0b', adversario: '#64748b',
 };
-
 /**
  * Botón para "encontrar" el mapa otra vez — regresa al centro y
  * zoom de inicio con una animación suave. Antes no existía ninguna
@@ -39,7 +37,6 @@ function ControlCentrarMapa({ centro, zoomInicial }) {
     </div>
   );
 }
-
 /**
  * Capa de mapa de calor — usa leaflet.heat directamente sobre el mapa
  * (no hay wrapper de react-leaflet para esto, así que se maneja con
@@ -51,7 +48,6 @@ function ControlCentrarMapa({ centro, zoomInicial }) {
 function CapaCalor({ puntos, activa, colorPartido }) {
   const map = useMap();
   const capaRef = useRef(null);
-
   useEffect(() => {
     if (capaRef.current) { map.removeLayer(capaRef.current); capaRef.current = null; }
     if (activa && puntos.length > 0) {
@@ -60,7 +56,6 @@ function CapaCalor({ puntos, activa, colorPartido }) {
       const gradiente = colorPartido
         ? { 0.3: '#1e1b4b', 0.6: colorPartido, 1: colorPartido }
         : { 0.2: '#312e81', 0.5: '#7c3aed', 0.8: '#ec4899', 1: '#f43f5e' };
-
       capaRef.current = L.heatLayer(puntos.map(p => [p.lat, p.lng, 1]), {
         radius: 38, blur: 26, maxZoom: 16, minOpacity: 0.45,
         gradient: gradiente,
@@ -68,12 +63,9 @@ function CapaCalor({ puntos, activa, colorPartido }) {
     }
     return () => { if (capaRef.current) map.removeLayer(capaRef.current); };
   }, [activa, puntos, map, colorPartido]);
-
   return null;
 }
-
 // ── COLORES OFICIALES DE PARTIDOS (con degradado, no plano) ──
-
 /**
  * Componente que anima el "vuelo" de la cámara del mapa hacia una
  * sección cuando el usuario la selecciona — sensación mucho más
@@ -86,7 +78,6 @@ function VueloCamara({ centro, zoom }) {
   }, [centro, zoom, map]);
   return null;
 }
-
 /** Captura el siguiente clic en el mapa mientras se está en modo
  * "colocar punto" — solo activo cuando activo=true. */
 function CapturaClicMapa({ activo, onClick }) {
@@ -97,7 +88,6 @@ function CapturaClicMapa({ activo, onClick }) {
   });
   return null;
 }
-
 /** Guarda la instancia del mapa en una ref externa, para poder
  * consultar su centro actual (ej. al soltar un pin nuevo). */
 function CapturarRefMapa({ mapRef }) {
@@ -105,7 +95,6 @@ function CapturarRefMapa({ mapRef }) {
   useEffect(() => { mapRef.current = map; }, [map, mapRef]);
   return null;
 }
-
 // Qué años de histórico existen de verdad para cada tipo de elección
 // — no todos tienen los mismos (Ayuntamiento y Pdte. Comunidad tienen
 // 2021 Y 2024; Gobernador y Dip. Local solo 2021, por ahora).
@@ -115,7 +104,6 @@ const ANIOS_DISPONIBLES = {
   gobernador: [2021],
   dip_local: [2021],
 };
-
 /**
  * Qué capas de "Ver por territorio" tiene sentido mostrarle a ESTA
  * campaña — antes se mostraban las 4 siempre, sin importar el
@@ -134,7 +122,6 @@ function capasDeTerritorioDisponibles(territorioTipo) {
   // estado, tiene sentido que vea todos los niveles.
   return ['secciones', 'municipio', 'distrito_local', 'distrito_federal', 'senaduria'];
 }
-
 export default function MapaElectoral({ campanaId, territorioTipo, territorioId, tipoEleccion = 'ayuntamiento', fechaEleccion }) {
   const anioCampana = fechaEleccion ? new Date(fechaEleccion).getFullYear() : null;
   const capasDisponibles = capasDeTerritorioDisponibles(territorioTipo);
@@ -153,7 +140,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
   // más reciente disponible para ESE tipo — nunca dejarlo en un año
   // que ya no aplica.
   useEffect(() => { setAnio((ANIOS_DISPONIBLES[tipoEleccion] || [])[0] || null); }, [tipoEleccion]);
-
   // Detecta si es pantalla de celular — en mobile se usa un menú
   // consolidado en vez de tener 8 paneles flotando sueltos, que ahí
   // sí se amontonan y se encima todo.
@@ -188,7 +174,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
   const [capaCalor, setCapaCalor] = useState(false);
   const [buscarTexto, setBuscarTexto] = useState('');
   const [vueloDestino, setVueloDestino] = useState(null);
-
   const buscarSeccion = (valor) => {
     setBuscarTexto(valor);
     const numero = parseInt(valor);
@@ -198,7 +183,11 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
   };
   const [panelPos, setPanelPos] = useState({ x: 16, y: 190 });
   const arrastrando = useRef(false);
-
+  // 🆕 Posición del panel de resumen de "Campaña" — antes estaba fija
+  // en la esquina (top-4 right-4), ahora se puede arrastrar igual que
+  // el panel de Coloreado.
+  const [panelCampanaPos, setPanelCampanaPos] = useState({ x: 16, y: 16 });
+  const arrastrandoCampana = useRef(false);
   // Centroide aproximado de cada sección (promedio de sus puntos) — se
   // usa como posición de respaldo para promovidos que no tienen lat/lng
   // propias (la mayoría, si no se usó el buscador de calles al registrarlos)
@@ -213,7 +202,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
     });
     return mapa;
   }, [geoSecciones]);
-
   // Promovidos con posición resuelta: su propia lat/lng si la tiene,
   // o si no, el centroide de su sección con un pequeño desplazamiento
   // aleatorio (para que no queden todos apilados en el mismo punto exacto)
@@ -228,7 +216,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
       })
       .filter(Boolean);
   }, [promovidos, centroidesSeccion]);
-
   useEffect(() => {
     api.get('/geo/secciones/29').then(r => setGeoSecciones(r.data.data));
     api.get('/geo/municipios/29').then(r => {
@@ -244,7 +231,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
       .catch(() => setPromovidos([]));
     api.get('/promovidos-analitica/concentrado-mapa').then(r => setConcentrado(r.data.data)).catch(() => setConcentrado(null));
   }, []);
-
   // Cargar resultados reales cada vez que cambia el tipo de elección/año elegido
   useEffect(() => {
     if (!anio) { setResultados({}); return; } // sin histórico cargado para este tipo de elección todavía
@@ -252,12 +238,10 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
       .then(r => setResultados(r.data.data))
       .catch(() => setResultados({}));
   }, [tipoEleccion, anio]);
-
   // ── CASAS SIMULADAS (control casa por casa dentro de una manzana) ──
   const [manzanaActiva, setManzanaActiva] = useState(null);
   const [casas, setCasas] = useState([]);
   const [cargandoManzanas, setCargandoManzanas] = useState(false);
-
   useEffect(() => {
     // Limpiar INMEDIATAMENTE al cambiar de sección — antes este estado
     // se quedaba con las manzanas de la sección anterior mientras
@@ -271,14 +255,12 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
       .then(r => setManzanas(r.data.data))
       .finally(() => setCargandoManzanas(false));
   }, [seccionActiva]);
-
   useEffect(() => {
     if (!seccionActiva || !manzanaActiva) { setCasas([]); return; }
     api.get(`/casas/${seccionActiva}/${manzanaActiva}`)
       .then(r => setCasas(r.data.data))
       .catch(() => setCasas([]));
   }, [seccionActiva, manzanaActiva]);
-
   // ── FICHA TÉCNICA TERRITORIAL (distrito federal/local, municipio) ──
   useEffect(() => {
     if (!territorioActivo) { setFichaTerritorio(null); return; }
@@ -292,13 +274,11 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
       .catch(() => setFichaTerritorio(null))
       .finally(() => setCargandoFichaTerritorio(false));
   }, [territorioActivo]);
-
   // ── FICHA TÉCNICA DE SECCIÓN (padrón, históricos, promovidos, déficit) ──
   const [fichaTecnica, setFichaTecnica] = useState(null);
   const [concentrado, setConcentrado] = useState(null);
   const [mostrarConcentrado, setMostrarConcentrado] = useState(false);
   const [cargandoFicha, setCargandoFicha] = useState(false);
-
   useEffect(() => {
     if (!seccionActiva) { setFichaTecnica(null); return; }
     setCargandoFicha(true);
@@ -308,12 +288,10 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
       .catch(() => setFichaTecnica(null))
       .finally(() => setCargandoFicha(false));
   }, [seccionActiva]);
-
   // ── RESUMEN DE MUNICIPIO (ficha técnica completa del territorio) ──
   const [mostrarResumenMunicipio, setMostrarResumenMunicipio] = useState(false);
   const [resumenMunicipio, setResumenMunicipio] = useState(null);
   const [cargandoResumen, setCargandoResumen] = useState(false);
-
   const abrirResumenMunicipio = () => {
     if (territorioTipo !== 'municipio' || !territorioId) return;
     setMostrarResumenMunicipio(true);
@@ -323,14 +301,12 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
       .catch(() => setResumenMunicipio(null))
       .finally(() => setCargandoResumen(false));
   };
-
   // ── FILTRO DE PROMOVIDOS POR PARTIDO ──
   const [filtroPartido, setFiltroPartido] = useState('todos');
   const promovidosFiltrados = useMemo(() => {
     if (filtroPartido === 'todos') return promovidosConPosicion;
     return promovidosConPosicion.filter((p) => p.partido === filtroPartido);
   }, [promovidosConPosicion, filtroPartido]);
-
   // ── COLOREADO ESTRATÉGICO — trae el Motor de Priorización directo al
   // mapa, para ver de un vistazo dónde pelear sin ir a otra pantalla ──
   const [modoColoreado, setModoColoreado] = useState('partido'); // 'partido' | 'prioridad'
@@ -350,7 +326,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
       seccionesConTrabajo: Object.keys(densidadPorSeccion).length,
     };
   }, [densidadPorSeccion]);
-
   useEffect(() => {
     if (modoColoreado !== 'campana') return;
     api.get('/priorizacion/densidad-promovidos').then(r => {
@@ -359,7 +334,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
       setDensidadPorSeccion(mapa);
     }).catch(() => setDensidadPorSeccion({}));
   }, [modoColoreado]);
-
   useEffect(() => {
     if (modoColoreado !== 'prioridad') return;
     api.get('/priorizacion').then(r => {
@@ -368,19 +342,16 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
       setPrioridadPorSeccion(mapa);
     }).catch(() => setPrioridadPorSeccion({}));
   }, [modoColoreado]);
-
   const COLOR_PRIORIDAD = {
     critica: '#dc2626', recuperable: '#f97316', disputa: '#eab308', consolidar: '#10b981', perdida: '#475569',
   };
   const LABEL_PRIORIDAD = {
     critica: '🔴 Crítica', recuperable: '🟠 Recuperable', disputa: '🟡 Disputa', consolidar: '🟢 Consolidar', perdida: '⚫ Sin esperanza',
   };
-
   // ── COBERTURA DE ESTRUCTURA — qué secciones tienen coordinador
   // seccional asignado y cuáles están descubiertas ──
   const [mostrarCobertura, setMostrarCobertura] = useState(false);
   const [seccionesCubiertas, setSeccionesCubiertas] = useState(new Set());
-
   useEffect(() => {
     if (!mostrarCobertura) return;
     api.get('/estructura').then(r => {
@@ -392,46 +363,37 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
       setSeccionesCubiertas(cubiertas);
     }).catch(() => setSeccionesCubiertas(new Set()));
   }, [mostrarCobertura]);
-
   // ── ACTIVOS DE CAMPAÑA (bardas, espectaculares, mantas, representantes) ──
   const [activos, setActivos] = useState([]);
   const [capaActivos, setCapaActivos] = useState(false);
-
   useEffect(() => {
     api.get('/activos').then(r => setActivos(r.data.data.filter(a => a.lat && a.lng))).catch(() => setActivos([]));
   }, []);
-
-  const ICONO_ACTIVO = { espectacular: '📺', barda: '🧱', manta: '🎏', ine_representante: '🗳️' };
+  const ICONO_ACTIVO = { espectacular: '📺', barda: '🧱', manta: '🎏', ine_representante: '🗳️', utilitario: '👕' };
   const iconoActivo = (tipo) => new L.DivIcon({
     className: '',
     html: `<div style="font-size:18px;filter:drop-shadow(0 1px 3px rgba(0,0,0,.7))">${ICONO_ACTIVO[tipo] || '📍'}</div>`,
     iconSize: [22, 22],
   });
-
   // ── INCIDENCIAS EN EL MAPA (ya se capturan con GPS, faltaba mostrarlas) ──
   const [incidencias, setIncidencias] = useState([]);
   const [capaIncidencias, setCapaIncidencias] = useState(false);
-
   useEffect(() => {
     api.get('/incidencias').then(r => setIncidencias(r.data.data.filter(i => i.lat && i.lng && i.estado === 'activa'))).catch(() => setIncidencias([]));
   }, []);
-
   const ICONO_URGENCIA = { urgente: '#dc2626', alta: '#f97316', media: '#eab308', baja: '#64748b' };
   const iconoIncidencia = (urgencia) => new L.DivIcon({
     className: '',
     html: `<div style="width:16px;height:16px;background:${ICONO_URGENCIA[urgencia]};border:2px solid white;border-radius:50% 50% 50% 0;transform:rotate(-45deg);box-shadow:0 1px 4px rgba(0,0,0,.6)"></div>`,
     iconSize: [16, 16],
   });
-
   // ── LISTA DE CACERÍA GEOLOCALIZADA (día D: confirmados que no han votado) ──
   const [caceria, setCaceria] = useState([]);
   const [capaCaceria, setCapaCaceria] = useState(false);
-
   useEffect(() => {
     if (!capaCaceria) return;
     api.get('/dia-eleccion/caceria').then(r => setCaceria(r.data.data)).catch(() => setCaceria([]));
   }, [capaCaceria]);
-
   const caceriaConPosicion = useMemo(() => {
     return caceria.map((p) => {
       const centro = centroidesSeccion[p.seccion_numero];
@@ -440,23 +402,19 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
       return { ...p, _lat: centro[0] + jitter(), _lng: centro[1] + jitter() };
     }).filter(Boolean);
   }, [caceria, centroidesSeccion]);
-
   const iconoCaceria = new L.DivIcon({
     className: '',
     html: `<div style="width:12px;height:12px;background:#dc2626;border:2px solid white;border-radius:50%;box-shadow:0 0 0 4px rgba(220,38,38,.3)"></div>`,
     iconSize: [12, 12],
   });
-
   // ── CONFIRMADOS (verde) — complemento de la cacería (rojo): los que
   // YA marcaron que votaron, para ver de un vistazo qué zonas van bien ──
   const [confirmados, setConfirmados] = useState([]);
   const [capaConfirmados, setCapaConfirmados] = useState(false);
-
   useEffect(() => {
     if (!capaConfirmados) return;
     api.get('/dia-eleccion/confirmados').then(r => setConfirmados(r.data.data)).catch(() => setConfirmados([]));
   }, [capaConfirmados]);
-
   const confirmadosConPosicion = useMemo(() => {
     return confirmados.map((p) => {
       const centro = centroidesSeccion[p.seccion_numero];
@@ -465,24 +423,20 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
       return { ...p, _lat: centro[0] + jitter(), _lng: centro[1] + jitter() };
     }).filter(Boolean);
   }, [confirmados, centroidesSeccion]);
-
   const iconoConfirmado = new L.DivIcon({
     className: '',
     html: `<div style="width:12px;height:12px;background:#22c55e;border:2px solid white;border-radius:50%;box-shadow:0 0 0 4px rgba(34,197,94,.3)"></div>`,
     iconSize: [12, 12],
   });
-
   // ── UBICACIÓN DE CASILLAS — registrada por el equipo (no viene del
   // INE automáticamente), para ver cobertura real de representantes ──
   const [casillas, setCasillas] = useState([]);
   const [capaCasillas, setCapaCasillas] = useState(false);
-
   // ── RESPUESTAS DE ENCUESTAS — dónde viene contestando la gente ──
   const [encuestasDisponibles, setEncuestasDisponibles] = useState([]);
   const [encuestaSeleccionada, setEncuestaSeleccionada] = useState('');
   const [respuestasEncuesta, setRespuestasEncuesta] = useState([]);
   const [capaEncuestas, setCapaEncuestas] = useState(false);
-
   useEffect(() => {
     if (!capaEncuestas) return;
     api.get('/encuestas').then(r => {
@@ -490,30 +444,24 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
       if (!encuestaSeleccionada && r.data.data[0]) setEncuestaSeleccionada(r.data.data[0].id);
     });
   }, [capaEncuestas]);
-
   useEffect(() => {
     if (!capaEncuestas || !encuestaSeleccionada) return;
     api.get(`/encuestas/${encuestaSeleccionada}/mapa`).then(r => setRespuestasEncuesta(r.data.data)).catch(() => setRespuestasEncuesta([]));
   }, [capaEncuestas, encuestaSeleccionada]);
-
   const iconoRespuestaEncuesta = new L.DivIcon({
     className: '', html: `<div style="font-size:16px;filter:drop-shadow(0 1px 2px rgba(0,0,0,.7))">📋</div>`, iconSize: [18, 18],
   });
-
   useEffect(() => {
     api.get('/dia-eleccion/casillas').then(r => setCasillas(r.data.data.filter(c => c.lat && c.lng))).catch(() => setCasillas([]));
   }, []);
-
   const iconoCasilla = (conRepresentante) => new L.DivIcon({
     className: '',
     html: `<div style="font-size:18px;filter:drop-shadow(0 1px 3px rgba(0,0,0,.7))">${conRepresentante ? '🗳️' : '❗'}</div>`,
     iconSize: [22, 22],
   });
-
   // ── ACTIVIDAD RECIENTE ("pulso") — secciones con/sin contactos en 7 días ──
   const [capaPulso, setCapaPulso] = useState(false);
   const [seccionesActivas7d, setSeccionesActivas7d] = useState(new Set());
-
   useEffect(() => {
     if (!capaPulso) return;
     api.get('/promovidos').then(r => {
@@ -528,22 +476,18 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
       setSeccionesActivas7d(activas);
     }).catch(() => setSeccionesActivas7d(new Set()));
   }, [capaPulso]);
-
   // ── AGENDA EN EL MAPA — eventos con ubicación (recorridos, mítines) ──
   const [eventosAgenda, setEventosAgenda] = useState([]);
   const [capaAgenda, setCapaAgenda] = useState(false);
-
   useEffect(() => {
     api.get('/agenda').then(r => setEventosAgenda(r.data.data.filter(e => e.lat && e.lng))).catch(() => setEventosAgenda([]));
   }, []);
-
   const ICONO_EVENTO = { evento: '🎪', reunion: '👥', recorrido: '🚶', entrevista: '🎤' };
   const iconoEvento = (tipo) => new L.DivIcon({
     className: '',
     html: `<div style="font-size:18px;filter:drop-shadow(0 1px 3px rgba(0,0,0,.7))">${ICONO_EVENTO[tipo] || '📅'}</div>`,
     iconSize: [22, 22],
   });
-
   // ── AGREGAR PUNTO INTERACTIVO — clic en el botón, elige qué tipo de
   // punto quieres poner, luego clic en el mapa donde va, y se llena
   // un formulario corto que guarda directo en la capa correspondiente ──
@@ -552,7 +496,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
   const [puntoNuevo, setPuntoNuevo] = useState(null);
   const [posicionConfirmada, setPosicionConfirmada] = useState(false);
   const [formPunto, setFormPunto] = useState({});
-
   const TIPOS_PUNTO = [
     { id: 'barda', ic: '🧱', label: 'Barda' },
     { id: 'espectacular', ic: '📺', label: 'Espectacular' },
@@ -563,7 +506,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
     { id: 'promovido', ic: '🤝', label: 'Promovido' },
     { id: 'casilla', ic: '🗳️', label: 'Ubicación de casilla' },
   ];
-
   const iniciarColocacion = (tipo) => {
     setTipoColocando(tipo);
     setMenuAgregarAbierto(false);
@@ -574,14 +516,12 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
     const centro = mapRef.current?.getCenter();
     setPuntoNuevo(centro ? { lat: centro.lat, lng: centro.lng } : { lat: 19.32, lng: -98.24 });
   };
-
   const cancelarColocacion = () => {
     setTipoColocando(null);
     setPuntoNuevo(null);
     setPosicionConfirmada(false);
     setFormPunto({});
   };
-
   const guardarPunto = async () => {
     if (!puntoNuevo) return;
     try {
@@ -619,20 +559,16 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
       alert('Error al guardar: ' + (e.response?.data?.error || e.message));
     }
   };
-
-
   // ── SECTORIZACIÓN: seleccionar varias secciones y asignarlas de un jalón ──
   const [modoSectorizacion, setModoSectorizacion] = useState(false);
   const [seccionesSeleccionadas, setSeccionesSeleccionadas] = useState(new Set());
   const [coordinadores, setCoordinadores] = useState([]);
   const [zonasAsignadas, setZonasAsignadas] = useState([]);
-
   useEffect(() => {
     if (!modoSectorizacion) return;
     api.get('/estructura').then(r => setCoordinadores(r.data.data.filter(u => u.rol !== 'promotor')));
     api.get('/zonas').then(r => setZonasAsignadas(r.data.data));
   }, [modoSectorizacion]);
-
   const alClickSeccion = (numero) => {
     if (!modoSectorizacion) { setSeccionActiva(numero); return; }
     setSeccionesSeleccionadas((prev) => {
@@ -641,7 +577,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
       return nuevo;
     });
   };
-
   const asignarZona = async (usuarioId) => {
     if (seccionesSeleccionadas.size === 0) return;
     const { data } = await api.post('/zonas/asignar', { usuario_id: usuarioId, secciones: [...seccionesSeleccionadas] });
@@ -649,7 +584,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
     setSeccionesSeleccionadas(new Set());
     api.get('/zonas').then(r => setZonasAsignadas(r.data.data));
   };
-
   // Lookup rápido: sección -> quién ya la tiene asignada (para mostrarlo
   // ANTES de seleccionar, no después — antes esto no se veía en ningún lado)
   const seccionAsignadaA = useMemo(() => {
@@ -657,14 +591,12 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
     zonasAsignadas.forEach((z) => { mapa[z.seccion_numero] = z.usuario_nombre; });
     return mapa;
   }, [zonasAsignadas]);
-
   const ESTADO_CASA_COLOR = {
     sin_visitar: '#64748b', visitado: '#3b82f6', promovido: '#10b981', competencia: '#ef4444', no_toco: '#f59e0b',
   };
   const ESTADO_CASA_LABEL = {
     sin_visitar: 'Sin visitar', visitado: 'Visitada', promovido: '✅ Promovido', competencia: '🚩 Competencia', no_toco: 'No tocó',
   };
-
   const cicloEstado = async (casa) => {
     const orden = ['sin_visitar', 'visitado', 'promovido', 'competencia', 'no_toco'];
     const siguiente = orden[(orden.indexOf(casa.estado) + 1) % orden.length];
@@ -674,13 +606,11 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
     const { data } = await api.patch(`/casas/${casa.id}`, body);
     setCasas((prev) => prev.map((c) => (c.id === casa.id ? data.data : c)));
   };
-
   const iconoCasa = (estado) => new L.DivIcon({
     className: '',
     html: `<div style="width:10px;height:10px;background:${ESTADO_CASA_COLOR[estado]};border:1.5px solid white;box-shadow:0 1px 3px rgba(0,0,0,.6);border-radius:2px"></div>`,
     iconSize: [10, 10],
   });
-
   // ── PANEL DE COLOREADO REALMENTE MOVIBLE (arrastrar con el mouse/dedo) ──
   const iniciarArrastre = (e) => {
     arrastrando.current = { startX: e.clientX - panelPos.x, startY: e.clientY - panelPos.y };
@@ -694,7 +624,21 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
     document.addEventListener('mousemove', mover);
     document.addEventListener('mouseup', soltar);
   };
-
+  // 🆕 Mismo mecanismo de arrastre, pero para el panel de resumen de
+  // Campaña — antes estaba fijo en la esquina, ahora se mueve igual
+  // que el de Coloreado.
+  const iniciarArrastreCampana = (e) => {
+    arrastrandoCampana.current = { startX: e.clientX - panelCampanaPos.x, startY: e.clientY - panelCampanaPos.y };
+    const mover = (ev) => {
+      setPanelCampanaPos({ x: ev.clientX - arrastrandoCampana.current.startX, y: ev.clientY - arrastrandoCampana.current.startY });
+    };
+    const soltar = () => {
+      document.removeEventListener('mousemove', mover);
+      document.removeEventListener('mouseup', soltar);
+    };
+    document.addEventListener('mousemove', mover);
+    document.addEventListener('mouseup', soltar);
+  };
   // Filtrar solo las secciones del territorio del candidato (municipio/sección fija)
   const seccionesFiltradas = useMemo(() => {
     if (!geoSecciones) return null;
@@ -708,18 +652,15 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
     });
     return { ...geoSecciones, features: filtradas };
   }, [geoSecciones, territorioTipo, territorioId]);
-
   // ── ESTILO DE CADA SECCIÓN (aquí vive el coloreado por partido) ──
   const estiloSeccion = (feature) => {
     const num = feature.properties.seccion;
     const resultado = resultados[num];
     const esSeleccionada = seccionActiva === num;
-
     let colorRelleno = '#3730a3';   // color por defecto (índigo neutral, no rojo/guinda)
     let opacidad = 0.35;
     let colorBorde = null;   // null = usa el borde normal de siempre
     let grosorBorde = null;  // null = usa el grosor normal de siempre
-
     // Modo capa territorial — el CONTORNO marca a qué distrito/
     // municipio pertenece cada sección (color por hash del número,
     // más grueso y blanco si es el territorio seleccionado), pero el
@@ -746,7 +687,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
       colorRelleno = `hsl(${hue}, 75%, 50%)`;
       opacidad = esTerritorioActivo ? Math.min(0.95, intensidadTerritorial + 0.25) : intensidadTerritorial;
     }
-
     if (modoCapa === 'secciones') {
       if (coloreadoActivo && modoColoreado === 'prioridad') {
         const prio = prioridadPorSeccion[num];
@@ -769,26 +709,22 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
         opacidad = 0.55;
       }
     }
-
     // Pulso de actividad: verde si hubo contacto en los últimos 7 días, gris apagado si no
     if (capaPulso) {
       colorRelleno = seccionesActivas7d.has(num) ? '#22c55e' : '#3f3f46';
       opacidad = seccionesActivas7d.has(num) ? 0.5 : 0.6;
     }
-
     // Cobertura de estructura: borde punteado rojo si NO tiene coordinador
     // seccional asignado — para detectar huecos de un vistazo
     const sinCobertura = mostrarCobertura && !seccionesCubiertas.has(num);
     const seleccionadaParaZona = modoSectorizacion && seccionesSeleccionadas.has(num);
     const yaAsignada = modoSectorizacion && seccionAsignadaA[num];
-
     if (seleccionadaParaZona) {
       return { fillColor: '#a855f7', fillOpacity: 0.6, color: '#c084fc', weight: 3, opacity: 1 };
     }
     if (yaAsignada) {
       return { fillColor: '#0ea5e9', fillOpacity: 0.25, color: '#38bdf8', weight: 1.5, opacity: 0.8 };
     }
-
     return {
       fillColor: colorRelleno,
       fillOpacity: opacidad,
@@ -798,7 +734,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
       dashArray: !colorBorde && sinCobertura && !esSeleccionada ? '4,3' : null,
     };
   };
-
   const alPasarMouse = (feature, capa) => {
     capa.on({
       mouseover: (e) => {
@@ -841,7 +776,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
       permanent: false, direction: 'center', className: 'etiqueta-seccion',
     });
   };
-
   // Antes el punto se coloreaba SOLO por clasificación (base/persuadible/
   // adversario) — nunca reflejaba el partido de afinidad, aunque la
   // leyenda de arriba SÍ mostraba colores de partido. Ahora el color
@@ -857,13 +791,10 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
       iconSize: [14, 14],
     });
   };
-
   const centroTlaxcala = [19.32, -98.24];
-
   return (
     <div className="relative w-full h-full bg-slate-950">
       <MapContainer key={idMontajeMapa} center={centroTlaxcala} zoom={11} className="w-full h-full" zoomControl={false}>
-
         {/* SORPRESA 1: selector de tipo de mapa (satelital, oscuro, calles) — la v1 no tenía NINGÚN mapa base real */}
         <LayersControl position="bottomleft">
           <LayersControl.BaseLayer name="🌙 Oscuro (recomendado de noche)">
@@ -885,7 +816,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
             />
           </LayersControl.BaseLayer>
         </LayersControl>
-
         {seccionesFiltradas && (
           <GeoJSON
             key={`${territorioId}-${modoSectorizacion}-${modoCapa}-${zonasAsignadas.length}`}
@@ -894,7 +824,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
             onEachFeature={alPasarMouse}
           />
         )}
-
         {/* Manzanas reales — solo de la sección seleccionada, carga bajo demanda.
             Clic en una manzana = activarla para ver/marcar sus casas simuladas. */}
         {manzanas && manzanas.features.length > 0 && (
@@ -912,7 +841,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
             }}
           />
         )}
-
         {/* Casas simuladas de la manzana activa — clic para ir cambiando su estado */}
         {casas.map((c) => (
           <Marker key={c.id} position={[c.lat, c.lng]} icon={iconoCasa(c.estado)}
@@ -927,7 +855,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
             </Popup>
           </Marker>
         ))}
-
         {/* Agenda con ubicación — recorridos, mítines, reuniones en el mapa */}
         {capaAgenda && eventosAgenda.map((e) => (
           <Marker key={e.id} position={[e.lat, e.lng]} icon={iconoEvento(e.tipo)}>
@@ -945,7 +872,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
             </Popup>
           </Marker>
         ))}
-
         {/* Incidencias activas con GPS — urgencia por color */}
         {capaIncidencias && incidencias.map((inc) => (
           <Marker key={inc.id} position={[inc.lat, inc.lng]} icon={iconoIncidencia(inc.urgencia)}>
@@ -958,7 +884,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
             </Popup>
           </Marker>
         ))}
-
         {/* Lista de cacería geolocalizada — Base confirmados sin votar (Día D) */}
         {capaCaceria && caceriaConPosicion.map((p) => (
           <Marker key={p.id} position={[p._lat, p._lng]} icon={iconoCaceria}>
@@ -971,7 +896,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
             </Popup>
           </Marker>
         ))}
-
         {/* Confirmados (verde) — ya votaron */}
         {capaConfirmados && confirmadosConPosicion.map((p) => (
           <Marker key={p.id} position={[p._lat, p._lng]} icon={iconoConfirmado}>
@@ -984,7 +908,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
             </Popup>
           </Marker>
         ))}
-
         {/* Respuestas de encuestas con ubicación */}
         {capaEncuestas && respuestasEncuesta.map((r) => (
           <Marker key={r.id} position={[r.lat, r.lng]} icon={iconoRespuestaEncuesta}>
@@ -996,7 +919,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
             </Popup>
           </Marker>
         ))}
-
         {/* Ubicación de casillas registradas */}
         {capaCasillas && casillas.map((c) => (
           <Marker key={c.id} position={[c.lat, c.lng]} icon={iconoCasilla(!!c.representante_id)}>
@@ -1011,7 +933,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
             </Popup>
           </Marker>
         ))}
-
         {/* Activos de campaña (bardas, espectaculares, mantas, representantes) */}
         {capaActivos && activos.map((a) => (
           <Marker key={a.id} position={[a.lat, a.lng]} icon={iconoActivo(a.tipo)}>
@@ -1024,7 +945,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
             </Popup>
           </Marker>
         ))}
-
         {/* Promovidos reales — coloreados por clasificación estratégica */}
         {capaPromovidos && !capaCalor && promovidosFiltrados.map((p) => (
           <Marker key={p.id} position={[p._lat, p._lng]} icon={iconoPromovido(p.partido, p.clasificacion)}>
@@ -1036,9 +956,7 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
             </Popup>
           </Marker>
         ))}
-
         <ControlCentrarMapa centro={centroTlaxcala} zoomInicial={11} />
-
         <CapaCalor
           puntos={promovidosFiltrados.map(p => ({ lat: p._lat, lng: p._lng }))}
           activa={capaCalor}
@@ -1047,7 +965,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
         {vueloDestino && <VueloCamara key={vueloDestino.key} centro={vueloDestino.centro} zoom={vueloDestino.zoom} />}
         <CapturarRefMapa mapRef={mapRef} />
         <CapturaClicMapa activo={!!tipoColocando} onClick={(lat, lng) => setPuntoNuevo({ lat, lng })} />
-
         {/* Pin del punto nuevo — ARRASTRABLE, como en Google Maps: se
             suelta y se va moviendo con el dedo hasta el lugar exacto
             (una calle, una esquina) antes de confirmar los datos. */}
@@ -1069,7 +986,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
           />
         )}
       </MapContainer>
-
       {/* ── BOTÓN DE CONCENTRADO GENERAL — grande y siempre visible,
           para que el candidato no tenga que ir a buscar sus números
           a otra pantalla. ── */}
@@ -1083,7 +999,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
           </div>
         </button>
       )}
-
       {mostrarConcentrado && concentrado && (
         <div className="fixed inset-0 bg-black/70 z-[2000] flex items-center justify-center p-4" onClick={() => setMostrarConcentrado(false)}>
           <div className="bg-slate-950 border border-slate-700 rounded-2xl max-w-md w-full p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
@@ -1092,7 +1007,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
               <button onClick={() => setMostrarConcentrado(false)} className="text-slate-500 text-xl">✕</button>
             </div>
             <p className="text-[9px] text-slate-500 -mt-2">Este total incluye a TODOS tus promovidos, aunque no todos tengan ubicación exacta para verse como punto en el mapa — por eso puede ser mayor al número que ves en la capa "Con ubicación en el mapa".</p>
-
             <div className="grid grid-cols-2 gap-3">
               <div className="bg-indigo-950/60 border border-indigo-700/30 rounded-xl p-4 text-center">
                 <div className="text-3xl font-black text-white">{concentrado.total_promovidos}</div>
@@ -1110,7 +1024,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
                 </div>
               </div>
             </div>
-
             <div>
               <div className="text-xs font-bold text-slate-400 uppercase mb-2">Promovidos por partido</div>
               <div className="space-y-2">
@@ -1136,7 +1049,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
           </div>
         </div>
       )}
-
       {territorioActivo && (
         <div className="fixed inset-0 bg-black/70 z-[2000] flex items-center justify-center p-4" onClick={() => setTerritorioActivo(null)}>
           <div className="bg-slate-950 border border-slate-700 rounded-2xl max-w-md w-full p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
@@ -1146,7 +1058,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
               </h2>
               <button onClick={() => setTerritorioActivo(null)} className="text-slate-500 text-xl">✕</button>
             </div>
-
             {cargandoFichaTerritorio ? (
               <div className="text-center text-slate-500 py-8">⏳ Cargando...</div>
             ) : !fichaTerritorio?.existe ? (
@@ -1168,7 +1079,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
                     <div className="text-[9px] text-slate-500">Municipio(s)</div>
                   </div>
                 </div>
-
                 {fichaTerritorio.historico ? (
                   <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
                     <div className="text-xs font-bold text-slate-400 uppercase mb-2">Resultado {fichaTerritorio.historico.anio} — cabecera {fichaTerritorio.historico.cabecera}</div>
@@ -1189,7 +1099,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
                 ) : (
                   <p className="text-[11px] text-amber-400 bg-amber-500/10 rounded-lg px-3 py-2">⚠️ Sin histórico cargado todavía para este territorio</p>
                 )}
-
                 {/* 👥 QUIÉN TRABAJA AQUÍ Y SI ESTÁ CUMPLIENDO SU META —
                     lo que faltaba: antes solo se sabía el nombre del
                     responsable, nunca si de verdad está rindiendo. */}
@@ -1228,7 +1137,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
           </div>
         </div>
       )}
-
       {/* ── LEYENDA DE COLORES + SELECTOR DE AÑO — fija arriba del mapa,
           siempre visible. Antes el año estaba fijo sin ningún control
           y sin decir cuál se estaba mostrando; ahora se ve clarísimo. ── */}
@@ -1254,15 +1162,14 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
           </div>
         </div>
       )}
-
       {/* ── PANEL DE COLOREADO — solo en escritorio, en móvil vive dentro del menú ── */}
       {!esMobile && (
       <div
-        className="absolute bg-slate-900/95 backdrop-blur border border-indigo-500/30 rounded-2xl shadow-2xl w-64 select-none z-[1000]"
-        style={{ left: panelPos.x, top: panelPos.y }}
+        className="absolute bg-slate-900/95 backdrop-blur border border-indigo-500/30 rounded-2xl shadow-2xl w-64 select-none z-[1000] flex flex-col"
+        style={{ left: panelPos.x, top: panelPos.y, maxHeight: 'calc(100vh - 120px)' }}
       >
         <div
-          className="flex items-center justify-between px-4 py-3 cursor-move border-b border-slate-700"
+          className="flex items-center justify-between px-4 py-3 cursor-move border-b border-slate-700 flex-shrink-0"
           onMouseDown={iniciarArrastre}
         >
           <div className="flex items-center gap-2">
@@ -1279,7 +1186,17 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
             <div className={`w-4 h-4 bg-white rounded-full transition-transform ${coloreadoActivo ? 'translate-x-5' : 'translate-x-0.5'}`} />
           </button>
         </div>
-
+        {/* 🆕 Todo lo de abajo del encabezado vive en su propio cuerpo,
+            con "resize" nativo del navegador (la esquina inferior
+            derecha se puede arrastrar para agrandar/achicar) y con
+            scroll INTERNO cuando el contenido no cabe — así el panel
+            nunca empuja el scroll de toda la página, solo el suyo
+            propio. Se guarda un tamaño inicial razonable en el estilo,
+            con un mínimo y máximo sensatos. */}
+        <div
+          className="overflow-y-auto resize-y"
+          style={{ minHeight: '120px', maxHeight: 'calc(100vh - 180px)', height: '420px' }}
+        >
         {coloreadoActivo && (
           <div className="flex gap-1 p-3 pb-0">
             <button onClick={() => setModoColoreado('partido')}
@@ -1296,7 +1213,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
             </button>
           </div>
         )}
-
         <div className="p-3 border-t border-slate-800">
           <p className="text-[10px] text-slate-500 font-bold uppercase mb-1.5">🗺️ Ver por territorio</p>
           <div className="grid grid-cols-2 gap-1.5">
@@ -1334,7 +1250,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
             </>
           )}
         </div>
-
         <div className="p-3 space-y-2">
           <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
             <input type="checkbox" checked={capaPromovidos} onChange={e => setCapaPromovidos(e.target.checked)} />
@@ -1395,7 +1310,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
             🗂️ Cobertura de estructura (borde rojo = sin coordinador)
           </label>
         </div>
-
         {coloreadoActivo && modoColoreado === 'prioridad' && (
           <div className="p-3 pt-0 space-y-1.5">
             {Object.entries(LABEL_PRIORIDAD).map(([k, label]) => (
@@ -1423,41 +1337,46 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
             </div>
           </div>
         )}
+        </div>
       </div>
       )}
-
       {/* 🗳️ PANEL DE CONTROL — MODO CAMPAÑA — solo el trabajo propio,
           nada de históricos. Es lo primero que se ve al activar el
           modo, para que el candidato sepa desde dónde está arrancando
-          antes de empezar a tocar secciones una por una. */}
+          antes de empezar a tocar secciones una por una.
+          🆕 Ahora es arrastrable — antes vivía fijo en top-4 right-4. */}
       {modoColoreado === 'campana' && (
-        <div className="absolute top-4 right-4 z-[1000] bg-slate-900/95 backdrop-blur border border-emerald-700/40 rounded-xl p-3 text-xs w-48">
-          <div className="text-[10px] text-emerald-400 font-bold uppercase mb-2">🗳️ Campaña {anioCampana || ''} — resumen</div>
-          <div className="grid grid-cols-2 gap-2 mb-2">
-            <div className="bg-slate-800/60 rounded-lg p-2 text-center">
-              <div className="text-lg font-black text-white">{resumenCampana.totalPromovidos}</div>
-              <div className="text-[8px] text-slate-500">Promovidos</div>
-            </div>
-            <div className="bg-slate-800/60 rounded-lg p-2 text-center">
-              <div className="text-lg font-black text-white">{resumenCampana.seccionesConTrabajo}</div>
-              <div className="text-[8px] text-slate-500">Secc. trabajadas</div>
-            </div>
+        <div className="absolute z-[1000] bg-slate-900/95 backdrop-blur border border-emerald-700/40 rounded-xl text-xs w-48 select-none"
+          style={{ left: panelCampanaPos.x, top: panelCampanaPos.y }}>
+          <div className="flex items-center justify-between px-3 py-2 cursor-move border-b border-emerald-700/30"
+            onMouseDown={iniciarArrastreCampana}>
+            <span className="text-[10px] text-emerald-400 font-bold uppercase">🗳️ Campaña {anioCampana || ''}</span>
+            <span className="text-emerald-600 text-[10px]">⠿</span>
           </div>
-          <div className="space-y-1">
-            <div className="flex justify-between text-[10px]"><span className="text-emerald-400">● Base</span><span className="text-white font-bold">{resumenCampana.base}</span></div>
-            <div className="flex justify-between text-[10px]"><span className="text-amber-400">● Persuadible</span><span className="text-white font-bold">{resumenCampana.persuadible}</span></div>
-            <div className="flex justify-between text-[10px]"><span className="text-slate-400">● Adversario</span><span className="text-white font-bold">{resumenCampana.adversario}</span></div>
+          <div className="p-3">
+            <div className="grid grid-cols-2 gap-2 mb-2">
+              <div className="bg-slate-800/60 rounded-lg p-2 text-center">
+                <div className="text-lg font-black text-white">{resumenCampana.totalPromovidos}</div>
+                <div className="text-[8px] text-slate-500">Promovidos</div>
+              </div>
+              <div className="bg-slate-800/60 rounded-lg p-2 text-center">
+                <div className="text-lg font-black text-white">{resumenCampana.seccionesConTrabajo}</div>
+                <div className="text-[8px] text-slate-500">Secc. trabajadas</div>
+              </div>
+            </div>
+            <div className="space-y-1">
+              <div className="flex justify-between text-[10px]"><span className="text-emerald-400">● Base</span><span className="text-white font-bold">{resumenCampana.base}</span></div>
+              <div className="flex justify-between text-[10px]"><span className="text-amber-400">● Persuadible</span><span className="text-white font-bold">{resumenCampana.persuadible}</span></div>
+              <div className="flex justify-between text-[10px]"><span className="text-slate-400">● Adversario</span><span className="text-white font-bold">{resumenCampana.adversario}</span></div>
+            </div>
           </div>
         </div>
       )}
-
-
       {seccionActiva && cargandoManzanas && (
         <div className="absolute top-4 right-4 z-[1000] bg-slate-900/95 backdrop-blur border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-300">
           ⏳ Cargando manzanas de la sección...
         </div>
       )}
-
       {/* Leyenda de casas simuladas — solo visible con una manzana activa */}
       {manzanaActiva && (
         <div className="absolute top-4 right-4 z-[1000] bg-slate-900/95 backdrop-blur border border-slate-700 rounded-xl p-3 text-xs">
@@ -1474,7 +1393,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
           <div className="text-[9px] text-slate-500 mt-1">Toca un punto para cambiar su estado</div>
         </div>
       )}
-
       {/* 📋 FICHA TÉCNICA DE LA SECCIÓN — aparece al tocar una sección en el mapa */}
       {seccionActiva && (
         <div className="absolute bottom-4 right-4 left-4 md:left-auto z-[1000] md:w-80 bg-slate-900/95 backdrop-blur border border-slate-700 rounded-2xl p-4 max-h-[60vh] overflow-y-auto">
@@ -1482,13 +1400,10 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
             <span className="font-black text-white text-sm">📋 Sección {String(seccionActiva).padStart(3, '0')}</span>
             <button onClick={() => setSeccionActiva(null)} className="text-slate-500 hover:text-white text-sm">✕</button>
           </div>
-
           {cargandoFicha && <div className="text-xs text-slate-500 py-4 text-center">⏳ Cargando datos reales...</div>}
-
           {!cargandoFicha && fichaTecnica && (
             <div className="space-y-3 text-xs">
               <div className="text-slate-400">{fichaTecnica.municipio} · Distrito Local {fichaTecnica.distrito_local} · Distrito Federal {fichaTecnica.distrito_federal}</div>
-
               <div>
                 <div className="text-[10px] font-bold text-slate-500 uppercase mb-2">👥 Padrón electoral</div>
                 <div className="grid grid-cols-3 gap-2">
@@ -1497,7 +1412,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
                   <div className="bg-slate-800/60 rounded-lg p-2.5 text-center"><div className="text-base font-black text-indigo-400">{fichaTecnica.participacion_pct != null ? `${fichaTecnica.participacion_pct}%` : 'N/D'}</div><div className="text-[8px] text-slate-500">Participación</div></div>
                 </div>
               </div>
-
               {fichaTecnica.anio_historico && modoColoreado !== 'campana' ? (
                 <div className="bg-slate-800/60 rounded-lg p-2.5">
                   <div className="text-[10px] text-slate-500 uppercase font-bold mb-1.5">Resultados históricos {fichaTecnica.anio_historico}</div>
@@ -1527,7 +1441,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
               ) : modoColoreado === 'campana' ? null : (
                 <div className="text-[10px] text-amber-400 bg-amber-500/10 rounded-lg p-2">⚠️ Sin datos históricos cargados para este tipo de elección</div>
               )}
-
               <div className="bg-slate-800/60 rounded-lg p-2.5">
                 <div className="text-[10px] text-slate-500 uppercase font-bold mb-1.5">Tu avance en esta sección</div>
                 <div className="grid grid-cols-3 gap-2 text-center mb-2">
@@ -1548,7 +1461,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
                   <div className="text-[10px] text-amber-400 border-t border-slate-700 pt-2 mt-2">⚠️ {fichaTecnica.duplicados} registro(s) duplicado(s) detectado(s) en esta sección</div>
                 )}
               </div>
-
               {/* 👥 QUIÉN TRABAJA ESTA SECCIÓN — la estructura real
                   asignada aquí, y la cadena de mando hacia arriba
                   (Distrito Federal, Local, Municipio). Un "Sin asignar"
@@ -1583,7 +1495,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
                   </div>
                 </div>
               </div>
-
               {/* 🗣️ CONTEXTO HUMANO — para que el candidato llegue empático, no
                   solo con datos duros. Esto es lo que hace la diferencia entre
                   "pedir el voto" y "entender a la gente". */}
@@ -1608,7 +1519,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
                   )}
                 </div>
               )}
-
               {/* ── ACCIONES RÁPIDAS — conectan directo con otros módulos ── */}
               <div className="grid grid-cols-2 gap-2 pt-1">
                 <button onClick={() => navigate(`/promovidos?seccion=${seccionActiva}`)}
@@ -1632,7 +1542,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
           )}
         </div>
       )}
-
       {/* Buscador de sección — solo escritorio */}
       {!esMobile && (
       <div className="absolute top-4 left-4 z-[1000] w-64 space-y-2">
@@ -1652,7 +1561,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
         </button>
       </div>
       )}
-
       {/* Ficha técnica de municipio — solo escritorio, en móvil vive en el menú */}
       {!esMobile && territorioTipo === 'municipio' && !modoSectorizacion && (
         <button onClick={abrirResumenMunicipio}
@@ -1660,7 +1568,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
           📊 Ficha técnica del municipio
         </button>
       )}
-
       {/* ☰ MENÚ MÓVIL — consolida todos los controles de arriba en un
           solo botón, para no amontonar paneles sueltos en pantalla chica */}
       {esMobile && (
@@ -1669,7 +1576,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
             className="absolute top-4 left-4 z-[1000] w-12 h-12 rounded-full bg-slate-900/95 backdrop-blur border border-slate-700 text-white text-xl shadow-lg flex items-center justify-center">
             ☰
           </button>
-
           {menuMobileAbierto && (
             <div className="absolute inset-0 z-[3000] bg-black/70 flex items-end" onClick={() => setMenuMobileAbierto(false)}>
               <div className="bg-slate-900 border-t border-slate-700 rounded-t-2xl w-full max-h-[80vh] overflow-y-auto p-4 space-y-4" onClick={(e) => e.stopPropagation()}>
@@ -1677,7 +1583,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
                   <span className="text-sm font-black text-white">🗺️ Controles del mapa</span>
                   <button onClick={() => setMenuMobileAbierto(false)} className="text-slate-400 text-xl">✕</button>
                 </div>
-
                 <input
                   type="number"
                   placeholder="🔍 Buscar sección (ej: 12)..."
@@ -1685,19 +1590,16 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
                   onChange={e => buscarSeccion(e.target.value)}
                   className="w-full px-4 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-sm text-white placeholder-slate-500"
                 />
-
                 {territorioTipo === 'municipio' && (
                   <button onClick={() => { abrirResumenMunicipio(); setMenuMobileAbierto(false); }}
                     className="w-full px-4 py-2.5 rounded-xl bg-indigo-600 text-sm text-white font-bold">
                     📊 Ficha técnica del municipio
                   </button>
                 )}
-
                 <button onClick={() => { setModoSectorizacion(v => !v); setSeccionesSeleccionadas(new Set()); setMenuMobileAbierto(false); }}
                   className={`w-full px-4 py-2.5 rounded-xl text-sm font-bold ${modoSectorizacion ? 'bg-purple-600 text-white' : 'bg-slate-800 text-slate-300'}`}>
                   ✂️ {modoSectorizacion ? 'Salir de Sectorización' : 'Modo Sectorización'}
                 </button>
-
                 <div className="border-t border-slate-800 pt-3">
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-xs font-bold text-white">🎨 Coloreado del mapa</span>
@@ -1717,7 +1619,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
                     </div>
                   )}
                 </div>
-
                 <div className="border-t border-slate-800 pt-3">
                   <p className="text-xs font-bold text-white mb-1.5">🗺️ Ver por territorio</p>
                   <div className="grid grid-cols-2 gap-1.5">
@@ -1753,7 +1654,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
                     </div>
                   )}
                 </div>
-
                 <div className="border-t border-slate-800 pt-3 space-y-2.5">
                   <span className="text-xs font-bold text-white block mb-1">📍 Capas visibles</span>
                   <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={capaPromovidos} onChange={e => setCapaPromovidos(e.target.checked)} /> 🤝 Con ubicación en el mapa ({promovidosFiltrados.length})</label>
@@ -1772,7 +1672,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
           )}
         </>
       )}
-
       {/* Panel de control de sectorización — aparece solo en ese modo */}
       {modoSectorizacion && (
         <div className="absolute bottom-4 left-4 right-4 md:right-auto z-[1500] md:w-72 bg-slate-900/95 backdrop-blur border border-purple-700/40 rounded-2xl p-4 space-y-2.5">
@@ -1797,7 +1696,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
           )}
         </div>
       )}
-
       {/* ➕ BOTÓN DE AGREGAR PUNTO INTERACTIVO — flotante, centro-inferior */}
       {!tipoColocando ? (
         <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-[1600]">
@@ -1830,7 +1728,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
               {TIPOS_PUNTO.find(t => t.id === tipoColocando)?.ic} Nuevo {TIPOS_PUNTO.find(t => t.id === tipoColocando)?.label}
             </h2>
             <p className="text-[10px] text-slate-500">📍 {puntoNuevo.lat.toFixed(5)}, {puntoNuevo.lng.toFixed(5)}</p>
-
             {tipoColocando === 'evento' && (
               <>
                 <input placeholder="Título del evento" value={formPunto.titulo || ''} onChange={(e) => setFormPunto({ ...formPunto, titulo: e.target.value })}
@@ -1846,7 +1743,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
                   className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
               </>
             )}
-
             {tipoColocando === 'promovido' && (
               <>
                 <input placeholder="Nombre completo" value={formPunto.nombre || ''} onChange={(e) => setFormPunto({ ...formPunto, nombre: e.target.value })}
@@ -1855,7 +1751,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
                   className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
               </>
             )}
-
             {tipoColocando === 'casilla' && (
               <>
                 <input placeholder="Número de sección" type="number" value={formPunto.seccion_numero || ''} onChange={(e) => setFormPunto({ ...formPunto, seccion_numero: e.target.value })}
@@ -1866,7 +1761,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
                   className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
               </>
             )}
-
             {tipoColocando === 'ine_representante' && (
               <>
                 <input placeholder="Nombre del representante" value={formPunto.nombre_rep || ''} onChange={(e) => setFormPunto({ ...formPunto, nombre_rep: e.target.value })}
@@ -1875,7 +1769,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
                   className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
               </>
             )}
-
             {['barda', 'espectacular', 'manta'].includes(tipoColocando) && (
               <>
                 <input placeholder="Dirección (ej: Calle Francisco I. Madero)" value={formPunto.direccion || ''} onChange={(e) => setFormPunto({ ...formPunto, direccion: e.target.value })}
@@ -1886,7 +1779,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
                   className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
               </>
             )}
-
             {tipoColocando === 'utilitario' && (
               <>
                 <input placeholder="¿Qué es? (ej: Playeras talla M)" value={formPunto.direccion || ''} onChange={(e) => setFormPunto({ ...formPunto, direccion: e.target.value })}
@@ -1895,7 +1787,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
                   className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
               </>
             )}
-
             <div className="flex gap-2 pt-1">
               <button onClick={cancelarColocacion} className="flex-1 py-2.5 rounded-lg bg-slate-800 text-slate-300 text-sm font-bold">Cancelar</button>
               <button onClick={guardarPunto} className="flex-[2] py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-bold">✅ Guardar en el mapa</button>
@@ -1903,13 +1794,11 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
           </div>
         </div>
       )}
-
       {/* 📊 RESUMEN COMPLETO DE MUNICIPIO — modal grande con todo el detalle */}
       {mostrarResumenMunicipio && (
         <div className="fixed inset-0 bg-black/70 z-[2500] flex items-center justify-center p-4" onClick={() => setMostrarResumenMunicipio(false)}>
           <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md max-h-[85vh] overflow-y-auto p-5" onClick={(e) => e.stopPropagation()}>
             {cargandoResumen && <div className="text-center text-slate-500 py-10">⏳ Calculando ficha técnica...</div>}
-
             {!cargandoResumen && resumenMunicipio && (
               <div className="space-y-4">
                 <div className="flex items-start justify-between">
@@ -1919,13 +1808,11 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
                   </div>
                   <button onClick={() => setMostrarResumenMunicipio(false)} className="text-slate-500 hover:text-white">✕</button>
                 </div>
-
                 {resumenMunicipio.gobierna_actualmente && (
                   <div className="inline-block px-3 py-1.5 rounded-full text-xs font-bold" style={{ background: `${PARTIDOS[resumenMunicipio.gobierna_actualmente]?.color}22`, color: PARTIDOS[resumenMunicipio.gobierna_actualmente]?.color }}>
                     👑 Gobierna: {resumenMunicipio.gobierna_actualmente.toUpperCase()}
                   </div>
                 )}
-
                 <div>
                   <div className="text-[10px] font-bold text-slate-500 uppercase mb-2">👥 Población electoral</div>
                   <div className="grid grid-cols-2 gap-2">
@@ -1935,7 +1822,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
                     <div className="bg-slate-800/60 rounded-lg p-2.5"><div className="text-lg font-black text-white">{resumenMunicipio.poblacion_electoral.casillas}</div><div className="text-[9px] text-slate-500">Casillas</div></div>
                   </div>
                 </div>
-
                 <div>
                   <div className="text-[10px] font-bold text-slate-500 uppercase mb-2">🚦 Semáforo electoral ({resumenMunicipio.total_secciones} secciones)</div>
                   <div className="grid grid-cols-3 gap-2 text-center">
@@ -1944,7 +1830,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
                     <div className="bg-red-500/10 rounded-lg p-2"><div className="text-lg font-black text-red-400">{resumenMunicipio.semaforo.recuperar}</div><div className="text-[9px] text-slate-400">Recuperar</div></div>
                   </div>
                 </div>
-
                 {resumenMunicipio.resultados_historicos.anio ? (
                   <div>
                     <div className="text-[10px] font-bold text-slate-500 uppercase mb-2">📊 Resultados acumulados ({resumenMunicipio.resultados_historicos.anio})</div>
@@ -1965,7 +1850,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
                 ) : (
                   <div className="text-xs text-amber-400 bg-amber-500/10 rounded-lg p-2">⚠️ Sin datos históricos para este tipo de elección</div>
                 )}
-
                 <div className="border-t border-slate-800 pt-3">
                   <div className="text-[10px] font-bold text-slate-500 uppercase mb-2">🎯 Tu avance</div>
                   <div className="grid grid-cols-3 gap-2 text-center mb-2">
