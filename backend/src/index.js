@@ -169,7 +169,9 @@ const ESTILO_BLOG = `
   a.volver{color:#0d9488;text-decoration:none;font-size:14px;font-weight:600;}
   .tarjeta{border:1px solid #E3E0D5;background:#fff;border-radius:16px;overflow:hidden;display:flex;flex-direction:column;text-decoration:none;color:inherit;transition:border-color 0.2s, transform 0.2s;}
   .tarjeta:hover{border-color:#0d9488;transform:translateY(-2px);}
-  .tarjeta-img{width:100%;height:160px;object-fit:cover;background:#EFEDF9;}
+  .tarjeta-img-cont{position:relative;width:100%;height:160px;overflow:hidden;background:#EFEDF9;}
+  .tarjeta-img{width:100%;height:160px;object-fit:cover;display:block;}
+  .tarjeta-play{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:44px;height:44px;background:rgba(20,18,61,0.75);color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:16px;padding-left:3px;}
   .tarjeta-cuerpo{padding:22px;display:flex;flex-direction:column;flex:1;}
   .tarjeta h2{font-family:'Space Grotesk',sans-serif;font-size:1.15rem;margin:0 0 8px;color:#14123D;line-height:1.3;}
   .tarjeta p{color:#565278;font-size:13.5px;line-height:1.5;margin:0 0 12px;flex:1;}
@@ -188,6 +190,13 @@ const ESTILO_BLOG = `
   a.volver-art{color:#0d9488;text-decoration:none;font-size:14px;font-weight:600;}
   h1.art-h1{font-family:'Space Grotesk',sans-serif;font-size:2.1rem;line-height:1.2;margin:20px 0 10px;}
   .art-meta{color:#6b6890;font-size:13px;margin-bottom:24px;}
+  /* 🆕 Botones de compartir en redes — WhatsApp, Facebook, X, y
+     copiar el link. Iconos hechos con emoji, sin ninguna librería
+     nueva que cargar. */
+  .compartir{display:flex;gap:8px;margin:24px 0;flex-wrap:wrap;align-items:center;}
+  .compartir-label{font-size:12px;color:#8583B0;font-weight:600;margin-right:2px;}
+  .compartir a, .compartir button{display:flex;align-items:center;gap:6px;padding:8px 14px;border-radius:10px;font-size:12.5px;font-weight:700;text-decoration:none;border:1px solid #E3E0D5;background:#fff;color:#14123D;cursor:pointer;font-family:inherit;}
+  .compartir a:hover, .compartir button:hover{border-color:#0d9488;}
   /* 🆕 Estilos para el contenido ya convertido de Markdown a HTML —
      antes solo había white-space:pre-wrap sobre texto plano, ahora
      hay títulos, negritas, e imágenes de verdad. */
@@ -209,6 +218,20 @@ function urlVideoEmbed(url) {
   if (yt) return `https://www.youtube.com/embed/${yt[1]}`;
   const vimeo = url.match(/vimeo\.com\/(\d+)/);
   if (vimeo) return `https://player.vimeo.com/video/${vimeo[1]}`;
+  return null;
+}
+
+/**
+ * 🆕 MINIATURA AUTOMÁTICA DE VIDEO — YouTube da miniaturas listas por
+ * su propia URL predecible, así que no hace falta que nadie suba
+ * nada — se genera sola con solo el link del video. Vimeo no permite
+ * esto directo (necesitaría una llamada aparte a su API), así que en
+ * ese caso se usa la imagen de portada si existe, o nada.
+ */
+function miniaturaVideo(url) {
+  if (!url) return null;
+  const yt = url.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/))([\w-]{11})/);
+  if (yt) return `https://img.youtube.com/vi/${yt[1]}/hqdefault.jpg`;
   return null;
 }
 
@@ -263,16 +286,22 @@ function barraLateralHTML(recientes) {
 }
 
 app.get('/blog', async (req, res) => {
-  const r = await query(`SELECT titulo, slug, tipo, resumen, imagen_portada, etiquetas, fecha_publicacion FROM blog_publicaciones WHERE publicado=true ORDER BY fecha_publicacion DESC LIMIT 100`);
-  const tarjetas = r.rows.map((p) => `
+  const r = await query(`SELECT titulo, slug, tipo, resumen, imagen_portada, url_archivo, etiquetas, fecha_publicacion FROM blog_publicaciones WHERE publicado=true ORDER BY fecha_publicacion DESC LIMIT 100`);
+  const tarjetas = r.rows.map((p) => {
+    // 🆕 Si no hay portada subida a mano, y es un video de YouTube,
+    // se usa su miniatura oficial — así ningún video se queda sin
+    // imagen en la tarjeta.
+    const imagen = p.imagen_portada || (p.tipo === 'video' ? miniaturaVideo(p.url_archivo) : null);
+    return `
     <a class="tarjeta" href="/blog/${p.slug}">
-      ${p.imagen_portada ? `<img class="tarjeta-img" src="${p.imagen_portada}" alt="${p.titulo}" loading="lazy">` : ''}
+      ${imagen ? `<div class="tarjeta-img-cont"><img class="tarjeta-img" src="${imagen}" alt="${p.titulo}" loading="lazy">${p.tipo === 'video' ? '<span class="tarjeta-play">▶</span>' : ''}</div>` : ''}
       <div class="tarjeta-cuerpo">
         <h2>${p.tipo === 'pdf' ? '📎 ' : p.tipo === 'video' ? '🎬 ' : ''}${p.titulo}</h2>
         <p>${p.resumen || ''}</p>
         <div>${(p.etiquetas || []).map((t) => `<span class="tag">${t}</span>`).join('')}</div>
       </div>
-    </a>`).join('\n');
+    </a>`;
+  }).join('\n');
   res.send(`<!DOCTYPE html><html lang="es-MX"><head><meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Blog — VotoTech | Recursos para campañas electorales en México</title>
@@ -292,6 +321,30 @@ app.get('/blog', async (req, res) => {
         ${barraLateralHTML(r.rows.slice(0, 5))}
       </div>
     </div></body></html>`);
+});
+
+/**
+ * 🆕 SITEMAP.XML — el mapa de todas las páginas públicas para que
+ * Google (y Bing) las encuentre e indexe. Sin esto, un buscador
+ * depende de encontrar los links "por su cuenta"; con esto, se lo
+ * decimos directamente — es de las cosas más efectivas y más
+ * baratas que existen para generar tráfico orgánico real.
+ */
+app.get('/sitemap.xml', async (req, res) => {
+  const posts = await query(`SELECT slug, actualizado_en, creado_en FROM blog_publicaciones WHERE publicado=true ORDER BY fecha_publicacion DESC`);
+  const paginasFijas = ['', 'blog', 'terminos.html', 'privacidad.html'];
+  const urls = [
+    ...paginasFijas.map((p) => `  <url><loc>https://www.vototech.com.mx/${p}</loc><changefreq>weekly</changefreq><priority>${p === '' ? '1.0' : '0.8'}</priority></url>`),
+    ...posts.rows.map((p) => `  <url><loc>https://www.vototech.com.mx/blog/${p.slug}</loc><lastmod>${(p.actualizado_en || p.creado_en).toISOString().slice(0, 10)}</lastmod><changefreq>monthly</changefreq><priority>0.6</priority></url>`),
+  ];
+  res.set('Content-Type', 'application/xml');
+  res.send(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.join('\n')}\n</urlset>`);
+});
+
+/** robots.txt — le dice a los buscadores dónde está el sitemap. */
+app.get('/robots.txt', (req, res) => {
+  res.set('Content-Type', 'text/plain');
+  res.send(`User-agent: *\nAllow: /\nSitemap: https://www.vototech.com.mx/sitemap.xml`);
 });
 
 app.get('/blog/:slug', async (req, res) => {
@@ -334,8 +387,21 @@ app.get('/blog/:slug', async (req, res) => {
           <p class="art-meta">${new Date(p.fecha_publicacion).toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' })} · ${p.vistas} vistas</p>
           <div>${(p.etiquetas || []).map((t) => `<span class="tag">${t}</span>`).join('')}</div>
           ${p.imagen_portada ? `<img class="art-portada" src="${p.imagen_portada}" alt="${p.titulo}">` : ''}
+          <div class="compartir">
+            <span class="compartir-label">Compartir:</span>
+            <a href="https://wa.me/?text=${encodeURIComponent(`${p.titulo} — https://www.vototech.com.mx/blog/${p.slug}`)}" target="_blank" rel="noopener">💬 WhatsApp</a>
+            <a href="https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(`https://www.vototech.com.mx/blog/${p.slug}`)}" target="_blank" rel="noopener">📘 Facebook</a>
+            <a href="https://twitter.com/intent/tweet?text=${encodeURIComponent(p.titulo)}&url=${encodeURIComponent(`https://www.vototech.com.mx/blog/${p.slug}`)}" target="_blank" rel="noopener">🐦 X</a>
+            <button onclick="navigator.clipboard.writeText('https://www.vototech.com.mx/blog/${p.slug}').then(()=>{this.textContent='✅ Copiado';setTimeout(()=>{this.textContent='🔗 Copiar link'},2000)})">🔗 Copiar link</button>
+          </div>
           ${cuerpoMedia}
           <div class="art-contenido">${markdownAHtml(p.contenido)}</div>
+          <div class="compartir">
+            <span class="compartir-label">¿Te sirvió? Compártelo:</span>
+            <a href="https://wa.me/?text=${encodeURIComponent(`${p.titulo} — https://www.vototech.com.mx/blog/${p.slug}`)}" target="_blank" rel="noopener">💬 WhatsApp</a>
+            <a href="https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(`https://www.vototech.com.mx/blog/${p.slug}`)}" target="_blank" rel="noopener">📘 Facebook</a>
+            <a href="https://twitter.com/intent/tweet?text=${encodeURIComponent(p.titulo)}&url=${encodeURIComponent(`https://www.vototech.com.mx/blog/${p.slug}`)}" target="_blank" rel="noopener">🐦 X</a>
+          </div>
           <a class="cta" href="/#demo">Probar VotoTech →</a>
         </div>
         ${barraLateralHTML(recientes.rows)}
