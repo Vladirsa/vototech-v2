@@ -27,10 +27,27 @@ export default function MapaConCampana() {
   }
 
   return (
-    <MapaElectoral
-      territorioTipo={campana.territorio_tipo}
-      territorioId={campana.territorio_id}
-      tipoEleccion={campana.tipo_eleccion}
-    />
+    // 🆕 LA CORRECCIÓN REAL — antes MapaElectoral se ponía directo
+    // aquí, sin ningún contenedor con una altura fija de verdad. El
+    // mapa por dentro usa "h-full" (100% de su papá), pero sin este
+    // div, ese "100%" nunca tenía un número real del cual partir —
+    // así que el mapa (y cualquier panel flotante dentro de él, como
+    // el de Coloreado) podía crecer sin límite, y ESO era lo que
+    // empujaba el scroll de toda la pantalla, sin importar hacia qué
+    // lado se arrastrara un panel.
+    //
+    // "calc(100vh-45px)" le da una altura FIJA y calculada en
+    // pixeles reales (toda la pantalla, menos el NavBar de arriba) —
+    // no depende de que el resto de la app tenga su estructura de
+    // flexbox perfecta, funciona sola sin importar el contexto donde
+    // se monte. Y overflow-hidden asegura que nada de lo que esté
+    // adentro se pueda salir de esa caja hacia el resto de la página.
+    <div className="h-[calc(100vh-45px)] overflow-hidden">
+      <MapaElectoral
+        territorioTipo={campana.territorio_tipo}
+        territorioId={campana.territorio_id}
+        tipoEleccion={campana.tipo_eleccion}
+      />
+    </div>
   );
 }
