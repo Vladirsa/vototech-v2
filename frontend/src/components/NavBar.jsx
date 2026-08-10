@@ -17,6 +17,8 @@ const MODULOS = [
   { ruta: '/incidencias', ic: '🚨', label: 'Incidencias', clave: 'incidencias' },
   { ruta: '/finanzas', ic: '💰', label: 'Administración', clave: 'finanzas' },
   { ruta: '/activos', ic: '📺', label: 'Activos', clave: 'activos' },
+  // 🆕 Respaldos — solo mando máximo, mismo criterio que ya aplica el backend.
+  { ruta: '/respaldos', ic: '📦', label: 'Respaldos', clave: 'respaldos' },
 ];
 
 // Qué módulos ve cada rol en el menú — candidato/jefe/coord_general ven
@@ -28,8 +30,10 @@ const MODULOS_POR_ROL = {
   candidato: TODOS,
   jefe_campana: TODOS,
   coord_general: TODOS,
-  coord_distrital: TODOS.filter((c) => !['finanzas', 'juridico'].includes(c)),
-  coord_municipal: TODOS.filter((c) => !['finanzas', 'juridico'].includes(c)),
+  // 🆕 "respaldos" se excluye igual que finanzas/jurídico — es cosa
+  // de mando máximo, no de coordinación territorial.
+  coord_distrital: TODOS.filter((c) => !['finanzas', 'juridico', 'respaldos'].includes(c)),
+  coord_municipal: TODOS.filter((c) => !['finanzas', 'juridico', 'respaldos'].includes(c)),
   // Coordinador seccional: su gente (no toda la estructura — eso se
   // filtra solo en el backend, aquí solo se decide qué botones ve),
   // sus promovidos, Día D, e Incidencias (para reportar, no para ver todas).
