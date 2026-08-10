@@ -26,16 +26,21 @@ function generarSlug(titulo) {
     .slice(0, 200);
 }
 
+/** Sube cualquier imagen (portada, o insertada dentro de un artículo) a Storage y regresa su URL pública. */
+async function subirImagenAStorage(archivo) {
+  const supabase = clienteSupabase();
+  if (!supabase) throw new Error('Almacenamiento no configurado en el servidor');
+  const ruta = `blog/imagenes/${crypto.randomBytes(8).toString('hex')}-${archivo.originalname}`;
+  const { error } = await supabase.storage.from('documentos').upload(ruta, archivo.buffer, { contentType: archivo.mimetype });
+  if (error) throw new Error('No se pudo subir la imagen: ' + error.message);
+  return supabase.storage.from('documentos').getPublicUrl(ruta).data.publicUrl;
+}
+
 const esquemaPublicacion = z.object({
   titulo: z.string({ required_error: 'Falta el título' }).min(5, 'El título es muy corto').max(200),
   tipo: z.enum(['articulo', 'pdf', 'video']).default('articulo'),
   resumen: z.string().max(300).optional(),
   contenido: z.string().optional(),
-  // z.string().url().optional() rechaza un texto VACÍO (no es lo
-  // mismo que "ausente" para Zod) — por eso el panel tronaba con
-  // "link no válido" incluso al crear un artículo normal, que ni
-  // usa este campo. El preprocess convierte '' en undefined antes
-  // de validar, para que sí se trate como realmente opcional.
   url_video: z.preprocess((v) => (v === '' ? undefined : v), z.string().url('El link del video no es válido').optional()),
   imagen_portada: z.preprocess((v) => (v === '' ? undefined : v), z.string().url().optional()),
   etiquetas: z.array(z.string()).default([]),
@@ -55,14 +60,31 @@ router.get('/admin', requiereSuperAdmin, async (req, res) => {
 });
 
 /**
+ * 🆕 POST /api/blog/admin/subir-imagen
+ * Sube UNA imagen (portada, o para insertar dentro del cuerpo del
+ * artículo) y regresa su URL — no crea ni edita ninguna publicación,
+ * solo sube el archivo. El panel usa esto tanto para la portada
+ * como para el botón "📷 Insertar imagen" dentro del editor.
+ */
+router.post('/admin/subir-imagen', requiereSuperAdmin, upload.single('imagen'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ ok: false, error: 'Falta el archivo de imagen' });
+  if (!req.file.mimetype.startsWith('image/')) return res.status(400).json({ ok: false, error: 'El archivo debe ser una imagen (jpg, png, webp, etc.)' });
+  try {
+    const url = await subirImagenAStorage(req.file);
+    res.json({ ok: true, url });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+/**
  * POST /api/blog/admin
  * Crea una publicación nueva. Si es tipo "pdf", espera el archivo en
- * el campo "archivo" (multipart/form-data). Si es "articulo" o
- * "video", el body puede ser JSON normal.
+ * el campo "archivo" (multipart/form-data). La imagen de portada
+ * (opcional, cualquier tipo) va en el campo "imagen_portada_archivo".
  */
-router.post('/admin', requiereSuperAdmin, upload.single('archivo'), async (req, res) => {
+router.post('/admin', requiereSuperAdmin, upload.fields([{ name: 'archivo', maxCount: 1 }, { name: 'imagen_portada_archivo', maxCount: 1 }]), async (req, res) => {
   const cuerpo = { ...req.body };
-  // Si viene de un form multipart, etiquetas llega como texto separado por comas
   if (typeof cuerpo.etiquetas === 'string') {
     cuerpo.etiquetas = cuerpo.etiquetas.split(',').map((e) => e.trim()).filter(Boolean);
   }
@@ -74,20 +96,30 @@ router.post('/admin', requiereSuperAdmin, upload.single('archivo'), async (req, 
   }
   const d = parseado.data;
 
+  const archivoPdf = req.files?.archivo?.[0];
+  const archivoImagenPortada = req.files?.imagen_portada_archivo?.[0];
+
   let urlArchivo = d.url_video || null;
   if (d.tipo === 'pdf') {
-    if (!req.file) return res.status(400).json({ ok: false, error: 'Falta subir el archivo PDF' });
+    if (!archivoPdf) return res.status(400).json({ ok: false, error: 'Falta subir el archivo PDF' });
     const supabase = clienteSupabase();
     if (!supabase) return res.status(500).json({ ok: false, error: 'Almacenamiento no configurado en el servidor' });
-    const ruta = `blog/${crypto.randomBytes(8).toString('hex')}-${req.file.originalname}`;
-    const { error: errorSubida } = await supabase.storage.from('documentos').upload(ruta, req.file.buffer, { contentType: req.file.mimetype });
+    const ruta = `blog/${crypto.randomBytes(8).toString('hex')}-${archivoPdf.originalname}`;
+    const { error: errorSubida } = await supabase.storage.from('documentos').upload(ruta, archivoPdf.buffer, { contentType: archivoPdf.mimetype });
     if (errorSubida) return res.status(500).json({ ok: false, error: 'No se pudo subir el PDF' });
     urlArchivo = supabase.storage.from('documentos').getPublicUrl(ruta).data.publicUrl;
   }
 
-  // Imagen de portada opcional, sube junto en el mismo campo "archivo"
-  // solo si el tipo NO es pdf (para pdf, "archivo" ya se usó arriba).
+  // 🆕 Imagen de portada — ya sea que la subieron como archivo, o
+  // (formato anterior) pegaron directo una URL.
   let imagenPortada = d.imagen_portada || null;
+  if (archivoImagenPortada) {
+    try {
+      imagenPortada = await subirImagenAStorage(archivoImagenPortada);
+    } catch (e) {
+      return res.status(500).json({ ok: false, error: e.message });
+    }
+  }
 
   let slugBase = generarSlug(d.titulo);
   let slug = slugBase;
@@ -107,7 +139,7 @@ router.post('/admin', requiereSuperAdmin, upload.single('archivo'), async (req, 
 });
 
 /** PATCH /api/blog/admin/:id — editar o publicar/despublicar */
-router.patch('/admin/:id', requiereSuperAdmin, upload.single('archivo'), async (req, res) => {
+router.patch('/admin/:id', requiereSuperAdmin, upload.fields([{ name: 'archivo', maxCount: 1 }, { name: 'imagen_portada_archivo', maxCount: 1 }]), async (req, res) => {
   const cuerpo = { ...req.body };
   if (typeof cuerpo.etiquetas === 'string') {
     cuerpo.etiquetas = cuerpo.etiquetas.split(',').map((e) => e.trim()).filter(Boolean);
@@ -117,29 +149,41 @@ router.patch('/admin/:id', requiereSuperAdmin, upload.single('archivo'), async (
   const actual = await query('SELECT * FROM blog_publicaciones WHERE id=$1', [req.params.id]);
   if (!actual.rows[0]) return res.status(404).json({ ok: false, error: 'Publicación no encontrada' });
 
+  const archivoPdf = req.files?.archivo?.[0];
+  const archivoImagenPortada = req.files?.imagen_portada_archivo?.[0];
+
   let urlArchivo = cuerpo.url_video || actual.rows[0].url_archivo;
-  if (req.file) {
+  if (archivoPdf) {
     const supabase = clienteSupabase();
     if (!supabase) return res.status(500).json({ ok: false, error: 'Almacenamiento no configurado' });
-    const ruta = `blog/${crypto.randomBytes(8).toString('hex')}-${req.file.originalname}`;
-    const { error: errorSubida } = await supabase.storage.from('documentos').upload(ruta, req.file.buffer, { contentType: req.file.mimetype });
+    const ruta = `blog/${crypto.randomBytes(8).toString('hex')}-${archivoPdf.originalname}`;
+    const { error: errorSubida } = await supabase.storage.from('documentos').upload(ruta, archivoPdf.buffer, { contentType: archivoPdf.mimetype });
     if (errorSubida) return res.status(500).json({ ok: false, error: 'No se pudo subir el archivo' });
     urlArchivo = supabase.storage.from('documentos').getPublicUrl(ruta).data.publicUrl;
   }
 
-  const yaEstabaPublicado = actual.rows[0].publicado;
+  // 🆕 Imagen de portada nueva (si subieron una) — si no, se conserva la que ya había
+  let imagenPortada = cuerpo.imagen_portada || actual.rows[0].imagen_portada;
+  if (archivoImagenPortada) {
+    try {
+      imagenPortada = await subirImagenAStorage(archivoImagenPortada);
+    } catch (e) {
+      return res.status(500).json({ ok: false, error: e.message });
+    }
+  }
+
   const seVaAPublicar = cuerpo.publicado === true;
 
   const resultado = await query(
     `UPDATE blog_publicaciones SET
        titulo=COALESCE($1,titulo), resumen=COALESCE($2,resumen), contenido=COALESCE($3,contenido),
-       url_archivo=$4, imagen_portada=COALESCE($5,imagen_portada), etiquetas=COALESCE($6,etiquetas),
+       url_archivo=$4, imagen_portada=$5, etiquetas=COALESCE($6,etiquetas),
        meta_titulo=COALESCE($7,meta_titulo), meta_descripcion=COALESCE($8,meta_descripcion),
        publicado=COALESCE($9,publicado),
        fecha_publicacion=CASE WHEN $9=true AND fecha_publicacion IS NULL THEN now() ELSE fecha_publicacion END,
        actualizado_en=now()
      WHERE id=$10 RETURNING *`,
-    [cuerpo.titulo, cuerpo.resumen, cuerpo.contenido, urlArchivo, cuerpo.imagen_portada,
+    [cuerpo.titulo, cuerpo.resumen, cuerpo.contenido, urlArchivo, imagenPortada,
      cuerpo.etiquetas, cuerpo.meta_titulo, cuerpo.meta_descripcion, cuerpo.publicado, req.params.id]
   );
   res.json({ ok: true, data: resultado.rows[0] });
