@@ -208,9 +208,10 @@ router.get('/resumen', async (req, res) => {
 
 /**
  * GET /api/dashboard/ejecutivo
- * Versión ultra simplificada para el candidato — 5 indicadores, nada
- * más. La idea no es esconder información, es que quien no tiene
- * tiempo de leer veinte gráficas pueda ver en 5 segundos cómo va todo.
+ * Versión ultra simplificada para el candidato — antes eran solo 5
+ * números; ahora se agregan 3 gráficas (tendencia, comparativo de
+ * territorio, y distribución) para dar contexto visual sin salirse
+ * de esta misma vista rápida.
  */
 router.get('/ejecutivo', async (req, res) => {
   const campanaId = req.usuario.campana_id;
@@ -226,10 +227,6 @@ router.get('/ejecutivo', async (req, res) => {
 
   // ── 1. % DE COBERTURA TERRITORIAL ──
   const totalSeccionesRes = await query(`SELECT COUNT(*) as total FROM secciones s WHERE s.estado_id=${req.usuario.estado_id} ${filtroTerritorio}`, paramsTerr);
-  // Filtro de territorio con su propio índice de parámetro — $1 aquí
-  // es campana_id, así que el filtro de territorio (si aplica) debe
-  // correrse a $2 para no chocar (mismo tipo de bug que ya corregimos
-  // antes en el bootstrap de Estadística).
   const filtroTerritorioCorrido = filtroTerritorio.replace('$1', '$2');
   const seccionesConPresenciaRes = await query(
     `SELECT COUNT(DISTINCT p.seccion_id) as total FROM promovidos p JOIN secciones s ON s.id=p.seccion_id
@@ -249,8 +246,6 @@ router.get('/ejecutivo', async (req, res) => {
   const anio = anioRes.rows[0]?.anio;
   let municipiosRiesgo = 0, totalMunicipios = 0;
   if (anio) {
-    // Igual que antes: $1 y $2 ya están usados (tipo_eleccion, año),
-    // así que el filtro de territorio necesita correrse a $3.
     const filtroTerritorioCorrido3 = filtroTerritorio.replace('$1', '$3');
     const porMunicipio = await query(
       `SELECT m.nombre, r.partido, SUM(r.votos) as votos
@@ -288,6 +283,59 @@ router.get('/ejecutivo', async (req, res) => {
   );
   const avanceDiario = +(parseInt(avanceRes.rows[0].total) / 7).toFixed(1);
 
+  // ══════════════════════════════════════════════════════════
+  // 🆕 GRÁFICAS NUEVAS PARA LA VISTA EJECUTIVA
+  // ══════════════════════════════════════════════════════════
+
+  // 📈 Tendencia — promovidos capturados por día, últimos 14 días.
+  // Se rellenan los días sin ningún registro con 0, para que la
+  // línea se vea completa y no "salte" fechas.
+  const tendenciaRes = await query(
+    `SELECT creado_en::date as fecha, COUNT(*) as total
+     FROM promovidos WHERE campana_id=$1 AND creado_en > now() - interval '14 days'
+     GROUP BY creado_en::date ORDER BY fecha`,
+    [campanaId]
+  );
+  const mapaTendencia = {};
+  tendenciaRes.rows.forEach((r) => { mapaTendencia[r.fecha.toISOString().slice(0, 10)] = parseInt(r.total); });
+  const tendencia14Dias = [];
+  for (let i = 13; i >= 0; i--) {
+    const fecha = new Date();
+    fecha.setDate(fecha.getDate() - i);
+    const clave = fecha.toISOString().slice(0, 10);
+    tendencia14Dias.push({ fecha: clave, total: mapaTendencia[clave] || 0 });
+  }
+
+  // 📊 Comparativo por territorio — si la campaña es de un solo
+  // municipio, compara por SECCIÓN (tiene más sentido, un municipio
+  // no se compara consigo mismo); si es más grande (distrito/estatal),
+  // compara por MUNICIPIO. Top 8, para que quepa bien en pantalla.
+  let comparativoTerritorio = [];
+  if (campana.territorio_tipo === 'municipio') {
+    const porSeccion = await query(
+      `SELECT s.numero as nombre, COUNT(*) as total FROM promovidos p JOIN secciones s ON s.id=p.seccion_id
+       WHERE p.campana_id=$1 GROUP BY s.numero ORDER BY total DESC LIMIT 8`,
+      [campanaId]
+    );
+    comparativoTerritorio = porSeccion.rows.map((r) => ({ nombre: `Secc. ${r.nombre}`, total: parseInt(r.total) }));
+  } else {
+    const porMuni = await query(
+      `SELECT m.nombre, COUNT(*) as total FROM promovidos p
+       JOIN secciones s ON s.id=p.seccion_id JOIN municipios m ON m.id=s.municipio_id
+       WHERE p.campana_id=$1 GROUP BY m.nombre ORDER BY total DESC LIMIT 8`,
+      [campanaId]
+    );
+    comparativoTerritorio = porMuni.rows.map((r) => ({ nombre: r.nombre, total: parseInt(r.total) }));
+  }
+
+  // 🍩 Distribución por clasificación estratégica
+  const distribucionRes = await query(
+    `SELECT clasificacion, COUNT(*) as total FROM promovidos WHERE campana_id=$1 GROUP BY clasificacion`,
+    [campanaId]
+  );
+  const distribucionClasificacion = { base: 0, persuadible: 0, adversario: 0 };
+  distribucionRes.rows.forEach((r) => { if (r.clasificacion in distribucionClasificacion) distribucionClasificacion[r.clasificacion] = parseInt(r.total); });
+
   res.json({
     ok: true,
     data: {
@@ -302,6 +350,9 @@ router.get('/ejecutivo', async (req, res) => {
       promotores_activos: promotoresActivos,
       total_promotores: totalPromotores,
       avance_diario: avanceDiario,
+      tendencia_14_dias: tendencia14Dias,
+      comparativo_territorio: comparativoTerritorio,
+      distribucion_clasificacion: distribucionClasificacion,
     },
   });
 });
