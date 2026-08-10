@@ -35,6 +35,124 @@ function Gauge({ porcentaje }) {
   );
 }
 
+// ═══════════════════════════════════════════════════════════════
+// 🆕 3 GRÁFICAS NUEVAS — todas en SVG puro, sin ninguna librería
+// nueva que instalar (mismo método que ya usaba el medidor de arriba).
+// ═══════════════════════════════════════════════════════════════
+
+/** Gráfica de línea — tendencia de promovidos capturados, últimos 14 días. */
+function GraficaTendencia({ datos }) {
+  if (!datos || datos.length === 0) return null;
+  const ancho = 600, alto = 160, margen = { arriba: 15, abajo: 30, izq: 10, der: 10 };
+  const maxValor = Math.max(1, ...datos.map((d) => d.total));
+  const anchoUtil = ancho - margen.izq - margen.der;
+  const altoUtil = alto - margen.arriba - margen.abajo;
+  const paso = anchoUtil / (datos.length - 1 || 1);
+
+  const puntos = datos.map((d, i) => ({
+    x: margen.izq + i * paso,
+    y: margen.arriba + altoUtil - (d.total / maxValor) * altoUtil,
+    ...d,
+  }));
+  const lineaPath = puntos.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
+  const areaPath = `${lineaPath} L ${puntos[puntos.length - 1].x} ${margen.arriba + altoUtil} L ${puntos[0].x} ${margen.arriba + altoUtil} Z`;
+
+  // Solo 1 de cada 2-3 fechas como etiqueta, para que no se amontonen en pantallas chicas
+  const saltoEtiqueta = datos.length > 10 ? 3 : 2;
+
+  return (
+    <svg viewBox={`0 0 ${ancho} ${alto}`} className="w-full h-auto">
+      <defs>
+        <linearGradient id="gradTendencia" x1="0%" y1="0%" x2="0%" y2="100%">
+          <stop offset="0%" stopColor="#6366f1" stopOpacity="0.35" />
+          <stop offset="100%" stopColor="#6366f1" stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <path d={areaPath} fill="url(#gradTendencia)" />
+      <path d={lineaPath} fill="none" stroke="#818cf8" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+      {puntos.map((p, i) => (
+        <g key={i}>
+          <circle cx={p.x} cy={p.y} r="3" fill="#818cf8" />
+          {i % saltoEtiqueta === 0 && (
+            <text x={p.x} y={alto - 10} textAnchor="middle" className="fill-slate-500" style={{ fontSize: 9 }}>
+              {new Date(p.fecha + 'T00:00:00').toLocaleDateString('es-MX', { day: 'numeric', month: 'short' })}
+            </text>
+          )}
+          {p.total > 0 && (
+            <text x={p.x} y={p.y - 8} textAnchor="middle" className="fill-indigo-300" style={{ fontSize: 9, fontWeight: 700 }}>{p.total}</text>
+          )}
+        </g>
+      ))}
+    </svg>
+  );
+}
+
+/** Gráfica de barras horizontales — comparativo por territorio (sección o municipio). */
+function GraficaBarras({ datos }) {
+  if (!datos || datos.length === 0) return null;
+  const maxValor = Math.max(1, ...datos.map((d) => d.total));
+  return (
+    <div className="space-y-2">
+      {datos.map((d, i) => (
+        <div key={i} className="flex items-center gap-2">
+          <span className="text-[10px] text-slate-400 w-16 flex-shrink-0 text-right truncate">{d.nombre}</span>
+          <div className="flex-1 h-5 bg-slate-800 rounded-md overflow-hidden">
+            <div
+              className="h-full rounded-md flex items-center justify-end px-1.5"
+              style={{ width: `${Math.max(6, (d.total / maxValor) * 100)}%`, background: `linear-gradient(90deg, #6366f1, #a855f7)` }}
+            >
+              <span className="text-[9px] font-bold text-white">{d.total}</span>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Gráfica de dona — distribución por clasificación estratégica. */
+function GraficaDona({ base, persuadible, adversario }) {
+  const total = base + persuadible + adversario;
+  if (total === 0) return <div className="text-xs text-slate-500 text-center py-4">Sin promovidos clasificados todavía</div>;
+
+  const r = 45, cx = 55, cy = 55, grosor = 16;
+  const circunferencia = 2 * Math.PI * r;
+  const segmentos = [
+    { valor: base, color: '#10b981', label: 'Base' },
+    { valor: persuadible, color: '#f59e0b', label: 'Persuadible' },
+    { valor: adversario, color: '#64748b', label: 'Adversario' },
+  ];
+  let acumulado = 0;
+
+  return (
+    <div className="flex items-center gap-4">
+      <svg viewBox="0 0 110 110" className="w-28 h-28 flex-shrink-0">
+        {segmentos.map((s, i) => {
+          const largo = (s.valor / total) * circunferencia;
+          const offset = -((acumulado / total) * circunferencia);
+          acumulado += s.valor;
+          if (s.valor === 0) return null;
+          return (
+            <circle key={i} cx={cx} cy={cy} r={r} fill="none" stroke={s.color} strokeWidth={grosor}
+              strokeDasharray={`${largo} ${circunferencia - largo}`} strokeDashoffset={offset}
+              transform={`rotate(-90 ${cx} ${cy})`} strokeLinecap="butt" />
+          );
+        })}
+        <text x={cx} y={cy - 2} textAnchor="middle" className="fill-white" style={{ fontSize: 20, fontWeight: 900 }}>{total}</text>
+        <text x={cx} y={cy + 12} textAnchor="middle" className="fill-slate-500" style={{ fontSize: 8 }}>promovidos</text>
+      </svg>
+      <div className="space-y-1.5 flex-1">
+        {segmentos.map((s, i) => (
+          <div key={i} className="flex items-center justify-between text-xs">
+            <span className="flex items-center gap-1.5 text-slate-300"><span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: s.color }} />{s.label}</span>
+            <span className="font-bold text-white">{s.valor} <span className="text-slate-500 font-normal">({total > 0 ? Math.round(s.valor / total * 100) : 0}%)</span></span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const usuario = useAuth((s) => s.usuario);
   const [d, setD] = useState(null);
@@ -83,33 +201,68 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* ⚡ VISTA EJECUTIVA — 5 indicadores, nada más, para quien no
-            tiene tiempo de leer veinte gráficas */}
+        {/* ⚡ VISTA EJECUTIVA — 5 indicadores + 3 gráficas, para quien no
+            tiene tiempo de leer veinte tarjetas pero sí quiere ver
+            tendencia y contexto, no solo números sueltos. */}
         {vistaEjecutiva && ejecutivo ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="bg-slate-900/60 border border-indigo-800/30 rounded-2xl p-5">
-              <div className="text-3xl font-black text-indigo-400">{ejecutivo.cobertura_pct}%</div>
-              <div className="text-xs text-slate-400 mt-1">🟢 Cobertura territorial</div>
-              <div className="text-[10px] text-slate-600 mt-1">{ejecutivo.secciones_con_presencia} de {ejecutivo.total_secciones} secciones con presencia</div>
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="bg-slate-900/60 border border-indigo-800/30 rounded-2xl p-5">
+                <div className="text-3xl font-black text-indigo-400">{ejecutivo.cobertura_pct}%</div>
+                <div className="text-xs text-slate-400 mt-1">🟢 Cobertura territorial</div>
+                <div className="text-[10px] text-slate-600 mt-1">{ejecutivo.secciones_con_presencia} de {ejecutivo.total_secciones} secciones con presencia</div>
+              </div>
+              <div className="bg-slate-900/60 border border-emerald-800/30 rounded-2xl p-5">
+                <div className="text-3xl font-black text-emerald-400">{ejecutivo.voto_estimado.toLocaleString()}</div>
+                <div className="text-xs text-slate-400 mt-1">🟢 Voto estimado (comprometidos)</div>
+                {ejecutivo.meta_votos && <div className="text-[10px] text-slate-600 mt-1">Meta: {ejecutivo.meta_votos.toLocaleString()}</div>}
+              </div>
+              <div className={`bg-slate-900/60 border rounded-2xl p-5 ${ejecutivo.municipios_riesgo > 0 ? 'border-red-800/40' : 'border-emerald-800/30'}`}>
+                <div className={`text-3xl font-black ${ejecutivo.municipios_riesgo > 0 ? 'text-red-400' : 'text-emerald-400'}`}>{ejecutivo.municipios_riesgo}</div>
+                <div className="text-xs text-slate-400 mt-1">🟢 Municipios en riesgo</div>
+                <div className="text-[10px] text-slate-600 mt-1">de {ejecutivo.total_municipios} en tu territorio</div>
+              </div>
+              <div className="bg-slate-900/60 border border-purple-800/30 rounded-2xl p-5">
+                <div className="text-3xl font-black text-purple-400">{ejecutivo.estructura_activa_pct}%</div>
+                <div className="text-xs text-slate-400 mt-1">🟢 Estructura activa</div>
+                <div className="text-[10px] text-slate-600 mt-1">{ejecutivo.promotores_activos} de {ejecutivo.total_promotores} promotores trabajando esta semana</div>
+              </div>
+              <div className="bg-slate-900/60 border border-amber-800/30 rounded-2xl p-5 md:col-span-2">
+                <div className="text-3xl font-black text-amber-400">{ejecutivo.avance_diario}</div>
+                <div className="text-xs text-slate-400 mt-1">🟢 Avance diario (promedio últimos 7 días)</div>
+              </div>
             </div>
-            <div className="bg-slate-900/60 border border-emerald-800/30 rounded-2xl p-5">
-              <div className="text-3xl font-black text-emerald-400">{ejecutivo.voto_estimado.toLocaleString()}</div>
-              <div className="text-xs text-slate-400 mt-1">🟢 Voto estimado (comprometidos)</div>
-              {ejecutivo.meta_votos && <div className="text-[10px] text-slate-600 mt-1">Meta: {ejecutivo.meta_votos.toLocaleString()}</div>}
+
+            {/* 🆕 GRÁFICA 1 — Tendencia de 14 días */}
+            <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4">
+              <h3 className="text-xs font-bold text-slate-400 uppercase mb-3">📈 Tendencia — promovidos por día (últimos 14 días)</h3>
+              {ejecutivo.tendencia_14_dias?.some((t) => t.total > 0) ? (
+                <GraficaTendencia datos={ejecutivo.tendencia_14_dias} />
+              ) : (
+                <div className="text-xs text-slate-500 text-center py-6">Sin actividad registrada en los últimos 14 días</div>
+              )}
             </div>
-            <div className={`bg-slate-900/60 border rounded-2xl p-5 ${ejecutivo.municipios_riesgo > 0 ? 'border-red-800/40' : 'border-emerald-800/30'}`}>
-              <div className={`text-3xl font-black ${ejecutivo.municipios_riesgo > 0 ? 'text-red-400' : 'text-emerald-400'}`}>{ejecutivo.municipios_riesgo}</div>
-              <div className="text-xs text-slate-400 mt-1">🟢 Municipios en riesgo</div>
-              <div className="text-[10px] text-slate-600 mt-1">de {ejecutivo.total_municipios} en tu territorio</div>
-            </div>
-            <div className="bg-slate-900/60 border border-purple-800/30 rounded-2xl p-5">
-              <div className="text-3xl font-black text-purple-400">{ejecutivo.estructura_activa_pct}%</div>
-              <div className="text-xs text-slate-400 mt-1">🟢 Estructura activa</div>
-              <div className="text-[10px] text-slate-600 mt-1">{ejecutivo.promotores_activos} de {ejecutivo.total_promotores} promotores trabajando esta semana</div>
-            </div>
-            <div className="bg-slate-900/60 border border-amber-800/30 rounded-2xl p-5 md:col-span-2">
-              <div className="text-3xl font-black text-amber-400">{ejecutivo.avance_diario}</div>
-              <div className="text-xs text-slate-400 mt-1">🟢 Avance diario (promedio últimos 7 días)</div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* 🆕 GRÁFICA 2 — Comparativo por territorio */}
+              <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4">
+                <h3 className="text-xs font-bold text-slate-400 uppercase mb-3">📊 Dónde se está trabajando más</h3>
+                {ejecutivo.comparativo_territorio?.length > 0 ? (
+                  <GraficaBarras datos={ejecutivo.comparativo_territorio} />
+                ) : (
+                  <div className="text-xs text-slate-500 text-center py-6">Sin promovidos con sección registrada todavía</div>
+                )}
+              </div>
+
+              {/* 🆕 GRÁFICA 3 — Distribución por clasificación */}
+              <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4">
+                <h3 className="text-xs font-bold text-slate-400 uppercase mb-3">🍩 Distribución estratégica</h3>
+                <GraficaDona
+                  base={ejecutivo.distribucion_clasificacion?.base || 0}
+                  persuadible={ejecutivo.distribucion_clasificacion?.persuadible || 0}
+                  adversario={ejecutivo.distribucion_clasificacion?.adversario || 0}
+                />
+              </div>
             </div>
           </div>
         ) : (
