@@ -51,8 +51,6 @@ import { respaldarTodasLasCampanas } from './lib/respaldoAutomatico.js';
 import inteligenciaRoutes from './routes/inteligencia.js';
 import documentosRoutes from './routes/documentos.js';
 import adminRoutes from './routes/admin.js';
-// 🆕 El blog existía como archivo, pero nunca se importaba aquí —
-// por eso ni el blog ni la página de ventas cargaban en producción.
 import blogRoutes from './routes/blog.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -62,20 +60,15 @@ const app = express();
 const PORT = process.env.PORT || 4000;
 
 // ── SEGURIDAD ANTI-HACKEO ────────────────────────────────────
-// helmet agrega ~15 headers de seguridad automáticamente (protección
-// contra XSS, clickjacking, sniffing de tipo MIME, etc.) — esto es
-// exactamente lo que NO teníamos control fino en el hosting compartido.
 app.use(helmet());
 
-// CORS: solo se permite acceso desde los dominios de VotoTech
-// (los subdominios de cada candidato + dominios propios que registren)
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin) return callback(null, true); // peticiones sin origin (Postman, apps móviles)
+    if (!origin) return callback(null, true);
     const permitido =
       origin.endsWith('.vototech.mx') ||
-      origin.endsWith('.vercel.app') ||          // dominio temporal de Vercel (mientras no haya dominio propio)
-      origin === 'http://localhost:5173' || // desarrollo local
+      origin.endsWith('.vercel.app') ||
+      origin === 'http://localhost:5173' ||
       process.env.DOMINIOS_PERMITIDOS?.split(',').includes(origin);
     callback(permitido ? null : new Error('Origen no permitido por CORS'), permitido);
   },
@@ -84,14 +77,6 @@ app.use(cors({
 
 app.use(express.json({ limit: '2mb' }));
 
-// Rate limiting general: máximo 300 peticiones por IP cada 15 min.
-// Esto es justo lo que nos hacía falta contra abuso/ataques de fuerza bruta,
-// y no se podía controlar bien en hosting compartido.
-// 300/15min (20/min) era demasiado bajo: protege contra ataques, pero
-// en el día de la elección varios representantes pueden compartir IP
-// (misma red WiFi, o el mismo operador celular con IP compartida —
-// muy común en México) y se bloqueaban entre ellos sin culpa. Subido
-// a un nivel que sigue frenando abuso real pero no golpea uso legítimo.
 const limiteGeneral = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 1500,
@@ -99,9 +84,6 @@ const limiteGeneral = rateLimit({
 });
 app.use('/api/', limiteGeneral);
 
-// El día de la elección necesita su propio límite, más alto todavía,
-// porque ahí es exactamente cuando MÁS gente concurrente comparte red
-// y MÁS importa que nadie se quede bloqueado.
 const limiteDiaEleccion = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 3000,
@@ -109,8 +91,6 @@ const limiteDiaEleccion = rateLimit({
 });
 app.use('/api/dia-eleccion/', limiteDiaEleccion);
 
-// Rate limiting MÁS estricto específicamente para login (previene fuerza bruta
-// de contraseñas — máximo 10 intentos cada 15 min por IP).
 const limiteLogin = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
@@ -123,9 +103,6 @@ app.use('/api/auth', authRoutes);
 app.use('/api/geo', geoRoutes);
 app.use('/api/resultados', resultadosRoutes);
 app.use('/api/promovidos', requiereAuth, requiereModulo('promovidos'), promovidosRoutes);
-// Respaldos maneja su propia autenticación adentro — por eso no
-// lleva requiereModulo (no es uno de los 11 módulos normales, es
-// una función de mando máximo, sin importar el rol de cada quien).
 app.use('/api/respaldos', respaldosRoutes);
 app.use('/api/priorizacion', requiereAuth, requiereModulo('priorizacion'), priorizacionRoutes);
 app.use('/api/estructura', requiereAuth, requiereModulo('estructura'), estructuraRoutes);
@@ -153,9 +130,6 @@ app.use('/api/push', pushRoutes);
 app.use('/api/inteligencia', inteligenciaRoutes);
 app.use('/api/documentos', requiereAuth, requiereModulo('juridico'), documentosRoutes);
 app.use('/api/admin', adminRoutes);
-// El blog maneja su propia protección adentro (rutas /admin con
-// requiereSuperAdmin, rutas públicas sin nada) — por eso NO lleva
-// requiereAuth aquí, a diferencia de los demás módulos.
 app.use('/api/blog', blogRoutes);
 
 app.get('/api/salud', (req, res) => {
@@ -163,10 +137,7 @@ app.get('/api/salud', (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════
-// 📰 BLOG PÚBLICO — renderizado en el servidor (no solo JS del
-// cliente) para que Google indexe bien cada artículo, con su propio
-// título y descripción únicos. Va ANTES del static para que /blog
-// no intente buscar un archivo blog.html que no existe.
+// 📰 BLOG PÚBLICO
 // ═══════════════════════════════════════════════════════════════
 const ENCABEZADO_COMPARTIDO = `
 <header>
@@ -196,8 +167,10 @@ const ESTILO_BLOG = `
   .blog-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;}
   @media (max-width:760px){.blog-layout{grid-template-columns:1fr;} .blog-grid{grid-template-columns:1fr;}}
   a.volver{color:#0d9488;text-decoration:none;font-size:14px;font-weight:600;}
-  .tarjeta{border:1px solid #E3E0D5;background:#fff;border-radius:16px;padding:22px;display:flex;flex-direction:column;text-decoration:none;color:inherit;transition:border-color 0.2s, transform 0.2s;}
+  .tarjeta{border:1px solid #E3E0D5;background:#fff;border-radius:16px;overflow:hidden;display:flex;flex-direction:column;text-decoration:none;color:inherit;transition:border-color 0.2s, transform 0.2s;}
   .tarjeta:hover{border-color:#0d9488;transform:translateY(-2px);}
+  .tarjeta-img{width:100%;height:160px;object-fit:cover;background:#EFEDF9;}
+  .tarjeta-cuerpo{padding:22px;display:flex;flex-direction:column;flex:1;}
   .tarjeta h2{font-family:'Space Grotesk',sans-serif;font-size:1.15rem;margin:0 0 8px;color:#14123D;line-height:1.3;}
   .tarjeta p{color:#565278;font-size:13.5px;line-height:1.5;margin:0 0 12px;flex:1;}
   .tag{display:inline-block;background:#EFEDF9;color:#0d9488;font-size:10.5px;font-weight:600;padding:4px 10px;border-radius:20px;margin:0 5px 5px 0;}
@@ -211,14 +184,25 @@ const ESTILO_BLOG = `
   .side-contacto a{color:#0d9488;text-decoration:none;font-weight:600;}
   .side-cta{display:block;text-align:center;background:#0d9488;color:#fff;padding:12px;border-radius:10px;font-weight:700;text-decoration:none;font-size:13.5px;margin-top:6px;}
   .art-cont{max-width:720px;}
+  .art-portada{width:100%;max-height:420px;object-fit:cover;border-radius:16px;margin:20px 0;}
   a.volver-art{color:#0d9488;text-decoration:none;font-size:14px;font-weight:600;}
   h1.art-h1{font-family:'Space Grotesk',sans-serif;font-size:2.1rem;line-height:1.2;margin:20px 0 10px;}
   .art-meta{color:#6b6890;font-size:13px;margin-bottom:24px;}
-  .art-contenido{font-size:16px;line-height:1.75;white-space:pre-wrap;color:#2a2760;}
+  /* 🆕 Estilos para el contenido ya convertido de Markdown a HTML —
+     antes solo había white-space:pre-wrap sobre texto plano, ahora
+     hay títulos, negritas, e imágenes de verdad. */
+  .art-contenido{font-size:16px;line-height:1.75;color:#2a2760;}
+  .art-contenido p{margin:0 0 18px;}
+  .art-contenido h2{font-family:'Space Grotesk',sans-serif;font-size:1.5rem;margin:32px 0 14px;color:#14123D;}
+  .art-contenido h3{font-family:'Space Grotesk',sans-serif;font-size:1.2rem;margin:26px 0 12px;color:#14123D;}
+  .art-contenido strong{color:#14123D;}
+  .art-contenido a{color:#0d9488;text-decoration:underline;}
+  .art-contenido img{max-width:100%;border-radius:12px;margin:20px 0;display:block;}
   .cta{background:#0d9488;color:#fff;padding:12px 22px;border-radius:10px;font-weight:700;text-decoration:none;display:inline-block;margin-top:30px;}
   iframe{width:100%;aspect-ratio:16/9;border-radius:12px;border:0;}
   .pdf-embed{display:block;background:#14123D;border-radius:12px;padding:30px;text-align:center;text-decoration:none;color:#00D4B8;font-weight:700;margin-bottom:20px;}
 `;
+
 function urlVideoEmbed(url) {
   if (!url) return null;
   const yt = url.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/))([\w-]{11})/);
@@ -227,6 +211,41 @@ function urlVideoEmbed(url) {
   if (vimeo) return `https://player.vimeo.com/video/${vimeo[1]}`;
   return null;
 }
+
+/**
+ * 🆕 CONVERSOR DE MARKDOWN SIMPLE — sin depender de ninguna librería
+ * nueva. Soporta justo lo que da el editor del panel: títulos (##),
+ * negrita (**texto**), cursiva (*texto*), imágenes (![alt](url)),
+ * links ([texto](url)), y separa párrafos por líneas en blanco.
+ *
+ * Primero se escapa TODO el HTML del texto original (para que nadie
+ * pueda inyectar código pegando algo raro en el editor), y RECIÉN
+ * DESPUÉS se insertan las etiquetas de formato — así lo único que
+ * puede contener HTML real son las etiquetas que este conversor
+ * generó él mismo, nunca texto que haya escrito la persona.
+ */
+function markdownAHtml(texto) {
+  if (!texto) return '';
+  let seguro = texto
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
+  // Imágenes ANTES que links (ambos usan corchetes, pero imagen lleva "!" antes)
+  seguro = seguro.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" loading="lazy">');
+  seguro = seguro.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  seguro = seguro.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  seguro = seguro.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+  seguro = seguro.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+  seguro = seguro.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+
+  // Párrafos — separa por líneas en blanco; una línea que ya es un
+  // <h2>/<h3>/<img> no se envuelve en <p> (se ve raro un título
+  // metido dentro de un párrafo).
+  const bloques = seguro.split(/\n\s*\n/).map((b) => b.trim()).filter(Boolean);
+  return bloques.map((b) => (/^<(h2|h3|img)/.test(b) ? b : `<p>${b.replace(/\n/g, '<br>')}</p>`)).join('\n');
+}
+
 function barraLateralHTML(recientes) {
   return `
     <aside class="sidebar">
@@ -244,12 +263,15 @@ function barraLateralHTML(recientes) {
 }
 
 app.get('/blog', async (req, res) => {
-  const r = await query(`SELECT titulo, slug, tipo, resumen, etiquetas, fecha_publicacion FROM blog_publicaciones WHERE publicado=true ORDER BY fecha_publicacion DESC LIMIT 100`);
+  const r = await query(`SELECT titulo, slug, tipo, resumen, imagen_portada, etiquetas, fecha_publicacion FROM blog_publicaciones WHERE publicado=true ORDER BY fecha_publicacion DESC LIMIT 100`);
   const tarjetas = r.rows.map((p) => `
     <a class="tarjeta" href="/blog/${p.slug}">
-      <h2>${p.tipo === 'pdf' ? '📎 ' : p.tipo === 'video' ? '🎬 ' : ''}${p.titulo}</h2>
-      <p>${p.resumen || ''}</p>
-      <div>${(p.etiquetas || []).map((t) => `<span class="tag">${t}</span>`).join('')}</div>
+      ${p.imagen_portada ? `<img class="tarjeta-img" src="${p.imagen_portada}" alt="${p.titulo}" loading="lazy">` : ''}
+      <div class="tarjeta-cuerpo">
+        <h2>${p.tipo === 'pdf' ? '📎 ' : p.tipo === 'video' ? '🎬 ' : ''}${p.titulo}</h2>
+        <p>${p.resumen || ''}</p>
+        <div>${(p.etiquetas || []).map((t) => `<span class="tag">${t}</span>`).join('')}</div>
+      </div>
     </a>`).join('\n');
   res.send(`<!DOCTYPE html><html lang="es-MX"><head><meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -311,8 +333,9 @@ app.get('/blog/:slug', async (req, res) => {
           <h1 class="art-h1">${p.titulo}</h1>
           <p class="art-meta">${new Date(p.fecha_publicacion).toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' })} · ${p.vistas} vistas</p>
           <div>${(p.etiquetas || []).map((t) => `<span class="tag">${t}</span>`).join('')}</div>
+          ${p.imagen_portada ? `<img class="art-portada" src="${p.imagen_portada}" alt="${p.titulo}">` : ''}
           ${cuerpoMedia}
-          <div class="art-contenido">${(p.contenido || '').replace(/</g, '&lt;')}</div>
+          <div class="art-contenido">${markdownAHtml(p.contenido)}</div>
           <a class="cta" href="/#demo">Probar VotoTech →</a>
         </div>
         ${barraLateralHTML(recientes.rows)}
@@ -320,22 +343,13 @@ app.get('/blog/:slug', async (req, res) => {
     </div></body></html>`);
 });
 
-// ── SITIO DE VENTAS (www.vototech.com.mx) — completamente estático,
-// vive en su propia carpeta aparte del sistema real (que sigue
-// siendo solo API + frontend en Vercel). Va DESPUÉS del blog para
-// que /blog no lo intercepte esta carpeta buscando un archivo.
 app.use(express.static(path.join(__dirname, '../public-marketing')));
 
-// Manejo de errores centralizado — nunca exponer detalles internos al cliente
 app.use((err, req, res, next) => {
   console.error('Error no manejado:', err);
   res.status(500).json({ ok: false, error: 'Error interno del servidor' });
 });
 
-// Última red de seguridad: si algo se escapa incluso de Express (por
-// ejemplo, dentro de un manejador de Socket.io), se registra el error
-// pero el servidor NO se cae — mejor una función que falla una vez
-// que toda la plataforma caída para todos los candidatos.
 process.on('unhandledRejection', (razon) => {
   console.error('⚠️ Promesa rechazada sin manejar (el servidor sigue corriendo):', razon);
 });
@@ -343,11 +357,8 @@ process.on('unhandledRejection', (razon) => {
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-key-cambiar-en-produccion';
 const httpServer = createServer(app);
 
-// Socket.io: cada campaña tiene su propia "sala" — un cliente de la
-// campaña A JAMÁS recibe eventos de la campaña B, aislamiento
-// multi-tenant también en tiempo real, no solo en las consultas REST.
 export const io = new Server(httpServer, {
-  cors: { origin: '*', credentials: true }, // TODO: restringir en producción a dominios reales
+  cors: { origin: '*', credentials: true },
 });
 setIo(io);
 
@@ -362,10 +373,7 @@ io.use((socket, next) => {
   }
 });
 
-// Quién está conectado ahora mismo, por campaña — en memoria, se
-// resetea si el servidor reinicia (aceptable: se reconstruye solo
-// en cuanto la gente vuelve a abrir la app).
-const usuariosEnLinea = new Map(); // campana_id -> Set(usuario_id)
+const usuariosEnLinea = new Map();
 
 io.on('connection', (socket) => {
   const { campana_id, sub } = socket.usuario;
@@ -390,10 +398,6 @@ io.on('connection', (socket) => {
 httpServer.listen(PORT, async () => {
   console.log(`✅ VotoTech Backend + WebSockets corriendo en http://localhost:${PORT}`);
 
-  // Auto-carga de datos: si la tabla de secciones está vacía, significa
-  // que es la primera vez que el servidor arranca en este ambiente
-  // (ej. recién desplegado en Render) — carga todo automáticamente,
-  // sin necesitar acceso a una terminal manual.
   try {
     await query(`CREATE TABLE IF NOT EXISTS meta_seed (
       id SMALLINT PRIMARY KEY DEFAULT 1, completado_en TIMESTAMPTZ
@@ -406,18 +410,12 @@ httpServer.listen(PORT, async () => {
       await correrSeed();
     } else {
       console.log(`ℹ️  Datos ya cargados completamente el ${yaCompletado} — se omite la carga automática.`);
-      // El histórico 2021 se agregó DESPUÉS de que muchas campañas ya
-      // habían corrido la siembra original — se checa aparte, con su
-      // propia bandera, para no tener que re-sembrar todo desde cero.
       await cargarHistorico2021();
     }
   } catch (e) {
     console.error('⚠️ No se pudo verificar/cargar datos automáticamente:', e.message);
   }
 
-  // ── Tarea diaria: avisar por push a campañas cerca de vencer ──
-  // Corre una vez al arrancar y luego cada 24h — nada elegante, pero
-  // funciona bien para un solo proceso siempre encendido como este.
   const revisarVencimientos = async () => {
     try {
       const campanas = await query(
@@ -446,10 +444,6 @@ httpServer.listen(PORT, async () => {
   revisarVencimientos();
   setInterval(revisarVencimientos, 24 * 60 * 60 * 1000);
 
-  // Respaldo automático diario de cada campaña — para que nunca se
-  // pierda información aunque algo salga mal. Se corre unas horas
-  // después del arranque (no de inmediato) para no competir por
-  // recursos con el arranque normal del servidor.
   setTimeout(() => {
     respaldarTodasLasCampanas();
     setInterval(respaldarTodasLasCampanas, 24 * 60 * 60 * 1000);
