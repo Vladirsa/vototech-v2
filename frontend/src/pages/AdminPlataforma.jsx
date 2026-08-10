@@ -606,9 +606,19 @@ export default function AdminPlataforma() {
                 </div>
               </div>
 
-              <textarea placeholder="Resumen corto (se usa también como descripción para Google)" value={formBlog.resumen}
-                onChange={(e) => setFormBlog({ ...formBlog, resumen: e.target.value })} rows={2}
-                className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white text-xs" />
+              <div>
+                {/* 🆕 Antes decía "300 caracteres" sin más contexto —
+                    ahora se ve claro que ESTE campo (el resumen corto)
+                    tiene límite, pero el de "Contenido" de abajo NO
+                    tiene ninguno — es donde va el artículo completo. */}
+                <textarea placeholder="Resumen corto — aparece en la tarjeta del blog y como descripción para Google (el artículo completo va en 'Contenido', más abajo, sin límite)"
+                  value={formBlog.resumen} maxLength={500}
+                  onChange={(e) => setFormBlog({ ...formBlog, resumen: e.target.value })} rows={2}
+                  className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white text-xs" />
+                <p className={`text-[9px] mt-0.5 text-right ${(formBlog.resumen || '').length > 460 ? 'text-amber-400' : 'text-slate-600'}`}>
+                  {(formBlog.resumen || '').length} / 500
+                </p>
+              </div>
 
               {formBlog.tipo === 'articulo' && (
                 <div>
@@ -634,6 +644,7 @@ export default function AdminPlataforma() {
                   <textarea ref={refContenido} placeholder="Contenido completo del artículo — usa los botones de arriba para dar formato" value={formBlog.contenido}
                     onChange={(e) => setFormBlog({ ...formBlog, contenido: e.target.value })} rows={10}
                     className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white text-xs font-mono" />
+                  <p className="text-[9px] text-slate-600 mt-0.5">{(formBlog.contenido || '').length} caracteres — sin límite, escribe lo que necesites</p>
                 </div>
               )}
 
@@ -656,7 +667,7 @@ export default function AdminPlataforma() {
                 className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white text-xs" />
               <p className="text-[9px] text-slate-500 -mt-1.5">Las etiquetas ayudan a que Google entienda de qué trata, y sirven para filtrar en la página del blog.</p>
 
-              <input placeholder="Descripción para Google (si la dejas vacía, usa el resumen)" value={formBlog.meta_descripcion}
+              <input placeholder="Descripción para Google (si la dejas vacía, usa el resumen)" value={formBlog.meta_descripcion} maxLength={320}
                 onChange={(e) => setFormBlog({ ...formBlog, meta_descripcion: e.target.value })}
                 className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white text-xs" />
 
