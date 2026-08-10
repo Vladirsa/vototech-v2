@@ -186,7 +186,11 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
   // 🆕 Posición del panel de resumen de "Campaña" — antes estaba fija
   // en la esquina (top-4 right-4), ahora se puede arrastrar igual que
   // el panel de Coloreado.
-  const [panelCampanaPos, setPanelCampanaPos] = useState({ x: 16, y: 16 });
+  // 🆕 Posición inicial: abajo, a la izquierda — al mismo nivel que
+  // el botón ➕ de agregar (que está centrado), pero a un costado, no
+  // encima. Se puede seguir arrastrando a donde el candidato quiera,
+  // esto solo es el punto de partida.
+  const [panelCampanaPos, setPanelCampanaPos] = useState({ x: 16, y: window.innerHeight - 240 });
   const arrastrandoCampana = useRef(false);
   // Centroide aproximado de cada sección (promedio de sus puntos) — se
   // usa como posición de respaldo para promovidos que no tienen lat/lng
@@ -793,7 +797,7 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
   };
   const centroTlaxcala = [19.32, -98.24];
   return (
-    <div className="relative w-full h-full bg-slate-950">
+    <div className="relative w-full h-full bg-slate-950 overflow-hidden">
       <MapContainer key={idMontajeMapa} center={centroTlaxcala} zoom={11} className="w-full h-full" zoomControl={false}>
         {/* SORPRESA 1: selector de tipo de mapa (satelital, oscuro, calles) — la v1 no tenía NINGÚN mapa base real */}
         <LayersControl position="bottomleft">
