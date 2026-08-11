@@ -1,5 +1,9 @@
 {
   "rewrites": [
+    { "source": "/sitemap.xml", "destination": "https://vototech-backend.onrender.com/sitemap.xml" },
+    { "source": "/robots.txt", "destination": "https://vototech-backend.onrender.com/robots.txt" },
+    { "source": "/blog", "destination": "https://vototech-backend.onrender.com/blog" },
+    { "source": "/blog/:slug", "destination": "https://vototech-backend.onrender.com/blog/:slug" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
