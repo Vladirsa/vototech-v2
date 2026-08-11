@@ -74,6 +74,13 @@ const esquemaGasto = z.object({
   // Lo que de verdad pide el INE al fiscalizar: con qué se sustenta el gasto.
   tipo_comprobante: z.enum(['factura', 'nota', 'recibo', 'sin_comprobante']).default('sin_comprobante'),
   numero_comprobante: z.string().max(100).optional(),
+  // 🆕 Solo aplican cuando categoria === 'utilitarios' — en vez de
+  // que el gasto se quede como un monto suelto sin más info, esto
+  // CREA (o aumenta el stock de) un artículo en la bodega de
+  // Activos automáticamente, conectando el gasto con el inventario real.
+  utilitario_tipo: z.string().max(100).optional(),
+  utilitario_cantidad: z.number().int().positive().optional(),
+  utilitario_activo_id: z.string().uuid().optional(), // si ya existe el artículo, solo se le suma cantidad
 });
 
 router.post('/', async (req, res) => {
@@ -83,12 +90,35 @@ router.post('/', async (req, res) => {
   }
   const d = parseado.data;
 
+  // 🆕 Si el gasto es de utilitarios, primero se resuelve el artículo
+  // de la bodega (Activos) — o se crea nuevo, o se le suma cantidad
+  // a uno que ya existía — y el gasto queda enlazado a él.
+  let activoId = null;
+  if (d.categoria === 'utilitarios' && d.utilitario_cantidad) {
+    if (d.utilitario_activo_id) {
+      // Restock de un artículo que ya existe — se le suma la cantidad nueva
+      const actualizado = await query(
+        `UPDATE activos SET cantidad = COALESCE(cantidad,0) + $1 WHERE id=$2 AND campana_id=$3 RETURNING id`,
+        [d.utilitario_cantidad, d.utilitario_activo_id, req.usuario.campana_id]
+      );
+      activoId = actualizado.rows[0]?.id || null;
+    } else if (d.utilitario_tipo) {
+      // Artículo nuevo en la bodega
+      const nuevo = await query(
+        `INSERT INTO activos (campana_id, tipo, subtipo, direccion, cantidad, costo, fecha_ini, registrado_por)
+         VALUES ($1,'utilitario',$2,$2,$3,$4,$5,$6) RETURNING id`,
+        [req.usuario.campana_id, d.utilitario_tipo, d.utilitario_cantidad, d.monto, d.fecha, req.usuario.sub]
+      );
+      activoId = nuevo.rows[0].id;
+    }
+  }
+
   const resultado = await query(
-    `INSERT INTO gastos_campana (campana_id, categoria, descripcion, monto, fecha, proveedor, rfc, factura_uuid, forma_pago, tipo_comprobante, numero_comprobante, registrado_por)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
+    `INSERT INTO gastos_campana (campana_id, categoria, descripcion, monto, fecha, proveedor, rfc, factura_uuid, forma_pago, tipo_comprobante, numero_comprobante, registrado_por, activo_id)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
     [req.usuario.campana_id, d.categoria, d.descripcion, d.monto, d.fecha,
      d.proveedor || null, d.rfc || null, d.factura_uuid || null, d.forma_pago,
-     d.tipo_comprobante, d.numero_comprobante || null, req.usuario.sub]
+     d.tipo_comprobante, d.numero_comprobante || null, req.usuario.sub, activoId]
   );
 
   registrarAuditoria({
