@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api, { descargarArchivo } from '../lib/api';
 
-const CATEGORIAS = ['propaganda_impresa', 'espectaculares', 'eventos', 'transporte', 'personal', 'tecnologia', 'publicidad_digital', 'otro'];
+const CATEGORIAS = ['utilitarios', 'propaganda_impresa', 'espectaculares', 'eventos', 'transporte', 'personal', 'tecnologia', 'publicidad_digital', 'otro'];
 const TIPO_COMPROBANTE = { factura: '🧾 Factura', nota: '📝 Nota de venta', recibo: '🧻 Recibo', sin_comprobante: '⚠️ Sin comprobante' };
 const TIPO_INGRESO = {
   aportacion_efectivo: '💵 Aportación en efectivo', aportacion_especie: '📦 Aportación en especie',
@@ -40,14 +40,33 @@ export default function Finanzas() {
   const [formIngreso, setFormIngreso] = useState({ tipo_ingreso: 'aportacion_efectivo', aportante_nombre: '', aportante_identificacion: '', monto: '', fecha: new Date().toISOString().slice(0, 10), forma_recepcion: 'transferencia', numero_recibo: '' });
   const [tope, setTope] = useState('');
 
+  // 🆕 Bodega de utilitarios — para elegir "restock de algo que ya
+  // existe" en vez de crear un artículo duplicado cada vez que se
+  // compra más de lo mismo.
+  const [bodega, setBodega] = useState([]);
+  const [utilitarioModo, setUtilitarioModo] = useState('nuevo'); // 'nuevo' | 'restock'
+  const [utilitarioForm, setUtilitarioForm] = useState({ tipo: '', cantidad: '', activo_id: '' });
+
   const cargar = () => api.get('/finanzas').then((r) => { setGastos(r.data.data); setIngresos(r.data.ingresos); setResumen(r.data.resumen); });
-  useEffect(cargar, []);
+  const cargarBodega = () => api.get('/activos/bodega').then((r) => setBodega(r.data.data)).catch(() => setBodega([]));
+  useEffect(() => { cargar(); cargarBodega(); }, []);
 
   const guardar = async () => {
-    await api.post('/finanzas', { ...form, monto: parseFloat(form.monto) });
+    const payload = { ...form, monto: parseFloat(form.monto) };
+    // 🆕 Si es un gasto de utilitarios, se manda también qué artículo
+    // es y cuántas piezas — esto es lo que conecta el gasto con la
+    // bodega real en Activos.
+    if (form.categoria === 'utilitarios') {
+      payload.utilitario_cantidad = parseInt(utilitarioForm.cantidad);
+      if (utilitarioModo === 'restock') payload.utilitario_activo_id = utilitarioForm.activo_id;
+      else payload.utilitario_tipo = utilitarioForm.tipo;
+    }
+    await api.post('/finanzas', payload);
     setForm({ categoria: 'otro', descripcion: '', monto: '', fecha: new Date().toISOString().slice(0, 10), tipo_comprobante: 'sin_comprobante', numero_comprobante: '', proveedor: '' });
+    setUtilitarioForm({ tipo: '', cantidad: '', activo_id: '' });
     setMostrarForm(false);
     cargar();
+    cargarBodega();
   };
 
   const guardarIngreso = async () => {
@@ -64,6 +83,9 @@ export default function Finanzas() {
   };
 
   const fmt = (n) => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }).format(n || 0);
+
+  const puedeGuardarGasto = form.descripcion && form.monto &&
+    (form.categoria !== 'utilitarios' || (utilitarioForm.cantidad && (utilitarioModo === 'restock' ? utilitarioForm.activo_id : utilitarioForm.tipo)));
 
   return (
     <div className="min-h-screen bg-slate-950 p-4 md:p-8">
@@ -128,6 +150,30 @@ export default function Finanzas() {
           )}
         </div>
 
+        {/* 🆕 BODEGA DE UTILITARIOS — visible siempre que haya algo
+            registrado, para que el candidato vea de un vistazo cuánto
+            tiene comprado, entregado, y disponible. */}
+        {bodega.length > 0 && (
+          <div className="bg-slate-900/60 border border-teal-800/40 rounded-xl p-4">
+            <h2 className="text-xs font-bold text-teal-300 uppercase mb-2">🏬 Bodega de Utilitarios</h2>
+            <div className="space-y-1.5">
+              {bodega.map((b) => (
+                <div key={b.id} className="flex items-center justify-between bg-slate-800/50 rounded-lg px-3 py-2 text-xs">
+                  <span className="font-bold text-white capitalize">{b.subtipo}</span>
+                  <div className="flex items-center gap-3 text-[10px]">
+                    <span className="text-slate-400">Comprado: <strong className="text-white">{b.comprado}</strong></span>
+                    <span className="text-amber-400">Entregado: <strong>{b.entregado}</strong></span>
+                    <span className={`font-bold ${b.en_bodega <= 0 ? 'text-red-400' : b.en_bodega < b.comprado * 0.2 ? 'text-amber-400' : 'text-emerald-400'}`}>
+                      En bodega: {b.en_bodega}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <p className="text-[9px] text-slate-500 mt-2">Se actualiza sola cada vez que registras un gasto de utilitarios o entregas piezas desde Activos.</p>
+          </div>
+        )}
+
         <div className="flex gap-2">
           <button onClick={() => setTab('gastos')} className={`flex-1 py-2 rounded-lg text-xs font-bold ${tab === 'gastos' ? 'bg-red-600 text-white' : 'bg-slate-800 text-slate-400'}`}>💸 Gastos ({gastos.length})</button>
           <button onClick={() => setTab('ingresos')} className={`flex-1 py-2 rounded-lg text-xs font-bold ${tab === 'ingresos' ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'}`}>💵 Ingresos ({ingresos.length})</button>
@@ -138,6 +184,35 @@ export default function Finanzas() {
             <select value={form.categoria} onChange={(e) => setForm({ ...form, categoria: e.target.value })} className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
               {CATEGORIAS.map((c) => <option key={c} value={c}>{c.replace('_', ' ')}</option>)}
             </select>
+
+            {/* 🆕 Campos extra SOLO para utilitarios — esto es lo que
+                conecta el gasto con la bodega real: cuántas piezas y
+                de qué tipo, en vez de un monto suelto sin contexto. */}
+            {form.categoria === 'utilitarios' && (
+              <div className="bg-teal-500/10 border border-teal-500/30 rounded-lg p-3 space-y-2">
+                <div className="flex gap-1.5">
+                  <button type="button" onClick={() => setUtilitarioModo('nuevo')}
+                    className={`flex-1 py-1.5 rounded-lg text-[10px] font-bold ${utilitarioModo === 'nuevo' ? 'bg-teal-600 text-white' : 'bg-slate-800 text-slate-400'}`}>+ Artículo nuevo</button>
+                  <button type="button" onClick={() => setUtilitarioModo('restock')} disabled={bodega.length === 0}
+                    className={`flex-1 py-1.5 rounded-lg text-[10px] font-bold disabled:opacity-30 ${utilitarioModo === 'restock' ? 'bg-teal-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🔁 Reabastecer existente</button>
+                </div>
+                {utilitarioModo === 'nuevo' ? (
+                  <input placeholder="¿Qué es? (ej: Playeras talla M, Gorras)" value={utilitarioForm.tipo}
+                    onChange={(e) => setUtilitarioForm({ ...utilitarioForm, tipo: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white text-xs" />
+                ) : (
+                  <select value={utilitarioForm.activo_id} onChange={(e) => setUtilitarioForm({ ...utilitarioForm, activo_id: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white text-xs">
+                    <option value="">Selecciona el artículo...</option>
+                    {bodega.map((b) => <option key={b.id} value={b.id}>{b.subtipo} (hay {b.en_bodega} en bodega)</option>)}
+                  </select>
+                )}
+                <input placeholder="Cantidad de piezas compradas" type="number" value={utilitarioForm.cantidad}
+                  onChange={(e) => setUtilitarioForm({ ...utilitarioForm, cantidad: e.target.value })}
+                  className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white text-xs" />
+              </div>
+            )}
+
             <input placeholder="Descripción" value={form.descripcion} onChange={(e) => setForm({ ...form, descripcion: e.target.value })}
               className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
             <input placeholder="Proveedor (opcional)" value={form.proveedor} onChange={(e) => setForm({ ...form, proveedor: e.target.value })}
@@ -158,7 +233,7 @@ export default function Finanzas() {
                   className="flex-1 px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
               )}
             </div>
-            <button onClick={guardar} disabled={!form.descripcion || !form.monto} className="w-full py-2.5 rounded-lg bg-emerald-600 text-white text-sm font-bold disabled:opacity-40">Guardar gasto</button>
+            <button onClick={guardar} disabled={!puedeGuardarGasto} className="w-full py-2.5 rounded-lg bg-emerald-600 text-white text-sm font-bold disabled:opacity-40">Guardar gasto</button>
           </div>
         )}
 
