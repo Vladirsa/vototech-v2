@@ -373,7 +373,12 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
   useEffect(() => {
     api.get('/activos').then(r => setActivos(r.data.data.filter(a => a.lat && a.lng))).catch(() => setActivos([]));
   }, []);
-  const ICONO_ACTIVO = { espectacular: '📺', barda: '🧱', manta: '🎏', ine_representante: '🗳️', utilitario: '👕' };
+  // 🆕 "ine_representante" usaba 🗳️ — el MISMO ícono que ya usa la
+  // capa de Casillas para marcar una casilla con representante
+  // asignado. Con ambas capas prendidas, eran indistinguibles. 🪪
+  // (credencial) se queda como algo que representa a una PERSONA
+  // con función oficial, sin chocar visualmente con la urna de Casillas.
+  const ICONO_ACTIVO = { espectacular: '📺', barda: '🧱', manta: '🎏', ine_representante: '🪪', utilitario: '👕' };
   const iconoActivo = (tipo) => new L.DivIcon({
     className: '',
     html: `<div style="font-size:18px;filter:drop-shadow(0 1px 3px rgba(0,0,0,.7))">${ICONO_ACTIVO[tipo] || '📍'}</div>`,
@@ -504,7 +509,7 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
     { id: 'barda', ic: '🧱', label: 'Barda' },
     { id: 'espectacular', ic: '📺', label: 'Espectacular' },
     { id: 'manta', ic: '🎏', label: 'Manta/Lona' },
-    { id: 'ine_representante', ic: '🗳️', label: 'Representante INE' },
+    { id: 'ine_representante', ic: '🪪', label: 'Representante INE' },
     { id: 'utilitario', ic: '👕', label: 'Material (playeras, etc)' },
     { id: 'evento', ic: '📅', label: 'Evento/Reunión' },
     { id: 'promovido', ic: '🤝', label: 'Promovido' },
