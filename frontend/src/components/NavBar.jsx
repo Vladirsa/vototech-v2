@@ -49,11 +49,25 @@ const MODULOS_POR_ROL = {
   encargado_juridico: ['dashboard', 'juridico', 'activos', 'incidencias', 'promovidos'],
   // Encargado de Finanzas: su área, más contexto de promovidos/incidencias.
   encargado_finanzas: ['dashboard', 'finanzas', 'promovidos', 'incidencias'],
-  // Voluntario: promovidos siempre; Marketing solo si su puesto
-  // específico es de esa área (se valida en el backend, aquí se
-  // muestra el botón de forma optimista).
-  voluntario: ['dashboard', 'promovidos', 'marketing'],
 };
+
+// 🆕 Voluntarios — no todos hacen lo mismo (toque de puertas, apoyo
+// en eventos, Marketing, o general), así que no todos deben ver los
+// mismos botones. La base para cualquier voluntario es Dashboard +
+// Promovidos; el resto se activa según palabras clave en su puesto —
+// MISMA lógica que ya aplica el backend (permisos.js), para que el
+// menú nunca prometa un botón que después el servidor va a rechazar.
+const MODULOS_EXTRA_POR_PUESTO_VOLUNTARIO = [
+  { patron: /marketing|redes sociales|whatsapp|difusi[oó]n/i, modulos: ['marketing'] },
+  { patron: /evento/i, modulos: ['agenda'] },
+];
+function modulosDeVoluntario(puesto) {
+  const extra = new Set();
+  MODULOS_EXTRA_POR_PUESTO_VOLUNTARIO.forEach((regla) => {
+    if (regla.patron.test(puesto || '')) regla.modulos.forEach((m) => extra.add(m));
+  });
+  return ['dashboard', 'promovidos', ...extra];
+}
 
 export default function NavBar() {
   const usuario = useAuth((s) => s.usuario);
@@ -62,7 +76,8 @@ export default function NavBar() {
   const navigate = useNavigate();
 
   const salir = () => { cerrarSesion(); navigate('/login'); };
-  const modulosVisibles = MODULOS.filter((m) => (MODULOS_POR_ROL[usuario?.rol] || TODOS).includes(m.clave));
+  const modulosPermitidos = usuario?.rol === 'voluntario' ? modulosDeVoluntario(usuario.puesto) : (MODULOS_POR_ROL[usuario?.rol] || TODOS);
+  const modulosVisibles = MODULOS.filter((m) => modulosPermitidos.includes(m.clave));
 
   return (
     <nav className="sticky top-0 z-[2000] bg-slate-950/95 dark:bg-slate-950/95 backdrop-blur border-b border-slate-800 light:bg-white/95 light:border-slate-200 relative">
