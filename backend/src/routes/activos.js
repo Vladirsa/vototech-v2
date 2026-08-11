@@ -177,4 +177,32 @@ router.delete('/:id', async (req, res) => {
   res.json({ ok: true });
 });
 
+/**
+ * 🆕 GET /api/activos/bodega
+ * Vista de inventario real de utilitarios — cuántas piezas se
+ * compraron (de cada gasto en Finanzas que las generó), cuántas ya
+ * se entregaron (de activos_entregas), y cuántas quedan disponibles.
+ * Esto es lo que le faltaba al módulo: antes un "gasto de
+ * utilitarios" era solo un monto suelto, sin ninguna conexión a
+ * cuántas piezas existen o cuántas ya se repartieron.
+ */
+router.get('/bodega', async (req, res) => {
+  const resultado = await query(
+    `SELECT a.id, a.subtipo, a.direccion, a.costo, a.creado_en,
+            COALESCE(a.cantidad,0) as comprado,
+            COALESCE((SELECT SUM(e.cantidad) FROM activos_entregas e WHERE e.activo_id = a.id), 0) as entregado
+     FROM activos a
+     WHERE a.campana_id=$1 AND a.tipo='utilitario'
+     ORDER BY a.creado_en DESC`,
+    [req.usuario.campana_id]
+  );
+  const conBodega = resultado.rows.map((r) => ({
+    ...r,
+    comprado: parseInt(r.comprado),
+    entregado: parseInt(r.entregado),
+    en_bodega: parseInt(r.comprado) - parseInt(r.entregado),
+  }));
+  res.json({ ok: true, data: conBodega });
+});
+
 export default router;
