@@ -1,0 +1,25 @@
+# ── Variables de entorno y credenciales — NUNCA deben subirse ──
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# ── Dependencias — se reinstalan solas con npm install ──
+node_modules/
+**/node_modules/
+
+# ── Builds — se regeneran en cada despliegue ──
+dist/
+build/
+.vercel/
+
+# ── Logs y archivos temporales ──
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+
+# ── Editor ──
+.vscode/
+.idea/
