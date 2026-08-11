@@ -42,6 +42,165 @@ function estaActivoReciente(ultimoAcceso) {
 }
 const PUNTO_ACTIVIDAD = { reciente: 'bg-emerald-400', medio: 'bg-amber-400', inactivo: 'bg-red-400' };
 
+// ═══════════════════════════════════════════════════════════════
+// 🆕 GUÍA DE ESTRUCTURA — "¿Cómo funciona esto?"
+// A los clientes se les dificulta entender la lógica del organigrama
+// (niveles, "a quién le reporta", territorio). Este modal explica
+// todo con un ejemplo concreto de principio a fin, en vez de dejar
+// que lo adivinen solos formulario por formulario.
+// ═══════════════════════════════════════════════════════════════
+function ModalAyudaEstructura({ onCerrar }) {
+  const [seccion, setSeccion] = useState('idea');
+  const SECCIONES = [
+    { id: 'idea', label: '1. La idea básica' },
+    { id: 'niveles', label: '2. Los niveles' },
+    { id: 'reporta', label: '3. "¿A quién reporta?"' },
+    { id: 'territorio', label: '4. El territorio' },
+    { id: 'ejemplo', label: '5. Ejemplo completo' },
+    { id: 'semaforo', label: '6. El semáforo de salud' },
+  ];
+  return (
+    <div className="fixed inset-0 bg-black/70 flex items-end md:items-center justify-center z-[60]" onClick={onCerrar}>
+      <div className="bg-slate-900 border border-slate-700 rounded-t-2xl md:rounded-2xl w-full max-w-2xl max-h-[88vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-4 border-b border-slate-800 flex-shrink-0">
+          <h2 className="text-lg font-black text-white">🧭 Cómo funciona tu Estructura</h2>
+          <button onClick={onCerrar} className="text-slate-500 text-xl leading-none">✕</button>
+        </div>
+
+        {/* Navegación por secciones — para no aventarle todo el texto
+            de golpe, que es justo lo que hace que se sienta complicado. */}
+        <div className="flex gap-1.5 overflow-x-auto px-4 py-2.5 border-b border-slate-800 flex-shrink-0">
+          {SECCIONES.map((s) => (
+            <button key={s.id} onClick={() => setSeccion(s.id)}
+              className={`px-3 py-1.5 rounded-full text-[11px] font-bold whitespace-nowrap ${seccion === s.id ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
+              {s.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="p-5 overflow-y-auto text-sm text-slate-300 leading-relaxed space-y-3">
+          {seccion === 'idea' && (
+            <>
+              <p>Piensa en tu Estructura como el <strong className="text-white">árbol genealógico de tu campaña</strong>: cada persona que agregas "le reporta" a alguien de arriba, igual que en cualquier empresa u organización.</p>
+              <p>Tú (el <strong className="text-amber-400">Candidato</strong>) estás siempre en la punta del árbol. Todo mundo, directa o indirectamente, cuelga de ti.</p>
+              <div className="bg-slate-800/50 rounded-xl p-4 text-center space-y-2 my-2">
+                <div className="inline-block px-3 py-1.5 rounded-lg bg-amber-500/20 text-amber-300 font-bold text-xs">Tú (Candidato)</div>
+                <div className="text-slate-600">↓</div>
+                <div className="inline-block px-3 py-1.5 rounded-lg bg-indigo-500/20 text-indigo-300 font-bold text-xs">Tu gente de confianza</div>
+                <div className="text-slate-600">↓</div>
+                <div className="inline-block px-3 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-300 font-bold text-xs">Coordinadores de territorio</div>
+                <div className="text-slate-600">↓</div>
+                <div className="inline-block px-3 py-1.5 rounded-lg bg-slate-700 text-slate-300 font-bold text-xs">Promotores (los que tocan puertas)</div>
+              </div>
+              <p className="text-xs text-slate-500">Cada quien solo necesita saber 2 cosas de sí mismo: <strong className="text-slate-300">qué nivel tiene</strong>, y <strong className="text-slate-300">a quién le reporta</strong>. El sistema arma el árbol solo con esos dos datos.</p>
+            </>
+          )}
+
+          {seccion === 'niveles' && (
+            <>
+              <p>De arriba hacia abajo, así de simple es cada nivel:</p>
+              <div className="space-y-2 my-2">
+                {[
+                  ['👑', 'Nivel Dirección', 'La mano derecha del candidato. Ve y decide prácticamente todo.'],
+                  ['🎖️', 'Nivel General', 'Coordina un área completa de la campaña (ej: Jóvenes, Mujeres, Comunicación).'],
+                  ['🏛️', 'Nivel Regional', 'Responsable de un Distrito completo (varios municipios o secciones).'],
+                  ['🏘️', 'Nivel Municipal', 'Responsable de UN municipio.'],
+                  ['📍', 'Nivel Territorial', 'Responsable de UNA sección electoral específica.'],
+                  ['🤝', 'Promotor', 'El que toca puertas — captura promovidos, el nivel de acción diaria.'],
+                ].map(([ic, nombre, desc]) => (
+                  <div key={nombre} className="flex gap-3 items-start bg-slate-800/40 rounded-lg p-2.5">
+                    <span className="text-lg flex-shrink-0">{ic}</span>
+                    <div>
+                      <div className="text-xs font-bold text-white">{nombre}</div>
+                      <div className="text-[11px] text-slate-400">{desc}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <p className="text-xs text-slate-500">No necesitas usar los 6 niveles — muchas campañas chicas solo usan 2 o 3 (ej: Candidato → Coordinador Municipal → Promotores). Usa solo los que tengan sentido para el tamaño real de tu campaña.</p>
+            </>
+          )}
+
+          {seccion === 'reporta' && (
+            <>
+              <p>Cuando agregas a alguien nuevo, el formulario pregunta <strong className="text-white">"¿A quién le reporta?"</strong> — esa es la pregunta más importante de todas, porque de ahí depende dónde aparece esa persona en el árbol.</p>
+              <div className="bg-indigo-500/10 border border-indigo-500/30 rounded-xl p-3 space-y-1.5">
+                <p className="text-xs text-indigo-200">💡 Regla simple: si dejas esa pregunta vacía ("Directo al Candidato"), la persona aparece en el primer nivel del árbol, colgando directo de ti.</p>
+                <p className="text-xs text-indigo-200">Si eliges a alguien que ya agregaste antes, la nueva persona aparece <strong>debajo</strong> de esa persona en el árbol — como su subordinado.</p>
+              </div>
+              <p className="text-xs text-slate-500">Este dato se puede cambiar después en cualquier momento — si alguien cambió de coordinador, entra a su detalle y edítalo, o usa "🔀 Reasignar su equipo" para mover a todo un grupo de personas de un jalón.</p>
+            </>
+          )}
+
+          {seccion === 'territorio' && (
+            <>
+              <p>El territorio que le asignas a un coordinador (una sección, un municipio, un distrito) <strong className="text-white">no es solo informativo</strong> — hace 2 cosas reales:</p>
+              <div className="space-y-2 my-2">
+                <div className="flex gap-2 items-start">
+                  <span className="text-base">🎯</span>
+                  <p className="text-xs text-slate-300">Calcula automáticamente una <strong className="text-white">meta diaria sugerida</strong>, basada en cuántos electores hay realmente en esa zona (el sistema usa el 8% del padrón como referencia, y los días que faltan para la elección).</p>
+                </div>
+                <div className="flex gap-2 items-start">
+                  <span className="text-base">🗺️</span>
+                  <p className="text-xs text-slate-300">Define su <strong className="text-white">zona de influencia en el Mapa</strong> — desde ahí se puede visualizar qué parte del territorio le corresponde cubrir a cada quien.</p>
+                </div>
+              </div>
+              <p className="text-xs text-slate-500">No todos los niveles necesitan territorio — un Encargado de Finanzas o un Coordinador General de Jóvenes, por ejemplo, normalmente no tienen una sección o municipio asignado, porque su trabajo no es geográfico.</p>
+            </>
+          )}
+
+          {seccion === 'ejemplo' && (
+            <>
+              <p className="font-bold text-white">Ejemplo real, de principio a fin:</p>
+              <div className="space-y-2.5">
+                <div className="bg-slate-800/50 rounded-lg p-3">
+                  <p className="text-xs"><strong className="text-emerald-400">Paso 1.</strong> Agregas a <strong className="text-white">María</strong> como <em>Coordinadora Municipal</em>, territorio = Municipio de Apizaco, y dejas "¿A quién reporta?" vacío → aparece colgando directo de ti.</p>
+                </div>
+                <div className="bg-slate-800/50 rounded-lg p-3">
+                  <p className="text-xs"><strong className="text-emerald-400">Paso 2.</strong> Agregas a <strong className="text-white">Juan</strong> como <em>Coordinador Seccional</em>, territorio = Sección 45, y en "¿A quién reporta?" seleccionas a María → Juan aparece colgando debajo de María en el árbol.</p>
+                </div>
+                <div className="bg-slate-800/50 rounded-lg p-3">
+                  <p className="text-xs"><strong className="text-emerald-400">Paso 3.</strong> Juan reparte su código de invitación a sus promotores de campo — cuando ellos se registran con ese código, quedan automáticamente colgando debajo de Juan, sin que nadie tenga que configurar nada a mano.</p>
+                </div>
+                <div className="bg-slate-800/50 rounded-lg p-3">
+                  <p className="text-xs"><strong className="text-emerald-400">Resultado:</strong> al entrar a "🌳 Organigrama" verás la rama completa — Tú → María → Juan → sus promotores — creciendo hacia abajo, con el semáforo de salud de cada quien.</p>
+                </div>
+              </div>
+            </>
+          )}
+
+          {seccion === 'semaforo' && (
+            <>
+              <p>Cada coordinador (no los promotores) trae un semáforo automático según cuánta gente tiene directamente a su cargo:</p>
+              <div className="space-y-1.5 my-2">
+                {[
+                  ['✅', 'Sano', 'text-emerald-400', 'Tiene una cantidad razonable de gente a cargo — ni muy poca ni demasiada.'],
+                  ['🔴', 'Sobrecargado', 'text-red-400', 'Tiene demasiada gente reportándole directo — considera dividir su equipo con otro coordinador.'],
+                  ['🟡', 'Subutilizado', 'text-amber-400', 'Tiene poca gente para su nivel — podría absorber más equipo.'],
+                  ['⚪', 'Sin equipo aún', 'text-slate-400', 'Todavía no tiene a nadie reportándole — normal si acaba de entrar.'],
+                ].map(([ic, label, color, desc]) => (
+                  <div key={label} className="flex gap-2.5 items-start">
+                    <span className="text-base">{ic}</span>
+                    <div>
+                      <span className={`text-xs font-bold ${color}`}>{label}</span>
+                      <p className="text-[11px] text-slate-400">{desc}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <p className="text-xs text-slate-500">Este semáforo se recalcula solo, en tiempo real, cada vez que agregas o mueves a alguien — no hay que actualizarlo a mano.</p>
+            </>
+          )}
+        </div>
+
+        <div className="p-4 border-t border-slate-800 flex-shrink-0">
+          <button onClick={onCerrar} className="w-full py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-bold">Entendido</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ModalAgregarMiembro({ miembros, onCerrar, onGuardado }) {
   const [form, setForm] = useState({ nombre: '', email: '', password: '', telefono: '', rol: 'coord_seccional', puesto: '', parent_id: '', territorio_tipo: 'seccion', territorio_id: '', meta_diaria: '' });
   const [sugerencia, setSugerencia] = useState(null);
@@ -647,6 +806,7 @@ export default function Estructura() {
   const [miembros, setMiembros] = useState([]);
   const [salud, setSalud] = useState(null);
   const [mostrarModal, setMostrarModal] = useState(false);
+  const [mostrarAyuda, setMostrarAyuda] = useState(false);
   const [miembroDetalle, setMiembroDetalle] = useState(null);
   const [vista, setVista] = useState('organigrama');
   const [cargando, setCargando] = useState(true);
@@ -731,8 +891,29 @@ export default function Estructura() {
             <h1 className="text-2xl font-black text-white">🗂️ Organigrama de Campaña</h1>
             <Link to="/dashboard" className="text-xs text-indigo-400">← Dashboard</Link>
           </div>
-          <button onClick={() => setMostrarModal(true)} className="px-4 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-bold">+ Agregar</button>
+          <div className="flex gap-2">
+            {/* 🆕 Botón de ayuda — visible siempre, para que quien se
+                sienta perdido con la lógica de niveles/reportes/
+                territorio tenga una explicación clara a un toque de
+                distancia, sin tener que preguntarte a ti directamente. */}
+            <button onClick={() => setMostrarAyuda(true)} className="px-3 py-2.5 rounded-xl bg-slate-800 text-indigo-300 text-sm font-bold" title="¿Cómo funciona esto?">
+              ❓ Ayuda
+            </button>
+            <button onClick={() => setMostrarModal(true)} className="px-4 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-bold">+ Agregar</button>
+          </div>
         </div>
+
+        {/* 🆕 Aviso breve, siempre visible arriba del organigrama —
+            para quien ni siquiera sepa que existe el botón de ayuda,
+            la idea más importante (jerarquía + "a quién reporta")
+            queda dicha de entrada, en una sola línea. */}
+        {raiz.length === 0 && (
+          <div className="bg-indigo-500/10 border border-indigo-500/30 rounded-xl p-3 text-xs text-indigo-200 flex items-start gap-2">
+            <span className="text-base flex-shrink-0">💡</span>
+            <span>Cada persona que agregues necesita un <strong>nivel</strong> y decir <strong>a quién le reporta</strong> — así se arma el árbol solo. Si no le entiendes a la lógica, toca "❓ Ayuda" arriba — tiene un ejemplo paso a paso.</span>
+          </div>
+        )}
+
         {salud && (
           <div className="grid grid-cols-4 gap-2">
             {Object.entries(salud.resumen).map(([key, n]) => {
@@ -779,7 +960,7 @@ export default function Estructura() {
             <button onClick={() => setVista('lista')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'lista' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📋 Lista</button>
             <button onClick={() => setVista('ranking')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'ranking' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🏆 Ranking</button>
             <button onClick={() => setVista('codigos')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'codigos' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🎟️ Códigos masivos</button>
-            <button onClick={() => setVista('representantes-ine')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'representantes-ine' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🗳️ Representantes INE</button>
+            <button onClick={() => setVista('representantes-ine')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'representantes-ine' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🪪 Representantes INE</button>
             <button onClick={() => setVista('gamificacion')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'gamificacion' ? 'bg-amber-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🏆 Ranking del Equipo</button>
             <button onClick={() => setVista('cobertura-casillas')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'cobertura-casillas' ? 'bg-red-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🗳️ Cobertura de Casillas</button>
             <button onClick={() => setVista('permisos')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'permisos' ? 'bg-purple-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🔐 Permisos por Rol</button>
@@ -839,7 +1020,7 @@ export default function Estructura() {
             ) : representantesIne.map((r) => (
               <div key={r.id} className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex items-center justify-between">
                 <div>
-                  <div className="text-sm font-bold text-white">🗳️ {r.nombre_rep || 'Sin nombre'}</div>
+                  <div className="text-sm font-bold text-white">🪪 {r.nombre_rep || 'Sin nombre'}</div>
                   <div className="text-[10px] text-slate-500">
                     {r.seccion_numero ? `Sección ${r.seccion_numero}` : 'Sin sección'}
                     {r.telefono_rep && ` · ${r.telefono_rep}`}
@@ -957,6 +1138,7 @@ export default function Estructura() {
       </div>
       {mostrarModal && <ModalAgregarMiembro miembros={miembros} onCerrar={() => setMostrarModal(false)} onGuardado={() => { setMostrarModal(false); cargar(); }} />}
       {miembroDetalle && <ModalDetalleMiembro miembro={miembroDetalle} miembros={miembros} onCerrar={() => setMiembroDetalle(null)} onActualizado={cargar} />}
+      {mostrarAyuda && <ModalAyudaEstructura onCerrar={() => setMostrarAyuda(false)} />}
     </div>
   );
 }
