@@ -30,7 +30,13 @@ const PUESTOS_POR_ROL = {
   promotor: ['Promotor de Campaña', 'Estructura Territorial'],
   encargado_juridico: ['Abogado de Campaña', 'Asistente Jurídico'],
   encargado_finanzas: ['Tesorero de Campaña', 'Auxiliar Contable'],
-  voluntario: ['Marketing', 'Pinta de bardas', 'Reparto de publicidad', 'Apoyo logístico', 'Apoyo en eventos'],
+  // 🆕 Estas 4 opciones no son solo etiquetas — el texto que elijas
+  // aquí decide qué módulos ve ese voluntario (lo resuelve el
+  // servidor automáticamente, buscando palabras clave): "Marketing"
+  // le da acceso al módulo de Marketing, "Eventos" le da Agenda,
+  // "Toque de Puertas" y "General" se quedan con lo básico
+  // (Dashboard + Promovidos), que ya les alcanza para su trabajo.
+  voluntario: ['Voluntario de Marketing y Redes', 'Voluntario de Apoyo en Eventos', 'Voluntario de Toque de Puertas', 'Voluntario General'],
 };
 
 function estaActivoReciente(ultimoAcceso) {
