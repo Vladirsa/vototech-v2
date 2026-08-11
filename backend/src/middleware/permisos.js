@@ -37,12 +37,42 @@ const MODULOS_POR_ROL = {
   // Encargado de Finanzas: su área, más promovidos e incidencias para
   // dar contexto, sin acceso a nada más de la operación.
   encargado_finanzas: ['finanzas', 'promovidos', 'incidencias'],
-  // Voluntario: promovidos siempre. Marketing NO se controla aquí —
-  // solo algunos voluntarios (los del área de marketing) lo tienen,
-  // y eso se resuelve por su "puesto" dentro del propio middleware
-  // de marketing, no aquí (ver requiereModuloOPuesto más abajo).
+  // Voluntario: la base para TODOS es 'promovidos' — lo demás se
+  // resuelve por su "puesto" específico, ver VOLUNTARIO_POR_PUESTO
+  // más abajo. No todos los voluntarios hacen lo mismo (uno toca
+  // puertas, otro maneja Marketing, otro apoya en eventos), así que
+  // no tiene sentido que todos vean los mismos módulos.
   voluntario: ['promovidos'],
 };
+
+/**
+ * 🆕 MÓDULOS EXTRA SEGÚN EL PUESTO DE UN VOLUNTARIO — antes esto solo
+ * existía a medias para Marketing (ver requiereModuloMarketing, que
+ * ya quedó obsoleta y se deja abajo solo por compatibilidad). Ahora
+ * se generaliza: cualquier tipo de voluntario (toque de puertas,
+ * eventos, marketing, general) obtiene automáticamente el módulo que
+ * le corresponde según las palabras de su puesto — sin tener que
+ * crear un rol nuevo en la base de datos por cada tipo.
+ *
+ * El match es por texto parcial (no exacto) para que "Marketing y
+ * Redes Sociales" o "Coordinador de Marketing" también activen la
+ * regla, no solo la palabra "Marketing" sola.
+ */
+const MODULOS_EXTRA_POR_PUESTO_VOLUNTARIO = [
+  { patron: /marketing|redes sociales|whatsapp|difusi[oó]n/i, modulos: ['marketing'] },
+  { patron: /evento/i, modulos: ['agenda'] },
+  // "Toque de puertas", "Pinta de bardas", "Reparto de publicidad",
+  // "Apoyo logístico", "General" — todos estos ya cubren su
+  // necesidad real con el 'promovidos' base, no necesitan módulo extra.
+];
+
+function modulosDeVoluntario(puesto) {
+  const extra = new Set();
+  MODULOS_EXTRA_POR_PUESTO_VOLUNTARIO.forEach((regla) => {
+    if (regla.patron.test(puesto || '')) regla.modulos.forEach((m) => extra.add(m));
+  });
+  return [...new Set([...MODULOS_POR_ROL.voluntario, ...extra])];
+}
 
 /**
  * Middleware: exige que el rol del usuario tenga acceso al módulo
@@ -53,7 +83,9 @@ export function requiereModulo(clave) {
     if (!req.usuario) {
       return res.status(401).json({ ok: false, error: 'No autenticado' });
     }
-    const permitidos = MODULOS_POR_ROL[req.usuario.rol] || [];
+    const permitidos = req.usuario.rol === 'voluntario'
+      ? modulosDeVoluntario(req.usuario.puesto)
+      : (MODULOS_POR_ROL[req.usuario.rol] || []);
     if (!permitidos.includes(clave)) {
       return res.status(403).json({
         ok: false,
@@ -65,19 +97,12 @@ export function requiereModulo(clave) {
 }
 
 /**
- * Variante para Marketing: la mayoría de los roles usan la matriz
- * normal, pero un "voluntario" solo entra si además tiene el puesto
- * correcto (ej. "Marketing") — no todos los voluntarios, solo los
- * asignados a esa tarea específica.
+ * Se deja por compatibilidad con index.js (que la importa por su
+ * nombre) — ahora simplemente delega a la misma lógica unificada de
+ * arriba, ya no duplica el criterio de "contiene la palabra marketing".
  */
 export function requiereModuloMarketing() {
-  return (req, res, next) => {
-    if (!req.usuario) return res.status(401).json({ ok: false, error: 'No autenticado' });
-    const permitidosDirecto = MODULOS_POR_ROL[req.usuario.rol] || [];
-    if (permitidosDirecto.includes('marketing')) return next();
-    if (req.usuario.rol === 'voluntario' && (req.usuario.puesto || '').toLowerCase().includes('marketing')) return next();
-    return res.status(403).json({ ok: false, error: 'Tu rol no tiene acceso al módulo de marketing.' });
-  };
+  return requiereModulo('marketing');
 }
 
-export { MODULOS_POR_ROL, TODOS_LOS_MODULOS };
+export { MODULOS_POR_ROL, TODOS_LOS_MODULOS, modulosDeVoluntario };
