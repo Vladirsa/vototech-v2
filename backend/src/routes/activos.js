@@ -1,10 +1,21 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import multer from 'multer';
+import crypto from 'crypto';
+import { createClient } from '@supabase/supabase-js';
 import { query } from '../db/pool.js';
 import { requiereAuth } from '../middleware/auth.js';
 
 const router = Router();
 router.use(requiereAuth);
+
+function clienteSupabase() {
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_KEY;
+  if (!url || !key) return null;
+  return createClient(url, key);
+}
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
 
 router.get('/', async (req, res) => {
   const campanaRes = await query('SELECT fecha_inicio_campana_oficial FROM campanas WHERE id=$1', [req.usuario.campana_id]);
@@ -223,6 +234,26 @@ router.get('/:id/entregas', async (req, res) => {
   }
 
   res.json({ ok: true, data: conPromovidos });
+});
+
+/**
+ * 🆕 POST /api/activos/:id/evidencia-baja
+ * Sube la foto/documento de evidencia al dar de baja un activo (acta
+ * de entrega, foto de destrucción, etc.) — endpoint propio, dedicado,
+ * en vez de reutilizar el de /fotos (que exige un "contexto" de una
+ * lista fija que no incluye activos).
+ */
+router.post('/evidencia-baja', upload.single('foto'), async (req, res) => {
+  const supabase = clienteSupabase();
+  if (!supabase) return res.status(500).json({ ok: false, error: 'Almacenamiento no configurado en el servidor' });
+  if (!req.file) return res.status(400).json({ ok: false, error: 'No se recibió ningún archivo' });
+
+  const ruta = `${req.usuario.campana_id}/activos-baja/${crypto.randomBytes(8).toString('hex')}-${req.file.originalname}`;
+  const { error } = await supabase.storage.from('documentos').upload(ruta, req.file.buffer, { contentType: req.file.mimetype });
+  if (error) return res.status(500).json({ ok: false, error: 'No se pudo subir el archivo' });
+
+  const { data } = supabase.storage.from('documentos').getPublicUrl(ruta);
+  res.json({ ok: true, data: { url: data.publicUrl } });
 });
 
 /**
