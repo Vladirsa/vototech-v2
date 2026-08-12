@@ -18,8 +18,10 @@ const Estructura = lazy(() => import('./pages/Estructura'));
 const Agenda = lazy(() => import('./pages/Agenda'));
 const DiaEleccion = lazy(() => import('./pages/DiaEleccion'));
 const Incidencias = lazy(() => import('./pages/Incidencias'));
-const Finanzas = lazy(() => import('./pages/Finanzas'));
-const Activos = lazy(() => import('./pages/Activos'));
+// 🆕 Finanzas.jsx y Activos.jsx se combinaron en una sola pantalla —
+// Administración, con todo por pestañas (Gastos, Ingresos, Activos,
+// Bodega, Tope, Exportar).
+const Administracion = lazy(() => import('./pages/Administracion'));
 const Reportes = lazy(() => import('./pages/Reportes'));
 const Marketing = lazy(() => import('./pages/Marketing'));
 const Juridico = lazy(() => import('./pages/Juridico'));
@@ -76,8 +78,9 @@ export default function App() {
           <Route path="/agenda" element={<RutaProtegida><Agenda /></RutaProtegida>} />
           <Route path="/dia-eleccion" element={<RutaProtegida><DiaEleccion /></RutaProtegida>} />
           <Route path="/incidencias" element={<RutaProtegida><Incidencias /></RutaProtegida>} />
-          <Route path="/finanzas" element={<RutaProtegida><Finanzas /></RutaProtegida>} />
-          <Route path="/activos" element={<RutaProtegida><Activos /></RutaProtegida>} />
+          <Route path="/finanzas" element={<RutaProtegida><Administracion /></RutaProtegida>} />
+          {/* Por si alguien tiene guardado el link viejo de /activos */}
+          <Route path="/activos" element={<Navigate to="/finanzas" replace />} />
           <Route path="/reportes" element={<RutaProtegida><Reportes /></RutaProtegida>} />
           <Route path="/marketing" element={<RutaProtegida><Marketing /></RutaProtegida>} />
           <Route path="/juridico" element={<RutaProtegida><Juridico /></RutaProtegida>} />
