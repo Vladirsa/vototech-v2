@@ -882,21 +882,34 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
             </Popup>
           </Marker>
         ))}
+        {/* 🆕 Se ven más ahora: cada caminata se dibuja con 2 líneas
+            encimadas — una gruesa oscura por debajo (el "contorno",
+            técnica que usan los mapas de verdad) y una delgada de
+            color brillante por encima. Así resalta sin importar si
+            el mapa base es claro, oscuro o satelital. */}
+        {capaCaminatas && caminatas.map((c) => (
+          <Polyline key={`${c.id}-contorno`} positions={coordenadasParaPolyline(c.ruta_geojson)}
+            pathOptions={{ color: '#000000', weight: 9, opacity: 0.45, lineCap: 'round', lineJoin: 'round' }} />
+        ))}
         {capaCaminatas && caminatas.map((c) => (
           <Polyline key={c.id} positions={coordenadasParaPolyline(c.ruta_geojson)}
-            pathOptions={{ color: '#f59e0b', weight: 4, opacity: 0.85 }}
+            pathOptions={{ color: '#fbbf24', weight: 5, opacity: 1, lineCap: 'round', lineJoin: 'round' }}
             eventHandlers={{ click: () => setCaminataActiva(c) }} />
         ))}
         {puntosCaminata.length > 0 && (
           <Polyline positions={puntosCaminata.map((p) => [p.lat, p.lng])}
-            pathOptions={{ color: '#22c55e', weight: 4, dashArray: '8,6' }} />
+            pathOptions={{ color: '#000000', weight: 8, opacity: 0.4, lineCap: 'round' }} />
+        )}
+        {puntosCaminata.length > 0 && (
+          <Polyline positions={puntosCaminata.map((p) => [p.lat, p.lng])}
+            pathOptions={{ color: '#4ade80', weight: 4, dashArray: '10,7', lineCap: 'round' }} />
         )}
         {puntosCaminata.map((p, i) => (
           <Marker key={i} position={[p.lat, p.lng]}
             icon={new L.DivIcon({
               className: '',
-              html: `<div style="width:12px;height:12px;background:${i === 0 ? '#22c55e' : '#fbbf24'};border:2px solid white;border-radius:50%;box-shadow:0 1px 4px rgba(0,0,0,.6)"></div>`,
-              iconSize: [12, 12],
+              html: `<div style="width:14px;height:14px;background:${i === 0 ? '#22c55e' : '#fbbf24'};border:2.5px solid white;border-radius:50%;box-shadow:0 1px 5px rgba(0,0,0,.8)"></div>`,
+              iconSize: [14, 14],
             })} />
         ))}
         <ControlCentrarMapa centro={centroTlaxcala} zoomInicial={11} />
