@@ -32,7 +32,7 @@ const TODOS = MODULOS.map((m) => m.clave).filter((c) => c !== 'mi-avance');
 const MODULOS_POR_ROL = {
   candidato: TODOS,
   jefe_campana: TODOS,
-  coord_general: TODOS,
+  coord_general: TODOS, // el default sin puesto reconocido — ver modulosDeCoordGeneral abajo
   coord_distrital: TODOS.filter((c) => !['finanzas', 'juridico', 'respaldos'].includes(c)),
   coord_municipal: TODOS.filter((c) => !['finanzas', 'juridico', 'respaldos'].includes(c)),
   coord_seccional: ['dashboard', 'mapa', 'promovidos', 'estructura', 'dia-eleccion', 'incidencias'],
@@ -52,6 +52,31 @@ function modulosDeVoluntario(puesto) {
     if (regla.patron.test(puesto || '')) regla.modulos.forEach((m) => extra.add(m));
   });
   return ['dashboard', 'promovidos', ...extra];
+}
+
+/**
+ * 🆕 MÓDULOS POR PUESTO DE COORDINADOR GENERAL — mismo criterio que
+ * ya aplica el backend (permisos.js) — deben mantenerse sincronizados,
+ * es la misma regla de negocio en 2 lugares. Si el puesto no coincide
+ * con nada de esta lista, se usa acceso completo (comportamiento de
+ * siempre, para no romper coordinadores ya existentes).
+ */
+const MODULOS_POR_PUESTO_COORD_GENERAL = [
+  { patron: /secretari[oa] particular/i, modulos: ['agenda'] },
+  { patron: /log[íi]stica|avanzada|seguridad/i, modulos: ['agenda', 'finanzas'] },
+  { patron: /movilizaci[oó]n/i, modulos: ['dia-eleccion', 'promovidos'] },
+  { patron: /comunicaci[oó]n|prensa/i, modulos: ['marketing', 'juridico'] },
+  { patron: /digital|redes sociales/i, modulos: ['marketing', 'reportes'] },
+  { patron: /contenido|discurso/i, modulos: ['marketing'] },
+  { patron: /representantes? de casilla/i, modulos: ['dia-eleccion', 'estructura'] },
+  { patron: /estrategia/i, modulos: ['priorizacion', 'reportes'] },
+  { patron: /finanzas|administraci[oó]n/i, modulos: ['finanzas'] },
+  { patron: /jur[íi]dico/i, modulos: ['juridico'] },
+];
+function modulosDeCoordGeneral(puesto) {
+  if (!puesto) return TODOS;
+  const regla = MODULOS_POR_PUESTO_COORD_GENERAL.find((r) => r.patron.test(puesto));
+  return regla ? ['dashboard', 'mapa', ...regla.modulos] : TODOS;
 }
 
 /** Contenido de navegación compartido entre el riel de escritorio y el cajón móvil. */
@@ -95,7 +120,9 @@ export default function AppShell({ children }) {
   const [cajonAbierto, setCajonAbierto] = useState(false);
 
   const salir = () => { cerrarSesion(); navigate('/login'); };
-  const modulosPermitidos = usuario?.rol === 'voluntario' ? modulosDeVoluntario(usuario.puesto) : (MODULOS_POR_ROL[usuario?.rol] || TODOS);
+  const modulosPermitidos = usuario?.rol === 'voluntario' ? modulosDeVoluntario(usuario.puesto)
+    : usuario?.rol === 'coord_general' ? modulosDeCoordGeneral(usuario.puesto)
+    : (MODULOS_POR_ROL[usuario?.rol] || TODOS);
   const modulosVisibles = MODULOS.filter((m) => modulosPermitidos.includes(m.clave));
   const moduloActual = modulosVisibles.find((m) => location.pathname.startsWith(m.ruta));
 
