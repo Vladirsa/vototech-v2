@@ -1,9 +1,5 @@
 import 'dotenv/config';
-import 'express-async-errors'; // ⚠️ CRÍTICO: sin esto, un error en cualquier
-// ruta "async" (casi todas) se escapa del manejo de errores de Express y
-// puede tumbar el proceso completo del servidor — como pasó al borrar una
-// campaña con datos relacionados. Esto lo arregla para TODAS las rutas
-// de una vez, no una por una.
+import 'express-async-errors';
 import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
@@ -52,6 +48,7 @@ import inteligenciaRoutes from './routes/inteligencia.js';
 import documentosRoutes from './routes/documentos.js';
 import adminRoutes from './routes/admin.js';
 import blogRoutes from './routes/blog.js';
+import caminatasRoutes from './routes/caminatas.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -59,7 +56,6 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 4000;
 
-// ── SEGURIDAD ANTI-HACKEO ────────────────────────────────────
 app.use(helmet());
 
 app.use(cors({
@@ -98,7 +94,6 @@ const limiteLogin = rateLimit({
 });
 app.use('/api/auth/login', limiteLogin);
 
-// ── RUTAS ─────────────────────────────────────────────────────
 app.use('/api/auth', authRoutes);
 app.use('/api/geo', geoRoutes);
 app.use('/api/resultados', resultadosRoutes);
@@ -131,14 +126,14 @@ app.use('/api/inteligencia', inteligenciaRoutes);
 app.use('/api/documentos', requiereAuth, requiereModulo('juridico'), documentosRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/blog', blogRoutes);
+// 🆕 Caminatas — se protege sola por dentro (router.use(requiereAuth)
+// al inicio del archivo), mismo patrón que /respaldos, /whatsapp, /ia.
+app.use('/api/caminatas', caminatasRoutes);
 
 app.get('/api/salud', (req, res) => {
   res.json({ ok: true, servicio: 'VotoTech Backend', hora: new Date().toISOString() });
 });
 
-// ═══════════════════════════════════════════════════════════════
-// 📰 BLOG PÚBLICO
-// ═══════════════════════════════════════════════════════════════
 const ENCABEZADO_COMPARTIDO = `
 <header>
   <nav>
@@ -190,16 +185,10 @@ const ESTILO_BLOG = `
   a.volver-art{color:#0d9488;text-decoration:none;font-size:14px;font-weight:600;}
   h1.art-h1{font-family:'Space Grotesk',sans-serif;font-size:2.1rem;line-height:1.2;margin:20px 0 10px;}
   .art-meta{color:#6b6890;font-size:13px;margin-bottom:24px;}
-  /* 🆕 Botones de compartir en redes — WhatsApp, Facebook, X, y
-     copiar el link. Iconos hechos con emoji, sin ninguna librería
-     nueva que cargar. */
   .compartir{display:flex;gap:8px;margin:24px 0;flex-wrap:wrap;align-items:center;}
   .compartir-label{font-size:12px;color:#8583B0;font-weight:600;margin-right:2px;}
   .compartir a, .compartir button{display:flex;align-items:center;gap:6px;padding:8px 14px;border-radius:10px;font-size:12.5px;font-weight:700;text-decoration:none;border:1px solid #E3E0D5;background:#fff;color:#14123D;cursor:pointer;font-family:inherit;}
   .compartir a:hover, .compartir button:hover{border-color:#0d9488;}
-  /* 🆕 Estilos para el contenido ya convertido de Markdown a HTML —
-     antes solo había white-space:pre-wrap sobre texto plano, ahora
-     hay títulos, negritas, e imágenes de verdad. */
   .art-contenido{font-size:16px;line-height:1.75;color:#2a2760;}
   .art-contenido p{margin:0 0 18px;}
   .art-contenido h2{font-family:'Space Grotesk',sans-serif;font-size:1.5rem;margin:32px 0 14px;color:#14123D;}
@@ -221,13 +210,6 @@ function urlVideoEmbed(url) {
   return null;
 }
 
-/**
- * 🆕 MINIATURA AUTOMÁTICA DE VIDEO — YouTube da miniaturas listas por
- * su propia URL predecible, así que no hace falta que nadie suba
- * nada — se genera sola con solo el link del video. Vimeo no permite
- * esto directo (necesitaría una llamada aparte a su API), así que en
- * ese caso se usa la imagen de portada si existe, o nada.
- */
 function miniaturaVideo(url) {
   if (!url) return null;
   const yt = url.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/))([\w-]{11})/);
@@ -235,18 +217,6 @@ function miniaturaVideo(url) {
   return null;
 }
 
-/**
- * 🆕 CONVERSOR DE MARKDOWN SIMPLE — sin depender de ninguna librería
- * nueva. Soporta justo lo que da el editor del panel: títulos (##),
- * negrita (**texto**), cursiva (*texto*), imágenes (![alt](url)),
- * links ([texto](url)), y separa párrafos por líneas en blanco.
- *
- * Primero se escapa TODO el HTML del texto original (para que nadie
- * pueda inyectar código pegando algo raro en el editor), y RECIÉN
- * DESPUÉS se insertan las etiquetas de formato — así lo único que
- * puede contener HTML real son las etiquetas que este conversor
- * generó él mismo, nunca texto que haya escrito la persona.
- */
 function markdownAHtml(texto) {
   if (!texto) return '';
   let seguro = texto
@@ -254,7 +224,6 @@ function markdownAHtml(texto) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
 
-  // Imágenes ANTES que links (ambos usan corchetes, pero imagen lleva "!" antes)
   seguro = seguro.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" loading="lazy">');
   seguro = seguro.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
   seguro = seguro.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
@@ -262,9 +231,6 @@ function markdownAHtml(texto) {
   seguro = seguro.replace(/^### (.+)$/gm, '<h3>$1</h3>');
   seguro = seguro.replace(/^## (.+)$/gm, '<h2>$1</h2>');
 
-  // Párrafos — separa por líneas en blanco; una línea que ya es un
-  // <h2>/<h3>/<img> no se envuelve en <p> (se ve raro un título
-  // metido dentro de un párrafo).
   const bloques = seguro.split(/\n\s*\n/).map((b) => b.trim()).filter(Boolean);
   return bloques.map((b) => (/^<(h2|h3|img)/.test(b) ? b : `<p>${b.replace(/\n/g, '<br>')}</p>`)).join('\n');
 }
@@ -288,9 +254,6 @@ function barraLateralHTML(recientes) {
 app.get('/blog', async (req, res) => {
   const r = await query(`SELECT titulo, slug, tipo, resumen, imagen_portada, url_archivo, etiquetas, fecha_publicacion FROM blog_publicaciones WHERE publicado=true ORDER BY fecha_publicacion DESC LIMIT 100`);
   const tarjetas = r.rows.map((p) => {
-    // 🆕 Si no hay portada subida a mano, y es un video de YouTube,
-    // se usa su miniatura oficial — así ningún video se queda sin
-    // imagen en la tarjeta.
     const imagen = p.imagen_portada || (p.tipo === 'video' ? miniaturaVideo(p.url_archivo) : null);
     return `
     <a class="tarjeta" href="/blog/${p.slug}">
@@ -323,13 +286,6 @@ app.get('/blog', async (req, res) => {
     </div></body></html>`);
 });
 
-/**
- * 🆕 SITEMAP.XML — el mapa de todas las páginas públicas para que
- * Google (y Bing) las encuentre e indexe. Sin esto, un buscador
- * depende de encontrar los links "por su cuenta"; con esto, se lo
- * decimos directamente — es de las cosas más efectivas y más
- * baratas que existen para generar tráfico orgánico real.
- */
 app.get('/sitemap.xml', async (req, res) => {
   const posts = await query(`SELECT slug, actualizado_en, creado_en FROM blog_publicaciones WHERE publicado=true ORDER BY fecha_publicacion DESC`);
   const paginasFijas = ['', 'blog', 'terminos.html', 'privacidad.html'];
@@ -341,7 +297,6 @@ app.get('/sitemap.xml', async (req, res) => {
   res.send(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.join('\n')}\n</urlset>`);
 });
 
-/** robots.txt — le dice a los buscadores dónde está el sitemap. */
 app.get('/robots.txt', (req, res) => {
   res.set('Content-Type', 'text/plain');
   res.send(`User-agent: *\nAllow: /\nSitemap: https://www.vototech.com.mx/sitemap.xml`);
