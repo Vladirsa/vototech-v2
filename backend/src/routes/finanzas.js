@@ -45,6 +45,18 @@ router.get('/', async (req, res) => {
   const totalIngresos = ingresos.rows.reduce((s, i) => s + parseFloat(i.monto), 0);
   const tope = campana.rows[0]?.tope_gasto_ople ? parseFloat(campana.rows[0].tope_gasto_ople) : null;
   const sinComprobante = gastos.rows.filter((g) => !g.tipo_comprobante || g.tipo_comprobante === 'sin_comprobante').length;
+  const porcentajeUsado = tope ? +((totalGastado / tope) * 100).toFixed(1) : null;
+
+  // 🆕 Alerta escalonada del tope — 70/85/95/100%. El sistema nunca
+  // bloquea (esa decisión es del candidato/contador), solo avisa con
+  // más urgencia entre más cerca esté del límite legal.
+  let nivelAlertaTope = 'ok';
+  if (porcentajeUsado != null) {
+    if (porcentajeUsado >= 100) nivelAlertaTope = 'rebasado';
+    else if (porcentajeUsado >= 95) nivelAlertaTope = 'critico';
+    else if (porcentajeUsado >= 85) nivelAlertaTope = 'alto';
+    else if (porcentajeUsado >= 70) nivelAlertaTope = 'medio';
+  }
 
   res.json({
     ok: true,
@@ -56,7 +68,8 @@ router.get('/', async (req, res) => {
       balance: totalIngresos - totalGastado,
       tope_ople: tope,
       disponible: tope ? tope - totalGastado : null,
-      porcentaje_usado: tope ? +((totalGastado / tope) * 100).toFixed(1) : null,
+      porcentaje_usado: porcentajeUsado,
+      nivel_alerta_tope: nivelAlertaTope,
       gastos_sin_comprobante: sinComprobante,
     },
   });
@@ -156,6 +169,12 @@ router.post('/:id/evidencia', upload.single('foto'), async (req, res) => {
  * El INE exige reportar de dónde viene el dinero, no solo en qué se
  * gasta — con el registro de quién aportó, cuánto, y con qué recibo.
  */
+// 🆕 Fuentes de financiamiento que la LGPP prohíbe expresamente para
+// campañas — el sistema NUNCA bloquea el registro (esa decisión legal
+// le toca al candidato y su equipo jurídico), pero sí avisa con toda
+// claridad cuando la fuente declarada cae en una de estas categorías.
+const FUENTES_PROHIBIDAS = ['gobierno', 'extranjero', 'iglesia_o_culto', 'empresa_mercantil', 'organismo_internacional', 'anonimo'];
+
 const esquemaIngreso = z.object({
   tipo_ingreso: z.enum(['aportacion_efectivo', 'aportacion_especie', 'autofinanciamiento', 'financiamiento_publico', 'rendimientos_financieros']),
   aportante_nombre: z.string().max(200).optional(),
@@ -165,6 +184,9 @@ const esquemaIngreso = z.object({
   forma_recepcion: z.enum(['efectivo', 'transferencia', 'cheque', 'especie']).default('transferencia'),
   descripcion_especie: z.string().max(300).optional(),
   numero_recibo: z.string().max(100).optional(),
+  // 🆕 De qué tipo de persona viene el dinero — para poder avisar si
+  // cae en una fuente prohibida por la ley (Art. 54 LGPP).
+  tipo_persona: z.enum(['fisica_no_militante', 'fisica_militante', 'gobierno', 'extranjero', 'iglesia_o_culto', 'empresa_mercantil', 'organismo_internacional', 'anonimo']).default('fisica_no_militante'),
 });
 
 router.post('/ingresos', async (req, res) => {
@@ -173,10 +195,10 @@ router.post('/ingresos', async (req, res) => {
   const d = parseado.data;
 
   const resultado = await query(
-    `INSERT INTO ingresos_campana (campana_id, tipo_ingreso, aportante_nombre, aportante_identificacion, monto, fecha, forma_recepcion, descripcion_especie, numero_recibo, registrado_por)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+    `INSERT INTO ingresos_campana (campana_id, tipo_ingreso, aportante_nombre, aportante_identificacion, monto, fecha, forma_recepcion, descripcion_especie, numero_recibo, registrado_por, tipo_persona)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
     [req.usuario.campana_id, d.tipo_ingreso, d.aportante_nombre || null, d.aportante_identificacion || null,
-     d.monto, d.fecha, d.forma_recepcion, d.descripcion_especie || null, d.numero_recibo || null, req.usuario.sub]
+     d.monto, d.fecha, d.forma_recepcion, d.descripcion_especie || null, d.numero_recibo || null, req.usuario.sub, d.tipo_persona]
   );
 
   registrarAuditoria({
@@ -186,7 +208,12 @@ router.post('/ingresos', async (req, res) => {
     ip: req.ip,
   });
 
-  res.status(201).json({ ok: true, data: resultado.rows[0] });
+  // 🆕 Aviso de fuente prohibida — nunca bloquea, solo informa.
+  const alertaFuenteProhibida = FUENTES_PROHIBIDAS.includes(d.tipo_persona)
+    ? `⚠️ Declaraste esta aportación como "${d.tipo_persona.replace(/_/g, ' ')}" — el Art. 54 de la Ley General de Partidos Políticos PROHÍBE este tipo de financiamiento a campañas. Consulta con tu equipo jurídico antes de usar estos recursos.`
+    : null;
+
+  res.status(201).json({ ok: true, data: resultado.rows[0], alerta_fuente_prohibida: alertaFuenteProhibida });
 });
 
 router.post('/ingresos/:id/evidencia', upload.single('foto'), async (req, res) => {

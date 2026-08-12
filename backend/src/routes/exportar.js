@@ -1,13 +1,13 @@
 import { Router } from 'express';
 import ExcelJS from 'exceljs';
+import PDFDocument from 'pdfkit';
+import { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, AlignmentType, HeadingLevel } from 'docx';
 import { query } from '../db/pool.js';
 import { requiereAuth, requiereRol } from '../middleware/auth.js';
 
 const router = Router();
 router.use(requiereAuth);
 
-// Solo roles de dirección pueden exportar bases de datos completas —
-// un promotor de campo no debe poder llevarse el padrón entero.
 const ROLES_EXPORT = ['candidato', 'jefe_campana', 'coord_general'];
 
 function estiloEncabezado(hoja) {
@@ -16,10 +16,6 @@ function estiloEncabezado(hoja) {
   hoja.getRow(1).height = 22;
 }
 
-/**
- * GET /api/exportar/promovidos
- * Excel completo del CRM electoral, con clasificación estratégica.
- */
 router.get('/promovidos', requiereRol(...ROLES_EXPORT), async (req, res) => {
   const datos = await query(
     `SELECT p.nombre, p.telefono, p.curp, s.numero as seccion, p.calle,
@@ -59,12 +55,6 @@ router.get('/promovidos', requiereRol(...ROLES_EXPORT), async (req, res) => {
   res.end();
 });
 
-/**
- * GET /api/exportar/gastos
- * Excel de gastos con formato de columnas alineado a lo que pide el
- * OPLE/INE para fiscalización (proveedor, RFC, factura, forma de pago),
- * más hoja de resumen por categoría con validación contra el tope.
- */
 router.get('/gastos', requiereRol(...ROLES_EXPORT), async (req, res) => {
   const gastos = await query(
     `SELECT g.fecha, g.categoria, g.descripcion, g.monto, g.proveedor, g.rfc,
@@ -76,8 +66,6 @@ router.get('/gastos', requiereRol(...ROLES_EXPORT), async (req, res) => {
   const campana = await query('SELECT nombre_candidato, tope_gasto_ople FROM campanas WHERE id=$1', [req.usuario.campana_id]);
 
   const libro = new ExcelJS.Workbook();
-
-  // Hoja 1: detalle de gastos
   const hoja = libro.addWorksheet('Gastos detalle');
   hoja.columns = [
     { header: 'Fecha', key: 'fecha', width: 12 },
@@ -94,7 +82,6 @@ router.get('/gastos', requiereRol(...ROLES_EXPORT), async (req, res) => {
   hoja.getColumn('monto').numFmt = '$#,##0.00';
   estiloEncabezado(hoja);
 
-  // Hoja 2: resumen por categoría + control del tope
   const resumen = libro.addWorksheet('Resumen OPLE');
   const porCategoria = {};
   let total = 0;
@@ -128,9 +115,177 @@ router.get('/gastos', requiereRol(...ROLES_EXPORT), async (req, res) => {
 });
 
 /**
- * GET /api/exportar/estructura
- * Directorio completo del equipo de campaña.
+ * 🆕 GET /api/exportar/activos-excel
+ * Inventario completo de activos con su ciclo de vida — incluye
+ * responsable, estado, y qué pasó con cada uno al darse de baja
+ * (transferido/vendido/donado/destruido), tal como lo exige el
+ * control de inventarios del Reglamento de Fiscalización.
  */
+router.get('/activos-excel', requiereRol(...ROLES_EXPORT), async (req, res) => {
+  const datos = await query(
+    `SELECT a.codigo_inventario, a.tipo, a.subtipo, a.direccion, a.empresa, a.costo,
+            a.fecha_ini, a.fecha_vence, a.estado, r.nombre as responsable,
+            a.fecha_baja, a.destino_baja, a.motivo_baja, a.valor_venta
+     FROM activos a LEFT JOIN usuarios r ON r.id = a.responsable_id
+     WHERE a.campana_id=$1 ORDER BY a.creado_en DESC`,
+    [req.usuario.campana_id]
+  );
+
+  const libro = new ExcelJS.Workbook();
+  const hoja = libro.addWorksheet('Inventario de Activos');
+  hoja.columns = [
+    { header: 'Código', key: 'codigo_inventario', width: 14 },
+    { header: 'Tipo', key: 'tipo', width: 16 },
+    { header: 'Detalle', key: 'subtipo', width: 20 },
+    { header: 'Ubicación/Descripción', key: 'direccion', width: 28 },
+    { header: 'Proveedor/Empresa', key: 'empresa', width: 22 },
+    { header: 'Costo', key: 'costo', width: 12 },
+    { header: 'Fecha alta', key: 'fecha_ini', width: 14 },
+    { header: 'Vigencia', key: 'fecha_vence', width: 14 },
+    { header: 'Responsable', key: 'responsable', width: 22 },
+    { header: 'Estado', key: 'estado', width: 12 },
+    { header: 'Fecha de baja', key: 'fecha_baja', width: 14 },
+    { header: 'Destino de baja', key: 'destino_baja', width: 18 },
+    { header: 'Motivo de baja', key: 'motivo_baja', width: 30 },
+    { header: 'Valor de venta', key: 'valor_venta', width: 14 },
+  ];
+  datos.rows.forEach((f) => hoja.addRow({ ...f, costo: f.costo ? parseFloat(f.costo) : null, valor_venta: f.valor_venta ? parseFloat(f.valor_venta) : null }));
+  hoja.getColumn('costo').numFmt = '$#,##0.00';
+  hoja.getColumn('valor_venta').numFmt = '$#,##0.00';
+  estiloEncabezado(hoja);
+
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename=inventario_activos_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  await libro.xlsx.write(res);
+  res.end();
+});
+
+/**
+ * 🆕 GET /api/exportar/comprobantes-pdf
+ * El "paquete de comprobantes" — un PDF armado con cada gasto que
+ * tiene evidencia adjunta, mostrando la foto del comprobante junto
+ * con sus datos (fecha, monto, proveedor, categoría). Pensado para
+ * que el Responsable de Finanzas de la campaña tenga, en un solo
+ * documento, todo lo que necesita para recapturar en el SIF —
+ * VotoTech prepara el paquete, la presentación oficial la hace la
+ * campaña directo en el portal del INE.
+ */
+router.get('/comprobantes-pdf', requiereRol(...ROLES_EXPORT), async (req, res) => {
+  const campana = await query('SELECT nombre_candidato, tipo_eleccion FROM campanas WHERE id=$1', [req.usuario.campana_id]);
+  const gastos = await query(
+    `SELECT fecha, categoria, descripcion, monto, proveedor, rfc, tipo_comprobante, numero_comprobante, evidencia_url
+     FROM gastos_campana WHERE campana_id=$1 ORDER BY fecha`,
+    [req.usuario.campana_id]
+  );
+
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename=paquete_comprobantes_${new Date().toISOString().slice(0, 10)}.pdf`);
+
+  const doc = new PDFDocument({ margin: 40, size: 'letter' });
+  doc.pipe(res);
+
+  doc.fontSize(18).fillColor('#14123D').text('Paquete de Comprobantes de Campaña', { align: 'center' });
+  doc.fontSize(10).fillColor('#666').text(campana.rows[0]?.nombre_candidato || '', { align: 'center' });
+  doc.text(`Generado el ${new Date().toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' })}`, { align: 'center' });
+  doc.moveDown(1.5);
+  doc.fontSize(9).fillColor('#999').text('Documento de apoyo interno — no sustituye la presentación oficial ante el Sistema Integral de Fiscalización (SIF) del INE, la cual debe realizar el Responsable de Finanzas directamente en el portal oficial.', { align: 'left' });
+  doc.moveDown(1);
+
+  let totalGeneral = 0;
+  let sinEvidencia = 0;
+
+  for (const g of gastos.rows) {
+    totalGeneral += parseFloat(g.monto);
+    if (doc.y > 650) doc.addPage();
+
+    doc.moveDown(0.5);
+    doc.fontSize(11).fillColor('#14123D').font('Helvetica-Bold').text(`${g.descripcion}`, { continued: false });
+    doc.fontSize(9).fillColor('#333').font('Helvetica');
+    doc.text(`Fecha: ${new Date(g.fecha).toLocaleDateString('es-MX')}   ·   Categoría: ${g.categoria}   ·   Monto: $${parseFloat(g.monto).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`);
+    if (g.proveedor) doc.text(`Proveedor: ${g.proveedor}${g.rfc ? ` (RFC: ${g.rfc})` : ''}`);
+    doc.text(`Comprobante: ${g.tipo_comprobante || 'sin_comprobante'}${g.numero_comprobante ? ` · Folio ${g.numero_comprobante}` : ''}`);
+
+    if (g.evidencia_url) {
+      try {
+        const respuesta = await fetch(g.evidencia_url);
+        if (respuesta.ok) {
+          const buffer = Buffer.from(await respuesta.arrayBuffer());
+          const alturaDisponible = 792 - doc.y - 60;
+          doc.image(buffer, { fit: [220, Math.min(220, alturaDisponible)], align: 'left' });
+          doc.moveDown(0.5);
+        }
+      } catch (e) {
+        doc.fontSize(8).fillColor('#dc2626').text('⚠️ No se pudo cargar la imagen del comprobante');
+      }
+    } else {
+      sinEvidencia++;
+      doc.fontSize(8).fillColor('#dc2626').text('⚠️ Sin evidencia fotográfica adjunta');
+    }
+    doc.moveDown(0.8);
+    doc.strokeColor('#e5e5e5').moveTo(40, doc.y).lineTo(570, doc.y).stroke();
+  }
+
+  doc.addPage();
+  doc.fontSize(14).fillColor('#14123D').font('Helvetica-Bold').text('Resumen');
+  doc.fontSize(10).fillColor('#333').font('Helvetica').moveDown(0.5);
+  doc.text(`Total de gastos incluidos: ${gastos.rows.length}`);
+  doc.text(`Gastos sin evidencia fotográfica: ${sinEvidencia}`);
+  doc.text(`Monto total: $${totalGeneral.toLocaleString('es-MX', { minimumFractionDigits: 2 })}`);
+
+  doc.end();
+});
+
+/**
+ * 🆕 GET /api/exportar/oficio-word
+ * Carta/oficio formal editable en Word — para que el candidato o su
+ * Responsable de Finanzas la use como portada al entregar el
+ * paquete de comprobantes a su contador, o como constancia interna
+ * de campaña. Se entrega en .docx para poder editarla libremente
+ * antes de imprimir/firmar.
+ */
+router.get('/oficio-word', requiereRol(...ROLES_EXPORT), async (req, res) => {
+  const campana = await query(
+    `SELECT nombre_candidato, tipo_eleccion, tope_gasto_ople,
+            (SELECT COALESCE(SUM(monto),0) FROM gastos_campana WHERE campana_id=campanas.id) as total_gastado
+     FROM campanas WHERE id=$1`,
+    [req.usuario.campana_id]
+  );
+  const c = campana.rows[0];
+  const fecha = new Date().toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' });
+  const totalGastado = parseFloat(c.total_gastado || 0);
+  const tope = c.tope_gasto_ople ? parseFloat(c.tope_gasto_ople) : null;
+
+  const parrafo = (texto, opciones = {}) => new Paragraph({ children: [new TextRun({ text: texto, ...opciones })], spacing: { after: 200 } });
+
+  const doc = new Document({
+    sections: [{
+      properties: {},
+      children: [
+        new Paragraph({ text: 'OFICIO DE ENTREGA DE COMPROBANTES DE CAMPAÑA', heading: HeadingLevel.HEADING_1, alignment: AlignmentType.CENTER, spacing: { after: 400 } }),
+        parrafo(`Tlaxcala, Tlaxcala, a ${fecha}.`),
+        parrafo(''),
+        parrafo('A quien corresponda:'),
+        parrafo(''),
+        parrafo(`Por medio del presente, se hace entrega del paquete de comprobantes correspondientes a los gastos de la campaña "${c.nombre_candidato}" (${c.tipo_eleccion}), para su revisión y, en su caso, captura en el Sistema Integral de Fiscalización (SIF) del Instituto Nacional Electoral.`),
+        parrafo(''),
+        parrafo(`Monto total de gastos reportados a la fecha: $${totalGastado.toLocaleString('es-MX', { minimumFractionDigits: 2 })} MXN.`, { bold: true }),
+        tope ? parrafo(`Tope de gasto autorizado: $${tope.toLocaleString('es-MX', { minimumFractionDigits: 2 })} MXN (${((totalGastado / tope) * 100).toFixed(1)}% utilizado).`) : parrafo(''),
+        parrafo(''),
+        parrafo('Este documento es una constancia interna de campaña, generada como apoyo administrativo. No sustituye la presentación oficial de informes ante el Instituto Nacional Electoral ni ante el organismo público local competente, la cual es responsabilidad exclusiva del Responsable de Finanzas de la campaña.'),
+        parrafo(''),
+        parrafo(''),
+        parrafo('_______________________________', { }),
+        parrafo('Responsable de Finanzas de Campaña'),
+      ],
+    }],
+  });
+
+  const buffer = await Packer.toBuffer(doc);
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+  res.setHeader('Content-Disposition', `attachment; filename=oficio_comprobantes_${new Date().toISOString().slice(0, 10)}.docx`);
+  res.send(buffer);
+});
+
 router.get('/estructura', requiereRol(...ROLES_EXPORT), async (req, res) => {
   const datos = await query(
     `SELECT u.nombre, u.email, u.telefono, u.rol, p.nombre as reporta_a, u.creado_en
@@ -158,11 +313,6 @@ router.get('/estructura', requiereRol(...ROLES_EXPORT), async (req, res) => {
   res.end();
 });
 
-/**
- * GET /api/exportar/incidencias
- * Excel de incidencias con formato para reportar al OPLE — incluye
- * si ya fue notificada formalmente o no.
- */
 router.get('/incidencias', requiereRol(...ROLES_EXPORT), async (req, res) => {
   const datos = await query(
     `SELECT i.tipo, i.urgencia, i.descripcion, s.numero as seccion, i.casilla,
@@ -198,15 +348,6 @@ router.get('/incidencias', requiereRol(...ROLES_EXPORT), async (req, res) => {
   res.end();
 });
 
-/**
- * GET /api/exportar/respaldo-completo
- * Todo lo que le pertenece a la campaña, en un solo Excel con una
- * hoja por cada tipo de dato — la versión HONESTA de "restaurar
- * campaña": en una base de datos compartida entre muchas campañas,
- * no se puede regresar en el tiempo solo la tuya, pero sí puedes
- * tener tu propia copia completa, descargable cuando quieras, para
- * tu propio respaldo o si algún día decides dejar la plataforma.
- */
 router.get('/respaldo-completo', requiereRol(...ROLES_EXPORT), async (req, res) => {
   const campanaId = req.usuario.campana_id;
   const libro = new ExcelJS.Workbook();
@@ -261,8 +402,6 @@ router.get('/respaldo-completo', requiereRol(...ROLES_EXPORT), async (req, res) 
     [{ header: 'Título', key: 'titulo', width: 30 }, { header: 'Tipo', key: 'tipo', width: 14 },
      { header: 'Fecha', key: 'fecha_inicio', width: 18 }, { header: 'Lugar', key: 'lugar', width: 26 },
      { header: 'Realizado', key: 'realizado', width: 12 }]);
-
-  const totalHojas = libro.worksheets.length;
 
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', `attachment; filename=respaldo_completo_${new Date().toISOString().slice(0, 10)}.xlsx`);
