@@ -1,14 +1,22 @@
 /**
  * Control de acceso real por módulo — la misma matriz que ya se usa
- * en el frontend (NavBar.jsx) para ocultar el menú, pero aplicada
+ * en el frontend (AppShell.jsx) para ocultar el menú, pero aplicada
  * aquí del lado del servidor, donde de verdad importa. Ocultar un
  * botón en React es una mejora de experiencia; esto es la seguridad
  * real: si alguien intenta entrar por la URL directa a un módulo que
  * no le toca, el backend responde 403 sin importar qué vea en pantalla.
  *
  * IMPORTANTE: si el menú del frontend cambia algún día, esta matriz
- * se debe actualizar junto con NavBar.jsx — son la misma regla de
+ * se debe actualizar junto con AppShell.jsx — son la misma regla de
  * negocio expresada en dos lugares.
+ *
+ * 🆕 NOTA CLAVE: aunque en el frontend "Activos" ya no es un botón
+ * propio (vive como pestaña dentro de la página de "finanzas"), el
+ * backend SIGUE exigiendo el módulo 'activos' por separado para las
+ * rutas /api/activos — así que cualquier rol que deba ver la pestaña
+ * de Activos dentro de Administración necesita AMBAS claves,
+ * 'finanzas' Y 'activos', juntas. Olvidar una de las dos rompe esa
+ * pestaña en silencio (la página carga, pero esa pestaña da 403).
  */
 const TODOS_LOS_MODULOS = [
   'promovidos', 'priorizacion', 'estructura', 'reportes', 'agenda',
@@ -19,51 +27,18 @@ const MODULOS_POR_ROL = {
   candidato: TODOS_LOS_MODULOS,
   jefe_campana: TODOS_LOS_MODULOS,
   coord_general: TODOS_LOS_MODULOS,
-  coord_distrital: TODOS_LOS_MODULOS.filter((m) => !['finanzas', 'juridico'].includes(m)),
-  coord_municipal: TODOS_LOS_MODULOS.filter((m) => !['finanzas', 'juridico'].includes(m)),
-  // Coordinador seccional: su gente (no toda la estructura), sus
-  // promovidos, Día D, y puede REPORTAR incidencias (el filtro de
-  // "solo ver las que él creó" se resuelve dentro de incidencias.js,
-  // no aquí — este middleware solo controla el módulo completo).
+  coord_distrital: TODOS_LOS_MODULOS.filter((m) => !['finanzas', 'activos', 'juridico'].includes(m)),
+  coord_municipal: TODOS_LOS_MODULOS.filter((m) => !['finanzas', 'activos', 'juridico'].includes(m)),
   coord_seccional: ['promovidos', 'estructura', 'dia-eleccion', 'incidencias'],
-  // Promotor: solo su pantalla de avance (no pasa por este
-  // middleware de módulos — vive en /promovidos/mi-resumen, que sí
-  // cae bajo 'promovidos') + Día D si le toca ser representante +
-  // Incidencias para reportar algo urgente.
   promotor: ['promovidos', 'dia-eleccion', 'incidencias'],
-  // Encargado de Jurídico: su área completa, más lo que necesita para
-  // sustentar quejas/recursos (activos, incidencias) y ver promovidos.
-  encargado_juridico: ['juridico', 'activos', 'incidencias', 'promovidos'],
-  // Encargado de Finanzas: su área, más promovidos e incidencias para
-  // dar contexto, sin acceso a nada más de la operación.
-  encargado_finanzas: ['finanzas', 'promovidos', 'incidencias'],
-  // Voluntario: la base para TODOS es 'promovidos' — lo demás se
-  // resuelve por su "puesto" específico, ver VOLUNTARIO_POR_PUESTO
-  // más abajo. No todos los voluntarios hacen lo mismo (uno toca
-  // puertas, otro maneja Marketing, otro apoya en eventos), así que
-  // no tiene sentido que todos vean los mismos módulos.
+  encargado_juridico: ['juridico', 'finanzas', 'activos', 'incidencias', 'promovidos'],
+  encargado_finanzas: ['finanzas', 'activos', 'promovidos', 'incidencias'],
   voluntario: ['promovidos'],
 };
 
-/**
- * 🆕 MÓDULOS EXTRA SEGÚN EL PUESTO DE UN VOLUNTARIO — antes esto solo
- * existía a medias para Marketing (ver requiereModuloMarketing, que
- * ya quedó obsoleta y se deja abajo solo por compatibilidad). Ahora
- * se generaliza: cualquier tipo de voluntario (toque de puertas,
- * eventos, marketing, general) obtiene automáticamente el módulo que
- * le corresponde según las palabras de su puesto — sin tener que
- * crear un rol nuevo en la base de datos por cada tipo.
- *
- * El match es por texto parcial (no exacto) para que "Marketing y
- * Redes Sociales" o "Coordinador de Marketing" también activen la
- * regla, no solo la palabra "Marketing" sola.
- */
 const MODULOS_EXTRA_POR_PUESTO_VOLUNTARIO = [
   { patron: /marketing|redes sociales|whatsapp|difusi[oó]n/i, modulos: ['marketing'] },
   { patron: /evento/i, modulos: ['agenda'] },
-  // "Toque de puertas", "Pinta de bardas", "Reparto de publicidad",
-  // "Apoyo logístico", "General" — todos estos ya cubren su
-  // necesidad real con el 'promovidos' base, no necesitan módulo extra.
 ];
 
 function modulosDeVoluntario(puesto) {
@@ -75,6 +50,37 @@ function modulosDeVoluntario(puesto) {
 }
 
 /**
+ * 🆕 MÓDULOS POR PUESTO DE COORDINADOR GENERAL — hasta ahora
+ * cualquier "coord_general" veía TODO, sin importar si su puesto real
+ * era Secretario Particular o Coordinador de Logística. Con esto, si
+ * el puesto coincide con alguno de los patrones de abajo, se le da
+ * acceso SOLO a lo que le corresponde a ese puesto.
+ *
+ * Si el puesto NO coincide con ningún patrón (vacío, o algo que no se
+ * reconoce), se usa el comportamiento de siempre: acceso completo —
+ * así ningún coordinador general existente pierde acceso al desplegar
+ * este cambio.
+ */
+const MODULOS_POR_PUESTO_COORD_GENERAL = [
+  { patron: /secretari[oa] particular/i, modulos: ['agenda'] },
+  { patron: /log[íi]stica|avanzada|seguridad/i, modulos: ['agenda', 'finanzas', 'activos'] },
+  { patron: /movilizaci[oó]n/i, modulos: ['dia-eleccion', 'promovidos'] },
+  { patron: /comunicaci[oó]n|prensa/i, modulos: ['marketing', 'juridico'] },
+  { patron: /digital|redes sociales/i, modulos: ['marketing', 'reportes'] },
+  { patron: /contenido|discurso/i, modulos: ['marketing'] },
+  { patron: /representantes? de casilla/i, modulos: ['dia-eleccion', 'estructura'] },
+  { patron: /estrategia/i, modulos: ['priorizacion', 'reportes'] },
+  { patron: /finanzas|administraci[oó]n/i, modulos: ['finanzas', 'activos'] },
+  { patron: /jur[íi]dico/i, modulos: ['juridico'] },
+];
+
+function modulosDeCoordGeneral(puesto) {
+  if (!puesto) return TODOS_LOS_MODULOS;
+  const regla = MODULOS_POR_PUESTO_COORD_GENERAL.find((r) => r.patron.test(puesto));
+  return regla ? regla.modulos : TODOS_LOS_MODULOS;
+}
+
+/**
  * Middleware: exige que el rol del usuario tenga acceso al módulo
  * indicado. Debe usarse DESPUÉS de requiereAuth (necesita req.usuario.rol).
  */
@@ -83,9 +89,11 @@ export function requiereModulo(clave) {
     if (!req.usuario) {
       return res.status(401).json({ ok: false, error: 'No autenticado' });
     }
-    const permitidos = req.usuario.rol === 'voluntario'
-      ? modulosDeVoluntario(req.usuario.puesto)
-      : (MODULOS_POR_ROL[req.usuario.rol] || []);
+    let permitidos;
+    if (req.usuario.rol === 'voluntario') permitidos = modulosDeVoluntario(req.usuario.puesto);
+    else if (req.usuario.rol === 'coord_general') permitidos = modulosDeCoordGeneral(req.usuario.puesto);
+    else permitidos = MODULOS_POR_ROL[req.usuario.rol] || [];
+
     if (!permitidos.includes(clave)) {
       return res.status(403).json({
         ok: false,
@@ -96,13 +104,8 @@ export function requiereModulo(clave) {
   };
 }
 
-/**
- * Se deja por compatibilidad con index.js (que la importa por su
- * nombre) — ahora simplemente delega a la misma lógica unificada de
- * arriba, ya no duplica el criterio de "contiene la palabra marketing".
- */
 export function requiereModuloMarketing() {
   return requiereModulo('marketing');
 }
 
-export { MODULOS_POR_ROL, TODOS_LOS_MODULOS, modulosDeVoluntario };
+export { MODULOS_POR_ROL, TODOS_LOS_MODULOS, modulosDeVoluntario, modulosDeCoordGeneral };
