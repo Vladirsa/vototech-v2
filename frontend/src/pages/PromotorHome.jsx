@@ -23,7 +23,7 @@ export default function PromotorHome() {
 
   return (
     <div className="min-h-screen bg-slate-950 p-4 pb-24">
-      <div className="max-w-md mx-auto space-y-5 pt-4">
+      <div className="max-w-2xl mx-auto space-y-5 pt-4">
         <div className="text-center space-y-1">
           <div className="text-3xl">🗳️</div>
           <h1 className="text-xl font-black text-white">¡Vota por tu candidato!</h1>

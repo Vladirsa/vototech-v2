@@ -10,7 +10,7 @@ const NOMBRE_ACTIVO = { espectacular: 'Espectaculares', barda: 'Bardas', manta: 
 
 function Gauge({ porcentaje }) {
   const pct = Math.min(100, Math.max(0, porcentaje));
-  const angulo = (pct / 100) * 180; // semicírculo
+  const angulo = (pct / 100) * 180;
   const r = 70, cx = 90, cy = 90;
   const puntoFinal = { x: cx + r * Math.cos(Math.PI - (angulo * Math.PI) / 180), y: cy - r * Math.sin(Math.PI - (angulo * Math.PI) / 180) };
   const largeArc = angulo > 180 ? 1 : 0;
@@ -35,12 +35,6 @@ function Gauge({ porcentaje }) {
   );
 }
 
-// ═══════════════════════════════════════════════════════════════
-// 🆕 3 GRÁFICAS NUEVAS — todas en SVG puro, sin ninguna librería
-// nueva que instalar (mismo método que ya usaba el medidor de arriba).
-// ═══════════════════════════════════════════════════════════════
-
-/** Gráfica de línea — tendencia de promovidos capturados, últimos 14 días. */
 function GraficaTendencia({ datos }) {
   if (!datos || datos.length === 0) return null;
   const ancho = 600, alto = 160, margen = { arriba: 15, abajo: 30, izq: 10, der: 10 };
@@ -57,7 +51,6 @@ function GraficaTendencia({ datos }) {
   const lineaPath = puntos.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
   const areaPath = `${lineaPath} L ${puntos[puntos.length - 1].x} ${margen.arriba + altoUtil} L ${puntos[0].x} ${margen.arriba + altoUtil} Z`;
 
-  // Solo 1 de cada 2-3 fechas como etiqueta, para que no se amontonen en pantallas chicas
   const saltoEtiqueta = datos.length > 10 ? 3 : 2;
 
   return (
@@ -87,7 +80,6 @@ function GraficaTendencia({ datos }) {
   );
 }
 
-/** Gráfica de barras horizontales — comparativo por territorio (sección o municipio). */
 function GraficaBarras({ datos }) {
   if (!datos || datos.length === 0) return null;
   const maxValor = Math.max(1, ...datos.map((d) => d.total));
@@ -110,7 +102,6 @@ function GraficaBarras({ datos }) {
   );
 }
 
-/** Gráfica de dona — distribución por clasificación estratégica. */
 function GraficaDona({ base, persuadible, adversario }) {
   const total = base + persuadible + adversario;
   if (total === 0) return <div className="text-xs text-slate-500 text-center py-4">Sin promovidos clasificados todavía</div>;
@@ -186,7 +177,7 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-slate-950 p-4 md:p-8">
-      <div className="max-w-4xl mx-auto space-y-5">
+      <div className="max-w-7xl mx-auto space-y-5">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-black text-white">Hola, {usuario?.nombre?.split(' ')[0] || 'Equipo'} 👋</h1>
@@ -201,12 +192,9 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* ⚡ VISTA EJECUTIVA — 5 indicadores + 3 gráficas, para quien no
-            tiene tiempo de leer veinte tarjetas pero sí quiere ver
-            tendencia y contexto, no solo números sueltos. */}
         {vistaEjecutiva && ejecutivo ? (
           <div className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
               <div className="bg-slate-900/60 border border-indigo-800/30 rounded-2xl p-5">
                 <div className="text-3xl font-black text-indigo-400">{ejecutivo.cobertura_pct}%</div>
                 <div className="text-xs text-slate-400 mt-1">🟢 Cobertura territorial</div>
@@ -227,13 +215,12 @@ export default function Dashboard() {
                 <div className="text-xs text-slate-400 mt-1">🟢 Estructura activa</div>
                 <div className="text-[10px] text-slate-600 mt-1">{ejecutivo.promotores_activos} de {ejecutivo.total_promotores} promotores trabajando esta semana</div>
               </div>
-              <div className="bg-slate-900/60 border border-amber-800/30 rounded-2xl p-5 md:col-span-2">
+              <div className="bg-slate-900/60 border border-amber-800/30 rounded-2xl p-5 md:col-span-2 xl:col-span-1">
                 <div className="text-3xl font-black text-amber-400">{ejecutivo.avance_diario}</div>
                 <div className="text-xs text-slate-400 mt-1">🟢 Avance diario (promedio últimos 7 días)</div>
               </div>
             </div>
 
-            {/* 🆕 GRÁFICA 1 — Tendencia de 14 días */}
             <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4">
               <h3 className="text-xs font-bold text-slate-400 uppercase mb-3">📈 Tendencia — promovidos por día (últimos 14 días)</h3>
               {ejecutivo.tendencia_14_dias?.some((t) => t.total > 0) ? (
@@ -244,7 +231,6 @@ export default function Dashboard() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* 🆕 GRÁFICA 2 — Comparativo por territorio */}
               <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4">
                 <h3 className="text-xs font-bold text-slate-400 uppercase mb-3">📊 Dónde se está trabajando más</h3>
                 {ejecutivo.comparativo_territorio?.length > 0 ? (
@@ -254,7 +240,6 @@ export default function Dashboard() {
                 )}
               </div>
 
-              {/* 🆕 GRÁFICA 3 — Distribución por clasificación */}
               <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4">
                 <h3 className="text-xs font-bold text-slate-400 uppercase mb-3">🍩 Distribución estratégica</h3>
                 <GraficaDona
@@ -268,7 +253,6 @@ export default function Dashboard() {
         ) : (
         <>
 
-        {/* 🧠 MOTOR DE INTELIGENCIA ELECTORAL — lo primero que se ve, antes que cualquier gráfica */}
         {alertasInteligentes.length > 0 && (
           <div className="bg-gradient-to-br from-slate-900 to-purple-950/40 border border-purple-800/30 rounded-2xl p-4">
             <h2 className="text-xs font-bold text-purple-300 uppercase mb-3 flex items-center gap-1.5">🧠 Inteligencia Electoral</h2>
@@ -288,7 +272,6 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* 🎯 AVANCE HACIA LA META ELECTORAL */}
         <div className="bg-gradient-to-br from-slate-900 to-indigo-950/60 border border-indigo-800/30 rounded-2xl p-5 flex flex-col md:flex-row items-center gap-6">
           <Gauge porcentaje={d.meta_electoral.porcentaje} />
           <div className="flex-1 w-full">
@@ -313,7 +296,6 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* 6 KPIs */}
         <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
           {[
             ['secciones_ganadas', '🟢', 'Secciones ganadas', 'border-emerald-700/50', 'text-emerald-400'],
@@ -330,7 +312,6 @@ export default function Dashboard() {
           ))}
         </div>
 
-        {/* Alertas · Secciones críticas · Agenda de hoy */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
             <h3 className="text-xs font-bold text-slate-400 uppercase mb-3">⚠️ Alertas del sistema</h3>
@@ -375,7 +356,6 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Actividad de campo por distrito */}
         <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
           <h3 className="text-xs font-bold text-slate-400 uppercase mb-3">🔥 Actividad de campo — últimos 7 días por distrito local</h3>
           {d.actividad_por_distrito.length === 0 ? (
@@ -403,7 +383,6 @@ export default function Dashboard() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* Actividad reciente de promotores */}
           <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
             <h3 className="text-xs font-bold text-slate-400 uppercase mb-3">👤 Actividad reciente de promotores</h3>
             {d.actividad_reciente.length === 0 ? (
@@ -421,7 +400,6 @@ export default function Dashboard() {
             <Link to="/promovidos" className="text-[10px] font-bold text-indigo-400 block pt-2">Ver todos los reportes →</Link>
           </div>
 
-          {/* Mejor promotor + coordinadores */}
           <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 space-y-3">
             {d.mejor_promotor && (
               <div>
@@ -447,7 +425,6 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Activos y Finanzas */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
             <h3 className="text-xs font-bold text-slate-400 uppercase mb-3">📺 Activos de campaña</h3>
@@ -473,7 +450,6 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* 📋 Resumen de encuestas — concentrado por municipio/sección */}
         {encuestasResumen && encuestasResumen.total_respuestas > 0 && (
           <div className="bg-slate-900/60 border border-pink-800/30 rounded-xl p-4">
             <h3 className="text-xs font-bold text-slate-400 uppercase mb-3">📋 Encuestas — concentrado</h3>
@@ -486,10 +462,8 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* 🔐 Verificación en dos pasos — solo altos mandos */}
         {['candidato', 'jefe_campana', 'coord_general'].includes(usuario?.rol) && <Panel2FA />}
 
-        {/* 🔔 Notificaciones push */}
         <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 flex items-center justify-between">
           <div>
             <h3 className="text-xs font-bold text-slate-400 uppercase">🔔 Notificaciones push</h3>
@@ -499,7 +473,6 @@ export default function Dashboard() {
             className="px-3 py-2 rounded-lg bg-indigo-600 text-white text-xs font-bold flex-shrink-0">Probar</button>
         </div>
 
-        {/* 📄 Reportes en PDF de cada módulo */}
         <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
           <h3 className="text-xs font-bold text-slate-400 uppercase mb-3">📄 Descargar reportes en PDF</h3>
           <div className="flex flex-wrap gap-2">

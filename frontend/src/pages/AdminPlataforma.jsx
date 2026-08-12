@@ -443,7 +443,7 @@ export default function AdminPlataforma() {
 
   return (
     <div className="min-h-screen bg-slate-950 p-4 md:p-8">
-      <div className="max-w-4xl mx-auto space-y-6">
+      <div className="max-w-7xl mx-auto space-y-6">
         <h1 className="text-2xl font-black text-white">🔐 Panel de Administración VotoTech</h1>
 
         {/* Reparación puntual de datos incompletos */}

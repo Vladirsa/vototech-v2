@@ -43,7 +43,7 @@ export default function Chat() {
 
   return (
     <div className="min-h-screen bg-slate-950 flex flex-col" style={{ height: '100vh' }}>
-      <div className="max-w-2xl mx-auto w-full flex flex-col flex-1 p-4 md:p-8 pb-0">
+      <div className="max-w-4xl mx-auto w-full flex flex-col flex-1 p-4 md:p-8 pb-0">
         <div className="flex items-center justify-between mb-3">
           <div>
             <h1 className="text-2xl font-black text-white">💬 Chat Interno</h1>

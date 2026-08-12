@@ -288,7 +288,7 @@ export default function Marketing() {
 
   return (
     <div className="min-h-screen bg-slate-950 p-4 md:p-8">
-      <div className="max-w-4xl mx-auto space-y-4">
+      <div className="max-w-7xl mx-auto space-y-4">
         <div>
           <h1 className="text-2xl font-black text-white">📢 Marketing</h1>
           <Link to="/dashboard" className="text-xs text-indigo-400">← Dashboard</Link>

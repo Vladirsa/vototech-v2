@@ -60,7 +60,7 @@ export default function Respaldos() {
 
   return (
     <div className="min-h-screen bg-slate-950 p-4 md:p-8">
-      <div className="max-w-2xl mx-auto space-y-5">
+      <div className="max-w-4xl mx-auto space-y-5">
         <div>
           <h1 className="text-2xl font-black text-white">📦 Mis Respaldos</h1>
           <Link to="/dashboard" className="text-xs text-indigo-400">← Dashboard</Link>

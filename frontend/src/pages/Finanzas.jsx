@@ -89,7 +89,7 @@ export default function Finanzas() {
 
   return (
     <div className="min-h-screen bg-slate-950 p-4 md:p-8">
-      <div className="max-w-4xl mx-auto space-y-4">
+      <div className="max-w-7xl mx-auto space-y-4">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-black text-white">💰 Administración de Campaña</h1>
