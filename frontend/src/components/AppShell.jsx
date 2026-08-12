@@ -20,8 +20,11 @@ const MODULOS = [
   { ruta: '/agenda', ic: '📅', label: 'Agenda', clave: 'agenda' },
   { ruta: '/dia-eleccion', ic: '🗳️', label: 'Día D', clave: 'dia-eleccion' },
   { ruta: '/incidencias', ic: '🚨', label: 'Incidencias', clave: 'incidencias' },
-  { ruta: '/finanzas', ic: '💰', label: 'Administración', clave: 'finanzas' },
-  { ruta: '/activos', ic: '📺', label: 'Activos', clave: 'activos' },
+  // 🆕 "Activos" ya no es un botón propio — su contenido vive ahora
+  // como una pestaña MÁS dentro de Administración (junto a Gastos,
+  // Ingresos, Bodega, Tope y Exportar), un solo lugar para todo lo
+  // administrativo de la campaña.
+  { ruta: '/finanzas', ic: '💼', label: 'Administración', clave: 'finanzas' },
   { ruta: '/respaldos', ic: '📦', label: 'Respaldos', clave: 'respaldos' },
 ];
 
@@ -34,7 +37,9 @@ const MODULOS_POR_ROL = {
   coord_municipal: TODOS.filter((c) => !['finanzas', 'juridico', 'respaldos'].includes(c)),
   coord_seccional: ['dashboard', 'mapa', 'promovidos', 'estructura', 'dia-eleccion', 'incidencias'],
   promotor: ['mi-avance', 'dia-eleccion', 'incidencias'],
-  encargado_juridico: ['dashboard', 'juridico', 'activos', 'incidencias', 'promovidos'],
+  // Encargado de Jurídico: su área, más lo que necesita para sustentar
+  // quejas/recursos — Activos ahora vive dentro de Administración.
+  encargado_juridico: ['dashboard', 'juridico', 'finanzas', 'incidencias', 'promovidos'],
   encargado_finanzas: ['dashboard', 'finanzas', 'promovidos', 'incidencias'],
 };
 const MODULOS_EXTRA_POR_PUESTO_VOLUNTARIO = [
