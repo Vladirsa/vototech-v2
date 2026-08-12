@@ -361,6 +361,7 @@ export default function Administracion() {
   const [formGasto, setFormGasto] = useState({ categoria: 'otro', descripcion: '', monto: '', fecha: new Date().toISOString().slice(0, 10), tipo_comprobante: 'sin_comprobante', numero_comprobante: '', proveedor: '' });
   const [formIngreso, setFormIngreso] = useState({ tipo_ingreso: 'aportacion_efectivo', tipo_persona: 'fisica_no_militante', aportante_nombre: '', aportante_identificacion: '', monto: '', fecha: new Date().toISOString().slice(0, 10), forma_recepcion: 'transferencia', numero_recibo: '' });
   const [tope, setTope] = useState('');
+  const [editandoTope, setEditandoTope] = useState(false);
   const [bodega, setBodega] = useState([]);
   const [utilitarioModo, setUtilitarioModo] = useState('nuevo');
   const [utilitarioForm, setUtilitarioForm] = useState({ tipo: '', cantidad: '', activo_id: '' });
@@ -416,7 +417,7 @@ export default function Administracion() {
     cargarFinanzas();
   };
 
-  const guardarTope = async () => { await api.put('/finanzas/tope', { tope: parseFloat(tope) }); setTope(''); cargarFinanzas(); };
+  const guardarTope = async () => { await api.put('/finanzas/tope', { tope: parseFloat(tope) }); setTope(''); setEditandoTope(false); cargarFinanzas(); };
 
   const cambiarEstadoActivo = async (id, estado) => {
     try { await api.patch(`/activos/${id}/estado`, { estado }); cargarActivos(); }
@@ -717,13 +718,22 @@ export default function Administracion() {
         {/* ═══════════ PESTAÑA: TOPE DE GASTO ═══════════ */}
         {tab === 'tope' && (
           <div className="space-y-3">
-            {!resumen?.tope_ople ? (
-              <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 flex gap-2">
-                <input placeholder="Define tu tope de gasto OPLE" type="number" value={tope} onChange={(e) => setTope(e.target.value)} className="flex-1 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
-                <button onClick={guardarTope} className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-xs font-bold">Guardar</button>
+            {!resumen?.tope_ople || editandoTope ? (
+              <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 space-y-2">
+                <label className="text-[10px] text-slate-500 font-bold block">
+                  {resumen?.tope_ople ? 'Actualizar el tope de gasto (ej. si el OPLE publicó un monto corregido)' : 'Define tu tope de gasto OPLE'}
+                </label>
+                <div className="flex gap-2">
+                  <input placeholder={resumen?.tope_ople ? String(resumen.tope_ople) : 'Monto autorizado por el OPLE'} type="number" value={tope} onChange={(e) => setTope(e.target.value)} className="flex-1 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+                  <button onClick={guardarTope} disabled={!tope} className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-xs font-bold disabled:opacity-40">Guardar</button>
+                  {resumen?.tope_ople && <button onClick={() => { setEditandoTope(false); setTope(''); }} className="px-3 py-2 rounded-lg bg-slate-800 text-slate-300 text-xs font-bold">Cancelar</button>}
+                </div>
               </div>
             ) : (
               <>
+                <div className="flex justify-end">
+                  <button onClick={() => setEditandoTope(true)} className="text-[10px] text-indigo-400 font-bold">✏️ Editar tope</button>
+                </div>
                 <div className={`rounded-2xl p-5 border ${resumen.nivel_alerta_tope === 'rebasado' ? 'bg-red-950/60 border-red-700' : resumen.nivel_alerta_tope === 'critico' ? 'bg-red-500/10 border-red-500/40' : resumen.nivel_alerta_tope === 'alto' ? 'bg-orange-500/10 border-orange-500/40' : resumen.nivel_alerta_tope === 'medio' ? 'bg-amber-500/10 border-amber-500/40' : 'bg-emerald-500/10 border-emerald-500/40'}`}>
                   <div className="flex justify-between text-sm mb-2">
                     <span className="text-slate-300">Gastado: <strong className="text-white">{fmt(resumen.total_gastado)}</strong></span>
