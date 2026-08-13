@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import multer from 'multer';
+import sharp from 'sharp';
 import Anthropic from '@anthropic-ai/sdk';
 import { z } from 'zod';
 import { requiereAuth } from '../middleware/auth.js';
@@ -12,20 +13,40 @@ const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
 
 /**
+ * 🆕 LA CORRECCIÓN REAL DEL "NO SE PUDO LEER" — las fotos que toma un
+ * celular moderno pesan 8-15MB, y la API de Claude tiene un límite de
+ * tamaño por imagen bastante más chico que eso; mandarla tal cual
+ * hacía que la petición fallara con una excepción real (no un
+ * problema de que la IA "no entendiera" la foto).
+ *
+ * Esto redimensiona la imagen a 1568px en su lado más largo (el
+ * tamaño óptimo que la propia documentación de Claude recomienda
+ * para visión — mandar algo más grande no mejora la lectura, Claude
+ * la reduce internamente de todos modos) y la comprime a JPEG
+ * calidad 85 — el resultado pesa unos cuantos cientos de KB en vez
+ * de varios MB. Todo pasa en memoria, nunca se guarda en disco.
+ */
+async function comprimirParaClaude(bufferOriginal) {
+  const bufferComprimido = await sharp(bufferOriginal)
+    .rotate() // respeta la orientación EXIF (fotos de celular vienen "acostadas" en los metadatos)
+    .resize(1568, 1568, { fit: 'inside', withoutEnlargement: true })
+    .jpeg({ quality: 85 })
+    .toBuffer();
+  return { buffer: bufferComprimido, mediaType: 'image/jpeg' };
+}
+
+/**
  * POST /api/ia/leer-acta
  * Lee la foto de un acta de escrutinio y extrae los votos por
  * partido — pero SOLO como sugerencia para que el representante
- * confirme o corrija, nunca se guarda automático. Un acta mal leída
- * por la IA es un resultado electoral incorrecto, así que el humano
- * siempre tiene la última palabra; esto solo le ahorra estar
- * tecleando número por número con el celular en la mano en la calle.
+ * confirme o corrija, nunca se guarda automático.
  */
 router.post('/leer-acta', upload.single('foto'), async (req, res) => {
   if (!req.file) return res.status(400).json({ ok: false, error: 'No se recibió ninguna foto' });
 
   try {
-    const base64 = req.file.buffer.toString('base64');
-    const mediaType = req.file.mimetype;
+    const { buffer, mediaType } = await comprimirParaClaude(req.file.buffer);
+    const base64 = buffer.toString('base64');
 
     const respuesta = await anthropic.messages.create({
       model: 'claude-sonnet-5',
@@ -51,7 +72,6 @@ Reglas:
     });
 
     const textoRespuesta = respuesta.content[0]?.text?.trim() || '{}';
-    // Por si Claude envuelve la respuesta en un bloque de código pese a la instrucción
     const jsonLimpio = textoRespuesta.replace(/^```json\s*|```\s*$/g, '').trim();
     let datosExtraidos;
     try {
@@ -69,27 +89,21 @@ Reglas:
 
 /**
  * POST /api/ia/leer-credencial
- * Lee una credencial de elector (INE) y extrae SOLO los datos que
- * ya se capturan a mano en el formulario de Promovidos: nombre
- * completo, sección electoral, distritos, y domicilio.
+ * Lee una credencial de elector (INE) y extrae SOLO los datos que ya
+ * se capturan a mano en el formulario de Promovidos: nombre, sección,
+ * distritos, y domicilio.
  *
- * 🔒 LA FOTO NUNCA SE GUARDA — llega en memoria (multer
- * memoryStorage), se manda una sola vez a Claude para leerla, y se
- * descarta al terminar la petición. No se sube a ningún bucket, no
- * se guarda ninguna referencia a la imagen en la base de datos —
- * solo los datos de texto que el usuario ve y decide guardar (o no)
- * en el formulario, exactamente como si los hubiera tecleado él mismo.
- *
- * Igual que con las actas: esto es SOLO una sugerencia. El promotor
- * siempre revisa y confirma antes de guardar — una credencial mal
- * leída no debe convertirse en un dato incorrecto en el CRM.
+ * 🔒 LA FOTO NUNCA SE GUARDA — llega en memoria, se comprime y se
+ * manda una sola vez a Claude para leerla, y se descarta al terminar
+ * la petición. No se sube a ningún bucket, no se guarda ninguna
+ * referencia a la imagen en la base de datos.
  */
 router.post('/leer-credencial', upload.single('foto'), async (req, res) => {
   if (!req.file) return res.status(400).json({ ok: false, error: 'No se recibió ninguna foto' });
 
   try {
-    const base64 = req.file.buffer.toString('base64');
-    const mediaType = req.file.mimetype;
+    const { buffer, mediaType } = await comprimirParaClaude(req.file.buffer);
+    const base64 = buffer.toString('base64');
 
     const respuesta = await anthropic.messages.create({
       model: 'claude-sonnet-5',
@@ -107,7 +121,7 @@ Responde SOLO con un objeto JSON (nada de texto antes o después, sin bloques de
 
 Reglas:
 - NUNCA inventes un dato que no puedas leer con razonable certeza — es preferible null con advertencia que un dato incorrecto.
-- No incluyas la CURP, clave de elector, ni ningún otro dato distinto a los 6 campos de arriba — no se necesitan y no deben aparecer en tu respuesta.
+- No incluyas la CURP, clave de elector, ni ningún otro dato distinto a los 6 campos de arriba.
 - Si la imagen no es una credencial de elector legible, o está muy borrosa, pon "confianza":"baja" y explica en "advertencia".`,
           },
         ],
@@ -128,15 +142,10 @@ Reglas:
     console.error('Error leyendo credencial:', e);
     res.status(500).json({ ok: false, error: 'No se pudo leer la credencial. Captúralo a mano.' });
   }
-  // 🔒 req.file.buffer nunca se referencia después de este punto —
-  // se pierde con el fin de la petición, no queda ninguna copia.
 });
 
 /**
  * GET /api/ia/estado
- * Diagnóstico real, no adivinanza — para saber en 2 segundos si el
- * Centro IA no funciona por falta de la llave (configuración) o por
- * otra cosa (un bug de verdad).
  */
 router.get('/estado', async (req, res) => {
   if (!process.env.ANTHROPIC_API_KEY) {
