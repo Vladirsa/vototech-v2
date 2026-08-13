@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { MapContainer, TileLayer, Marker } from 'react-leaflet';
 import api, { descargarArchivo } from '../lib/api';
@@ -27,8 +27,43 @@ export function ModalAgregar({ onCerrar, onGuardado, seccionInicial }) {
   });
   const [error, setError] = useState('');
   const [guardando, setGuardando] = useState(false);
+  // 🆕 Lectura de credencial INE con IA — solo extrae texto, la foto
+  // nunca se guarda (ver ia.js: /leer-credencial usa memoria, no storage).
+  const [leyendoCredencial, setLeyendoCredencial] = useState(false);
+  const [avisoCredencial, setAvisoCredencial] = useState(null);
+  const inputCredencial = useRef(null);
 
   const actualizar = (campo, valor) => setForm((f) => ({ ...f, [campo]: valor }));
+
+  const leerCredencialConIA = async (archivo) => {
+    if (!archivo) return;
+    setLeyendoCredencial(true);
+    setAvisoCredencial(null);
+    try {
+      const formData = new FormData();
+      formData.append('foto', archivo);
+      const { data } = await api.post('/ia/leer-credencial', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+      // SOLO se sugiere — el promotor revisa y corrige antes de guardar,
+      // exactamente igual que si lo hubiera tecleado él mismo.
+      setForm((f) => ({
+        ...f,
+        nombre: data.data.nombre_completo || f.nombre,
+        seccion_numero: data.data.seccion || f.seccion_numero,
+        calle: data.data.domicilio || f.calle,
+      }));
+      setAvisoCredencial({
+        confianza: data.data.confianza,
+        advertencia: data.data.advertencia,
+        distrito_federal: data.data.distrito_federal,
+        distrito_local: data.data.distrito_local,
+        municipio: data.data.municipio,
+      });
+    } catch (e) {
+      setAvisoCredencial({ confianza: 'baja', advertencia: e.response?.data?.error || 'No se pudo leer la credencial, captúralo a mano.' });
+    }
+    setLeyendoCredencial(false);
+    if (inputCredencial.current) inputCredencial.current.value = '';
+  };
 
   const guardar = async () => {
     if (!form.consentimiento) { setError('Se requiere el consentimiento del ciudadano (LFPDPPP)'); return; }
@@ -51,6 +86,30 @@ export function ModalAgregar({ onCerrar, onGuardado, seccionInicial }) {
       <div className="bg-slate-900 border border-slate-700 rounded-t-2xl md:rounded-2xl w-full max-w-md p-5 space-y-3 max-h-[90vh] overflow-y-auto">
         <h2 className="text-lg font-black text-white">🤝 Nuevo Promovido</h2>
         {error && <div className="bg-red-500/10 border border-red-500/30 text-red-400 text-xs rounded-lg px-3 py-2">{error}</div>}
+
+        {/* 🆕 Lectura de credencial INE — llena nombre, sección y
+            domicilio de un jalón. La foto nunca se guarda, solo el
+            texto que se lee de ella. */}
+        <div className="bg-indigo-500/10 border border-indigo-500/30 rounded-lg p-3">
+          <label className="flex items-center justify-center gap-2 text-xs font-bold text-indigo-300 cursor-pointer py-1.5">
+            {leyendoCredencial ? '⏳ Leyendo credencial...' : '📇 Leer credencial INE (llena los datos solo)'}
+            <input ref={inputCredencial} type="file" accept="image/*" capture="environment" className="hidden"
+              onChange={(e) => leerCredencialConIA(e.target.files[0])} disabled={leyendoCredencial} />
+          </label>
+          <p className="text-[9px] text-indigo-300/70 text-center -mt-1">La foto no se guarda — solo se lee el texto una vez</p>
+          {avisoCredencial && (
+            <div className={`mt-2 text-[10px] rounded-lg px-2 py-1.5 ${avisoCredencial.confianza === 'alta' ? 'bg-emerald-500/10 text-emerald-300' : avisoCredencial.confianza === 'media' ? 'bg-amber-500/10 text-amber-300' : 'bg-red-500/10 text-red-300'}`}>
+              {avisoCredencial.confianza === 'alta' ? '✅ Leída con buena claridad' : avisoCredencial.confianza === 'media' ? '⚠️ Revisa los datos, algo pudo no leerse bien' : `⚠️ ${avisoCredencial.advertencia || 'No se leyó bien, revisa o captura a mano'}`}
+              {(avisoCredencial.distrito_federal || avisoCredencial.distrito_local || avisoCredencial.municipio) && (
+                <div className="mt-1 text-slate-400">
+                  {avisoCredencial.municipio && `Municipio: ${avisoCredencial.municipio} · `}
+                  {avisoCredencial.distrito_local && `Dist. Local ${avisoCredencial.distrito_local} · `}
+                  {avisoCredencial.distrito_federal && `Dist. Federal ${avisoCredencial.distrito_federal}`}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
 
         <input placeholder="Nombre completo *" value={form.nombre} onChange={(e) => actualizar('nombre', e.target.value)}
           className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
