@@ -19,6 +19,47 @@ const CLASIFICACION_ESTILO = {
   adversario:  { color: 'text-slate-500', bg: 'bg-slate-500/10', label: '⛔ Adversario' },
 };
 
+/**
+ * 🆕 Comprime la foto DIRECTO EN EL CELULAR antes de subirla —
+ * las fotos de cámara pesan 8-20MB, y subir eso por datos móviles
+ * puede tardar tanto que la petición se cae por tiempo antes de
+ * llegar siquiera al servidor. Esto la reduce a ~200-400KB en el
+ * propio navegador, sin depender de ninguna librería nueva (usa el
+ * Canvas del navegador, ya viene incluido).
+ */
+function comprimirImagenEnNavegador(archivo, maxDimension = 1600, calidad = 0.85) {
+  return new Promise((resolve, reject) => {
+    const lector = new FileReader();
+    lector.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        let { width, height } = img;
+        if (width > height && width > maxDimension) {
+          height = Math.round((height * maxDimension) / width);
+          width = maxDimension;
+        } else if (height >= width && height > maxDimension) {
+          width = Math.round((width * maxDimension) / height);
+          height = maxDimension;
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        canvas.toBlob(
+          (blob) => (blob ? resolve(new File([blob], 'credencial.jpg', { type: 'image/jpeg' })) : reject(new Error('No se pudo comprimir la imagen'))),
+          'image/jpeg',
+          calidad
+        );
+      };
+      img.onerror = () => reject(new Error('No se pudo leer la imagen — intenta con otra foto'));
+      img.src = e.target.result;
+    };
+    lector.onerror = () => reject(new Error('No se pudo abrir el archivo'));
+    lector.readAsDataURL(archivo);
+  });
+}
+
 export function ModalAgregar({ onCerrar, onGuardado, seccionInicial }) {
   const [form, setForm] = useState({
     nombre: '', telefono: '', seccion_numero: seccionInicial || '', partido: '', calle: '', lat: null, lng: null,
@@ -40,8 +81,9 @@ export function ModalAgregar({ onCerrar, onGuardado, seccionInicial }) {
     setLeyendoCredencial(true);
     setAvisoCredencial(null);
     try {
+      const archivoComprimido = await comprimirImagenEnNavegador(archivo);
       const formData = new FormData();
-      formData.append('foto', archivo);
+      formData.append('foto', archivoComprimido);
       const { data } = await api.post('/ia/leer-credencial', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
       // SOLO se sugiere — el promotor revisa y corrige antes de guardar,
       // exactamente igual que si lo hubiera tecleado él mismo.
