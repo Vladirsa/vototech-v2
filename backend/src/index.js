@@ -49,6 +49,7 @@ import documentosRoutes from './routes/documentos.js';
 import adminRoutes from './routes/admin.js';
 import blogRoutes from './routes/blog.js';
 import caminatasRoutes from './routes/caminatas.js';
+import logisticaRoutes from './routes/logistica.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -129,6 +130,10 @@ app.use('/api/blog', blogRoutes);
 // 🆕 Caminatas — se protege sola por dentro (router.use(requiereAuth)
 // al inicio del archivo), mismo patrón que /respaldos, /whatsapp, /ia.
 app.use('/api/caminatas', caminatasRoutes);
+// 🆕 Logística — vehículos, choferes, checklist de eventos. Llave
+// propia ('logistica'), no reutiliza la de Agenda — así el acceso
+// se puede afinar por separado si algún rol necesita una sin la otra.
+app.use('/api/logistica', requiereAuth, requiereModulo('logistica'), logisticaRoutes);
 
 app.get('/api/salud', (req, res) => {
   res.json({ ok: true, servicio: 'VotoTech Backend', hora: new Date().toISOString() });
