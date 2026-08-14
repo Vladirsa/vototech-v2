@@ -18,6 +18,7 @@ const MODULOS = [
   { ruta: '/priorizacion', ic: '🎯', label: 'Priorización', clave: 'priorizacion' },
   { ruta: '/estructura', ic: '🗂️', label: 'Estructura', clave: 'estructura' },
   { ruta: '/agenda', ic: '📅', label: 'Agenda', clave: 'agenda' },
+  { ruta: '/logistica', ic: '🚚', label: 'Logística', clave: 'logistica' },
   { ruta: '/dia-eleccion', ic: '🗳️', label: 'Día D', clave: 'dia-eleccion' },
   { ruta: '/incidencias', ic: '🚨', label: 'Incidencias', clave: 'incidencias' },
   // 🆕 "Activos" ya no es un botón propio — su contenido vive ahora
@@ -35,7 +36,7 @@ const MODULOS_POR_ROL = {
   coord_general: TODOS, // el default sin puesto reconocido — ver modulosDeCoordGeneral abajo
   coord_distrital: TODOS.filter((c) => !['finanzas', 'juridico', 'respaldos'].includes(c)),
   coord_municipal: TODOS.filter((c) => !['finanzas', 'juridico', 'respaldos'].includes(c)),
-  coord_seccional: ['dashboard', 'mapa', 'promovidos', 'estructura', 'dia-eleccion', 'incidencias'],
+  coord_seccional: ['dashboard', 'mapa', 'promovidos', 'estructura', 'dia-eleccion', 'incidencias', 'logistica'],
   promotor: ['mi-avance', 'dia-eleccion', 'incidencias'],
   // Encargado de Jurídico: su área, más lo que necesita para sustentar
   // quejas/recursos — Activos ahora vive dentro de Administración.
@@ -63,8 +64,8 @@ function modulosDeVoluntario(puesto) {
  */
 const MODULOS_POR_PUESTO_COORD_GENERAL = [
   { patron: /secretari[oa] particular/i, modulos: ['agenda'] },
-  { patron: /log[íi]stica|avanzada|seguridad/i, modulos: ['agenda', 'finanzas'] },
-  { patron: /movilizaci[oó]n/i, modulos: ['dia-eleccion', 'promovidos'] },
+  { patron: /log[íi]stica|avanzada|seguridad/i, modulos: ['agenda', 'logistica', 'finanzas'] },
+  { patron: /movilizaci[oó]n/i, modulos: ['dia-eleccion', 'promovidos', 'logistica'] },
   { patron: /comunicaci[oó]n|prensa/i, modulos: ['marketing', 'juridico'] },
   { patron: /digital|redes sociales/i, modulos: ['marketing', 'reportes'] },
   { patron: /contenido|discurso/i, modulos: ['marketing'] },
