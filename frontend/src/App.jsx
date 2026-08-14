@@ -16,6 +16,7 @@ const Promovidos = lazy(() => import('./pages/Promovidos'));
 const Priorizacion = lazy(() => import('./pages/Priorizacion'));
 const Estructura = lazy(() => import('./pages/Estructura'));
 const Agenda = lazy(() => import('./pages/Agenda'));
+const Logistica = lazy(() => import('./pages/Logistica'));
 const DiaEleccion = lazy(() => import('./pages/DiaEleccion'));
 const Incidencias = lazy(() => import('./pages/Incidencias'));
 // 🆕 Finanzas.jsx y Activos.jsx se combinaron en una sola pantalla —
@@ -76,6 +77,7 @@ export default function App() {
           <Route path="/priorizacion" element={<RutaProtegida><Priorizacion /></RutaProtegida>} />
           <Route path="/estructura" element={<RutaProtegida><Estructura /></RutaProtegida>} />
           <Route path="/agenda" element={<RutaProtegida><Agenda /></RutaProtegida>} />
+          <Route path="/logistica" element={<RutaProtegida><Logistica /></RutaProtegida>} />
           <Route path="/dia-eleccion" element={<RutaProtegida><DiaEleccion /></RutaProtegida>} />
           <Route path="/incidencias" element={<RutaProtegida><Incidencias /></RutaProtegida>} />
           <Route path="/finanzas" element={<RutaProtegida><Administracion /></RutaProtegida>} />
