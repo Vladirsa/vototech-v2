@@ -367,7 +367,7 @@ function VistaCalendarioMes({ eventos, mesActual, onCambiarMes, onDiaClick }) {
               {eventosDia.length > 0 && (
                 <div className="flex gap-0.5 mt-0.5">
                   {eventosDia.slice(0, 3).map((e, j) => (
-                    <span key={j} className={`w-1 h-1 rounded-full ${COLOR_ESTILO[e.color_alerta || 'indigo'].punto}`} />
+                    <span key={j} className={`w-1 h-1 rounded-full ${(COLOR_ESTILO[e.color_alerta] || COLOR_ESTILO.indigo).punto}`} />
                   ))}
                 </div>
               )}
@@ -414,7 +414,7 @@ function VistaDia({ eventos, diaActual, onCambiarDia, onEditar }) {
           const fecha = new Date(e.fecha_inicio);
           const horaDecimal = fecha.getHours() + fecha.getMinutes() / 60;
           const top = Math.max(0, (horaDecimal - 6)) * ALTO_HORA;
-          const est = COLOR_ESTILO[e.color_alerta || 'indigo'];
+          const est = COLOR_ESTILO[e.color_alerta] || COLOR_ESTILO.indigo;
           return (
             <button key={e.id} onClick={() => onEditar(e.id)}
               className={`absolute left-14 right-2 rounded-lg border-l-4 ${est.borde} ${est.bg} px-2 py-1 text-left overflow-hidden hover:brightness-125`}
@@ -584,7 +584,7 @@ export default function Agenda() {
   const totalPropuestos = eventos.filter((e) => e.estado === 'propuesto').length;
 
   const TarjetaEvento = ({ e }) => {
-    const est = COLOR_ESTILO[e.color_alerta || 'indigo'];
+    const est = COLOR_ESTILO[e.color_alerta] || COLOR_ESTILO.indigo;
     return (
       <div className={`rounded-xl border-l-4 ${est.borde} border-y border-r border-slate-800 p-4 ${e.realizado ? 'bg-slate-900/30 opacity-60' : 'bg-slate-900/60'}`}>
         <div className="flex items-center justify-between">
@@ -614,7 +614,7 @@ export default function Agenda() {
 
         {/* 🆕 Estado de aprobación + etiquetas */}
         <div className="flex items-center gap-1.5 flex-wrap mt-2 pl-11">
-          {e.estado && e.estado !== 'confirmado' && (
+          {e.estado && e.estado !== 'confirmado' && ESTADO_ESTILO[e.estado] && (
             <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${ESTADO_ESTILO[e.estado].color}`}>{ESTADO_ESTILO[e.estado].label}</span>
           )}
           {(e.etiquetas || []).map((et, i) => (
