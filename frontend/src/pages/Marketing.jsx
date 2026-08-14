@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import api from '../lib/api';
+import api, { descargarArchivo } from '../lib/api';
 import Ayuda from '../components/Ayuda';
 
 const CATEGORIA_ESTILO = {
@@ -8,6 +8,15 @@ const CATEGORIA_ESTILO = {
   informativo: { ic: 'ℹ️', color: 'text-blue-400', bg: 'bg-blue-500/10' },
   recordatorio: { ic: '⏰', color: 'text-amber-400', bg: 'bg-amber-500/10' },
   urgente: { ic: '🚨', color: 'text-red-400', bg: 'bg-red-500/10' },
+};
+
+const TIPO_MEDIO_LABEL = { prensa: '📰 Prensa escrita', radio: '📻 Radio', tv: '📺 TV', digital: '💻 Digital' };
+const TIPO_CONTENIDO_LABEL = {
+  discurso: { ic: '🎤', label: 'Discurso' },
+  argumentario: { ic: '📋', label: 'Argumentario' },
+  pregunta_dificil: { ic: '❓', label: 'Preguntas difíciles' },
+  mensaje_dia: { ic: '💬', label: 'Mensaje del día' },
+  storytelling: { ic: '📖', label: 'Storytelling ciudadano' },
 };
 
 function PanelNumeros() {
@@ -216,10 +225,6 @@ function PanelNuevoEnvio({ onEnviado }) {
         </div>
       )}
 
-      <div className="flex items-center justify-between">
-        <span className="text-[10px] font-bold text-slate-500 uppercase">Mensaje</span>
-        
-      </div>
       <textarea placeholder="Mensaje — usa {nombre} para personalizar" value={mensaje} onChange={(e) => setMensaje(e.target.value)}
         className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm min-h-24" />
 
@@ -278,6 +283,318 @@ function DetalleEnvio({ envioId, onCerrar }) {
   );
 }
 
+/** 🆕 Base de periodistas — CRM chico de contactos de prensa. */
+function PanelPeriodistas({ onSeleccionMultiple, seleccionados }) {
+  const [periodistas, setPeriodistas] = useState([]);
+  const [mostrarForm, setMostrarForm] = useState(false);
+  const [form, setForm] = useState({ nombre: '', medio: '', tipo_medio: 'digital', telefono: '', email: '', notas: '' });
+
+  const cargar = () => api.get('/marketing/periodistas').then((r) => setPeriodistas(r.data.data));
+  useEffect(cargar, []);
+
+  const guardar = async () => {
+    await api.post('/marketing/periodistas', form);
+    setForm({ nombre: '', medio: '', tipo_medio: 'digital', telefono: '', email: '', notas: '' });
+    setMostrarForm(false);
+    cargar();
+  };
+  const eliminar = async (id) => { if (confirm('¿Eliminar este periodista?')) { await api.delete(`/marketing/periodistas/${id}`); cargar(); } };
+
+  return (
+    <div className="space-y-3">
+      <button onClick={() => setMostrarForm(!mostrarForm)} className="w-full py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-bold">
+        {mostrarForm ? 'Cancelar' : '+ Nuevo periodista'}
+      </button>
+      {mostrarForm && (
+        <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 space-y-2.5">
+          <input placeholder="Nombre completo" value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })}
+            className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+          <input placeholder="Medio (ej: El Sol de Tlaxcala)" value={form.medio} onChange={(e) => setForm({ ...form, medio: e.target.value })}
+            className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+          <select value={form.tipo_medio} onChange={(e) => setForm({ ...form, tipo_medio: e.target.value })}
+            className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
+            {Object.entries(TIPO_MEDIO_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          </select>
+          <div className="flex gap-2">
+            <input placeholder="Teléfono" value={form.telefono} onChange={(e) => setForm({ ...form, telefono: e.target.value })}
+              className="flex-1 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+            <input placeholder="Correo" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })}
+              className="flex-1 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+          </div>
+          <input placeholder="Notas (opcional)" value={form.notas} onChange={(e) => setForm({ ...form, notas: e.target.value })}
+            className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+          <button onClick={guardar} disabled={!form.nombre} className="w-full py-2 rounded-lg bg-emerald-600 text-white text-xs font-bold disabled:opacity-40">Guardar</button>
+        </div>
+      )}
+      {periodistas.length === 0 ? (
+        <div className="text-center text-slate-500 py-8">Sin periodistas registrados todavía</div>
+      ) : periodistas.map((p) => (
+        <div key={p.id} className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            {onSeleccionMultiple && (
+              <input type="checkbox" checked={seleccionados?.includes(p.id)} onChange={() => onSeleccionMultiple(p.id)} />
+            )}
+            <div>
+              <div className="text-sm font-bold text-white">{p.nombre}</div>
+              <div className="text-[10px] text-slate-500">{TIPO_MEDIO_LABEL[p.tipo_medio]} {p.medio && `· ${p.medio}`}{p.telefono && ` · ${p.telefono}`}</div>
+            </div>
+          </div>
+          {!onSeleccionMultiple && <button onClick={() => eliminar(p.id)} className="text-red-500 text-xs">🗑️</button>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** 🆕 Boletines de prensa */
+function PanelBoletines() {
+  const [boletines, setBoletines] = useState([]);
+  const [mostrarForm, setMostrarForm] = useState(false);
+  const [form, setForm] = useState({ titulo: '', contenido: '' });
+  const [enviandoId, setEnviandoId] = useState(null);
+  const [seleccionEnvio, setSeleccionEnvio] = useState(null);
+  const [periodistasSeleccionados, setPeriodistasSeleccionados] = useState([]);
+
+  const cargar = () => api.get('/marketing/boletines').then((r) => setBoletines(r.data.data));
+  useEffect(cargar, []);
+
+  const guardar = async () => {
+    await api.post('/marketing/boletines', form);
+    setForm({ titulo: '', contenido: '' });
+    setMostrarForm(false);
+    cargar();
+  };
+  const eliminar = async (id) => { if (confirm('¿Eliminar este boletín?')) { await api.delete(`/marketing/boletines/${id}`); cargar(); } };
+
+  const enviarATodos = async (id) => {
+    if (!confirm('¿Enviar este boletín a TODA tu base de periodistas?')) return;
+    const { data } = await api.post(`/marketing/boletines/${id}/enviar`, {});
+    alert(`✅ Marcado como enviado a ${data.data.total} periodistas`);
+    cargar();
+  };
+
+  const togglePeriodista = (id) => {
+    setPeriodistasSeleccionados((prev) => prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id]);
+  };
+  const enviarASeleccionados = async () => {
+    await api.post(`/marketing/boletines/${seleccionEnvio}/enviar`, { periodista_ids: periodistasSeleccionados });
+    alert(`✅ Marcado como enviado a ${periodistasSeleccionados.length} periodistas`);
+    setSeleccionEnvio(null);
+    setPeriodistasSeleccionados([]);
+    cargar();
+  };
+
+  return (
+    <div className="space-y-3">
+      <button onClick={() => setMostrarForm(!mostrarForm)} className="w-full py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-bold">
+        {mostrarForm ? 'Cancelar' : '+ Nuevo boletín'}
+      </button>
+      {mostrarForm && (
+        <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 space-y-2.5">
+          <input placeholder="Título del boletín" value={form.titulo} onChange={(e) => setForm({ ...form, titulo: e.target.value })}
+            className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+          <textarea placeholder="Contenido completo del boletín" value={form.contenido} onChange={(e) => setForm({ ...form, contenido: e.target.value })}
+            className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm min-h-40" />
+          <button onClick={guardar} disabled={!form.titulo || !form.contenido} className="w-full py-2 rounded-lg bg-emerald-600 text-white text-xs font-bold disabled:opacity-40">Guardar borrador</button>
+        </div>
+      )}
+      {boletines.length === 0 ? (
+        <div className="text-center text-slate-500 py-8">Sin boletines todavía</div>
+      ) : boletines.map((b) => (
+        <div key={b.id} className="bg-slate-900/60 border border-slate-800 rounded-xl p-3">
+          <div className="flex justify-between items-start">
+            <div>
+              <div className="text-sm font-bold text-white">{b.titulo}</div>
+              <div className="text-[10px] text-slate-500">{b.estado === 'enviado' ? `✅ Enviado a ${b.total_enviados} periodistas` : '📝 Borrador'} · {new Date(b.creado_en).toLocaleDateString('es-MX')}</div>
+            </div>
+            <button onClick={() => eliminar(b.id)} className="text-red-500 text-xs">🗑️</button>
+          </div>
+          <p className="text-xs text-slate-400 mt-2 line-clamp-2">{b.contenido}</p>
+          <div className="flex gap-2 mt-2">
+            <button onClick={() => enviarATodos(b.id)} className="flex-1 py-1.5 rounded-lg bg-emerald-700/50 text-emerald-300 text-[10px] font-bold">📤 Enviar a todos</button>
+            <button onClick={() => { setSeleccionEnvio(b.id); setPeriodistasSeleccionados([]); }} className="flex-1 py-1.5 rounded-lg bg-slate-700 text-slate-300 text-[10px] font-bold">✅ Elegir a quién</button>
+          </div>
+        </div>
+      ))}
+
+      {seleccionEnvio && (
+        <div className="fixed inset-0 bg-black/70 flex items-end md:items-center justify-center z-50" onClick={() => setSeleccionEnvio(null)}>
+          <div className="bg-slate-900 border border-slate-700 rounded-t-2xl md:rounded-2xl w-full max-w-md p-5 space-y-3 max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <h2 className="text-lg font-black text-white">Elegir periodistas</h2>
+            <PanelPeriodistas onSeleccionMultiple={togglePeriodista} seleccionados={periodistasSeleccionados} />
+            <button onClick={enviarASeleccionados} disabled={periodistasSeleccionados.length === 0}
+              className="w-full py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-bold disabled:opacity-40">
+              Enviar a {periodistasSeleccionados.length} seleccionados
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** 🆕 Biblioteca de contenido — fotos, videos, textos y documentos reutilizables. */
+function PanelBiblioteca() {
+  const [items, setItems] = useState([]);
+  const [mostrarForm, setMostrarForm] = useState(false);
+  const [form, setForm] = useState({ tipo: 'foto', titulo: '', texto: '', etiquetas: [] });
+  const [archivo, setArchivo] = useState(null);
+  const [etiquetaNueva, setEtiquetaNueva] = useState('');
+  const [subiendo, setSubiendo] = useState(false);
+
+  const cargar = () => api.get('/marketing/biblioteca').then((r) => setItems(r.data.data));
+  useEffect(cargar, []);
+
+  const guardar = async () => {
+    setSubiendo(true);
+    const fd = new FormData();
+    fd.append('tipo', form.tipo);
+    fd.append('titulo', form.titulo);
+    if (form.texto) fd.append('texto', form.texto);
+    fd.append('etiquetas', JSON.stringify(form.etiquetas));
+    if (archivo) fd.append('archivo', archivo);
+    try {
+      await api.post('/marketing/biblioteca', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      setForm({ tipo: 'foto', titulo: '', texto: '', etiquetas: [] });
+      setArchivo(null);
+      setMostrarForm(false);
+      cargar();
+    } catch (e) { alert('No se pudo guardar'); }
+    setSubiendo(false);
+  };
+  const eliminar = async (id) => { if (confirm('¿Eliminar este contenido?')) { await api.delete(`/marketing/biblioteca/${id}`); cargar(); } };
+  const agregarEtiqueta = () => { if (etiquetaNueva.trim()) { setForm({ ...form, etiquetas: [...form.etiquetas, etiquetaNueva.trim()] }); setEtiquetaNueva(''); } };
+
+  const ICONO_TIPO = { foto: '🖼️', video: '🎬', texto: '📝', documento: '📄' };
+
+  return (
+    <div className="space-y-3">
+      <button onClick={() => setMostrarForm(!mostrarForm)} className="w-full py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-bold">
+        {mostrarForm ? 'Cancelar' : '+ Agregar contenido'}
+      </button>
+      {mostrarForm && (
+        <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 space-y-2.5">
+          <select value={form.tipo} onChange={(e) => setForm({ ...form, tipo: e.target.value })}
+            className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
+            {Object.entries(ICONO_TIPO).map(([k, ic]) => <option key={k} value={k}>{ic} {k}</option>)}
+          </select>
+          <input placeholder="Título" value={form.titulo} onChange={(e) => setForm({ ...form, titulo: e.target.value })}
+            className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+          {form.tipo === 'texto' ? (
+            <textarea placeholder="Texto" value={form.texto} onChange={(e) => setForm({ ...form, texto: e.target.value })}
+              className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm min-h-24" />
+          ) : (
+            <input type="file" onChange={(e) => setArchivo(e.target.files[0])}
+              className="w-full text-xs text-slate-400" />
+          )}
+          <div className="flex gap-1.5 flex-wrap">
+            {form.etiquetas.map((et, i) => <span key={i} className="text-[10px] bg-indigo-500/20 text-indigo-300 px-2 py-1 rounded-full">#{et}</span>)}
+          </div>
+          <div className="flex gap-1.5">
+            <input placeholder="Etiqueta" value={etiquetaNueva} onChange={(e) => setEtiquetaNueva(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), agregarEtiqueta())}
+              className="flex-1 px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs" />
+            <button onClick={agregarEtiqueta} className="px-3 py-1.5 rounded-lg bg-slate-700 text-slate-300 text-xs font-bold">+</button>
+          </div>
+          <button onClick={guardar} disabled={!form.titulo || subiendo} className="w-full py-2 rounded-lg bg-emerald-600 text-white text-xs font-bold disabled:opacity-40">
+            {subiendo ? '⏳ Subiendo...' : 'Guardar'}
+          </button>
+        </div>
+      )}
+      {items.length === 0 ? (
+        <div className="text-center text-slate-500 py-8">Sin contenido guardado todavía</div>
+      ) : (
+        <div className="grid grid-cols-2 gap-2">
+          {items.map((c) => (
+            <div key={c.id} className="bg-slate-900/60 border border-slate-800 rounded-xl p-3">
+              {c.url && c.tipo === 'foto' && <img src={c.url} alt={c.titulo} className="w-full h-24 object-cover rounded-lg mb-2" />}
+              <div className="flex justify-between items-start">
+                <span className="text-xs font-bold text-white">{ICONO_TIPO[c.tipo]} {c.titulo}</span>
+                <button onClick={() => eliminar(c.id)} className="text-red-500 text-[10px]">🗑️</button>
+              </div>
+              {c.url && c.tipo !== 'foto' && <a href={c.url} target="_blank" rel="noreferrer" className="text-[10px] text-indigo-400 font-bold">Ver archivo →</a>}
+              {c.texto && <p className="text-[10px] text-slate-400 mt-1 line-clamp-3">{c.texto}</p>}
+              <div className="flex gap-1 flex-wrap mt-1.5">
+                {(c.etiquetas || []).map((et, i) => <span key={i} className="text-[9px] bg-slate-800 text-slate-500 px-1.5 py-0.5 rounded-full">#{et}</span>)}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** 🆕 Generación de discursos/argumentarios/etc. con IA — siempre borrador, siempre a revisar. */
+function PanelGeneracionIA() {
+  const [tipoContenido, setTipoContenido] = useState('discurso');
+  const [tema, setTema] = useState('');
+  const [audiencia, setAudiencia] = useState('');
+  const [tono, setTono] = useState('');
+  const [generando, setGenerando] = useState(false);
+  const [resultado, setResultado] = useState('');
+  const [error, setError] = useState('');
+
+  const generar = async () => {
+    if (!tema.trim()) return;
+    setGenerando(true);
+    setError('');
+    setResultado('');
+    try {
+      const { data } = await api.post('/marketing/generar-contenido-ia', { tipo_contenido: tipoContenido, tema, audiencia: audiencia || undefined, tono: tono || undefined });
+      setResultado(data.data.contenido);
+    } catch (e) { setError(e.response?.data?.error || 'No se pudo generar el contenido'); }
+    setGenerando(false);
+  };
+
+  const copiar = () => { navigator.clipboard.writeText(resultado); alert('Copiado ✅'); };
+  const guardarEnBiblioteca = async () => {
+    const fd = new FormData();
+    fd.append('tipo', 'texto');
+    fd.append('titulo', `${TIPO_CONTENIDO_LABEL[tipoContenido].label} — ${tema.slice(0, 50)}`);
+    fd.append('texto', resultado);
+    fd.append('etiquetas', JSON.stringify(['generado-ia', tipoContenido]));
+    await api.post('/marketing/biblioteca', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+    alert('✅ Guardado en tu Biblioteca de contenido');
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="bg-purple-500/10 border border-purple-500/30 rounded-xl p-3 text-[11px] text-purple-300">
+        🤖 Todo lo que genera la IA aquí es un <strong>borrador</strong> — revísalo y ajústalo antes de usarlo en público. Nunca inventa cifras ni ataca a nadie por nombre.
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+        {Object.entries(TIPO_CONTENIDO_LABEL).map(([k, v]) => (
+          <button key={k} onClick={() => setTipoContenido(k)} className={`py-2.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 ${tipoContenido === k ? 'bg-purple-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
+            {v.ic} {v.label}
+          </button>
+        ))}
+      </div>
+      <textarea placeholder="¿Sobre qué tema? (ej: propuesta de alumbrado público en la colonia Centro)" value={tema} onChange={(e) => setTema(e.target.value)}
+        className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm min-h-16" />
+      <div className="flex gap-2">
+        <input placeholder="Audiencia (opcional, ej: jóvenes, comerciantes)" value={audiencia} onChange={(e) => setAudiencia(e.target.value)}
+          className="flex-1 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+        <input placeholder="Tono (opcional, ej: cercano, formal)" value={tono} onChange={(e) => setTono(e.target.value)}
+          className="flex-1 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+      </div>
+      <button onClick={generar} disabled={!tema.trim() || generando} className="w-full py-3 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 text-white text-sm font-bold disabled:opacity-40">
+        {generando ? '⏳ Generando...' : `✨ Generar ${TIPO_CONTENIDO_LABEL[tipoContenido].label}`}
+      </button>
+      {error && <div className="bg-red-500/10 text-red-400 text-xs rounded-lg px-3 py-2">{error}</div>}
+      {resultado && (
+        <div className="bg-slate-900/60 border border-purple-500/30 rounded-xl p-4 space-y-3">
+          <p className="text-sm text-slate-200 whitespace-pre-wrap">{resultado}</p>
+          <div className="flex gap-2">
+            <button onClick={copiar} className="flex-1 py-2 rounded-lg bg-slate-700 text-slate-300 text-xs font-bold">📋 Copiar</button>
+            <button onClick={guardarEnBiblioteca} className="flex-1 py-2 rounded-lg bg-emerald-600 text-white text-xs font-bold">💾 Guardar en Biblioteca</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Marketing() {
   const [tab, setTab] = useState('nuevo');
   const [envios, setEnvios] = useState([]);
@@ -286,24 +603,40 @@ export default function Marketing() {
   const cargarEnvios = () => api.get('/marketing/envios').then((r) => setEnvios(r.data.data));
   useEffect(cargarEnvios, []);
 
+  const TABS = [
+    { id: 'nuevo', ic: '📤', label: 'Nuevo envío' },
+    { id: 'historial', ic: '📜', label: 'Historial' },
+    { id: 'plantillas', ic: '📝', label: 'Plantillas' },
+    { id: 'numeros', ic: '📱', label: 'Números' },
+    { id: 'ia', ic: '✨', label: 'Discursos con IA' },
+    { id: 'boletines', ic: '📰', label: 'Boletines' },
+    { id: 'periodistas', ic: '🎙️', label: 'Periodistas' },
+    { id: 'biblioteca', ic: '📚', label: 'Biblioteca' },
+  ];
+
   return (
     <div className="min-h-screen bg-slate-950 p-4 md:p-8">
       <div className="max-w-7xl mx-auto space-y-4">
         <div>
-          <h1 className="text-2xl font-black text-white">📢 Marketing</h1>
+          <h1 className="text-2xl font-black text-white">📢 Comunicación y Marketing</h1>
           <Link to="/dashboard" className="text-xs text-indigo-400">← Dashboard</Link>
         </div>
 
         <div className="flex gap-2 flex-wrap">
-          <button onClick={() => setTab('nuevo')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'nuevo' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>+ Nuevo envío</button>
-          <button onClick={() => setTab('historial')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'historial' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📜 Historial</button>
-          <button onClick={() => setTab('plantillas')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'plantillas' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📝 Plantillas</button>
-          <button onClick={() => setTab('numeros')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'numeros' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📱 Números</button>
+          {TABS.map((t) => (
+            <button key={t.id} onClick={() => setTab(t.id)} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === t.id ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
+              {t.ic} {t.label}
+            </button>
+          ))}
         </div>
 
         {tab === 'nuevo' && <PanelNuevoEnvio onEnviado={cargarEnvios} />}
         {tab === 'numeros' && <PanelNumeros />}
         {tab === 'plantillas' && <PanelPlantillas />}
+        {tab === 'ia' && <PanelGeneracionIA />}
+        {tab === 'boletines' && <PanelBoletines />}
+        {tab === 'periodistas' && <PanelPeriodistas />}
+        {tab === 'biblioteca' && <PanelBiblioteca />}
 
         {tab === 'historial' && (
           <div className="space-y-2">
