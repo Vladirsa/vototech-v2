@@ -13,7 +13,7 @@ const MODULOS = [
   { ruta: '/mapa', ic: '🗺️', label: 'Mapa', clave: 'mapa' },
   { ruta: '/promovidos', ic: '🤝', label: 'Promovidos', clave: 'promovidos' },
   { ruta: '/reportes', ic: '📊', label: 'Reportes', clave: 'reportes' },
-  { ruta: '/marketing', ic: '📢', label: 'Marketing', clave: 'marketing' },
+  { ruta: '/marketing', ic: '📢', label: 'Comunicación y Marketing', clave: 'marketing' },
   { ruta: '/juridico', ic: '⚖️', label: 'Jurídico', clave: 'juridico' },
   { ruta: '/priorizacion', ic: '🎯', label: 'Priorización', clave: 'priorizacion' },
   { ruta: '/estructura', ic: '🗂️', label: 'Estructura', clave: 'estructura' },
