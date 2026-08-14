@@ -18,9 +18,6 @@ router.get('/', async (req, res) => {
     WHERE i.campana_id = $1`;
   const params = [req.usuario.campana_id];
 
-  // Coordinador seccional y promotor pueden REPORTAR incidencias,
-  // pero solo ven las que ellos mismos generaron — no todas las de
-  // la campaña, eso es información de mando.
   if (['coord_seccional', 'promotor'].includes(req.usuario.rol)) {
     params.push(req.usuario.sub);
     sql += ` AND i.reportado_por = $${params.length}`;
@@ -35,8 +32,12 @@ router.get('/', async (req, res) => {
   res.json({ ok: true, data: resultado.rows });
 });
 
+// 🆕 Se agrega 'crisis_mediatica' — para reportar y darle seguimiento
+// a una crisis de comunicación/reputación (una nota negativa, un
+// video viral, un ataque de un adversario) con el mismo mecanismo de
+// urgencia y notificación en vivo que ya existe para incidencias de campo.
 const esquemaIncidencia = z.object({
-  tipo: z.enum(['compra_votos', 'violencia', 'irregularidad', 'logistica', 'representante', 'propaganda', 'otro']),
+  tipo: z.enum(['compra_votos', 'violencia', 'irregularidad', 'logistica', 'representante', 'propaganda', 'crisis_mediatica', 'otro']),
   urgencia: z.enum(['urgente', 'alta', 'media', 'baja']).default('media'),
   descripcion: z.string().min(5).max(1000),
   seccion_numero: z.number().int().optional(),
@@ -68,19 +69,15 @@ router.post('/', async (req, res) => {
      d.lat || null, d.lng || null, d.foto_url || null, d.testigos || null, d.notificado_ople || false, req.usuario.sub]
   );
 
-  // Las incidencias URGENTES se transmiten en vivo — el Jefe de Campaña
-  // debe enterarse al instante, no cuando alguien recargue la pantalla.
   if (d.urgencia === 'urgente') {
     getIo().to(`campana:${req.usuario.campana_id}`).emit('incidencia_urgente', resultado.rows[0]);
 
-    // Push real a los altos mandos — esto SÍ debe llegar aunque tengan
-    // el celular bloqueado, es justo el tipo de aviso que no puede esperar.
     const altosMando = await query(
       `SELECT id FROM usuarios WHERE campana_id=$1 AND rol IN ('candidato','jefe_campana','coord_general')`,
       [req.usuario.campana_id]
     );
     enviarPushMasivo(altosMando.rows.map((u) => u.id), {
-      titulo: '🚨 Incidencia urgente',
+      titulo: d.tipo === 'crisis_mediatica' ? '🚨 Crisis mediática' : '🚨 Incidencia urgente',
       cuerpo: d.descripcion.slice(0, 100),
       url: '/incidencias',
     }).catch(() => {});
@@ -90,7 +87,7 @@ router.post('/', async (req, res) => {
 });
 
 const esquemaEditar = z.object({
-  tipo: z.enum(['compra_votos', 'violencia', 'irregularidad', 'logistica', 'representante', 'propaganda', 'otro']).optional(),
+  tipo: z.enum(['compra_votos', 'violencia', 'irregularidad', 'logistica', 'representante', 'propaganda', 'crisis_mediatica', 'otro']).optional(),
   urgencia: z.enum(['urgente', 'alta', 'media', 'baja']).optional(),
   descripcion: z.string().min(5).max(1000).optional(),
   casilla: z.string().optional(),
@@ -98,11 +95,6 @@ const esquemaEditar = z.object({
   notificado_ople: z.boolean().optional(),
 });
 
-/**
- * PATCH /api/incidencias/:id
- * Corregir el reporte — el tipo de urgencia, agregar testigos que
- * no se anotaron al momento, etc.
- */
 router.patch('/:id', async (req, res) => {
   const parseado = esquemaEditar.safeParse(req.body);
   if (!parseado.success) return res.status(400).json({ ok: false, error: parseado.error.errors[0].message });
