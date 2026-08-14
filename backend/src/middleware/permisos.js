@@ -19,7 +19,7 @@
  * pestaña en silencio (la página carga, pero esa pestaña da 403).
  */
 const TODOS_LOS_MODULOS = [
-  'promovidos', 'priorizacion', 'estructura', 'reportes', 'agenda',
+  'promovidos', 'priorizacion', 'estructura', 'reportes', 'agenda', 'logistica',
   'dia-eleccion', 'incidencias', 'finanzas', 'activos', 'marketing', 'juridico',
 ];
 
@@ -29,7 +29,7 @@ const MODULOS_POR_ROL = {
   coord_general: TODOS_LOS_MODULOS,
   coord_distrital: TODOS_LOS_MODULOS.filter((m) => !['finanzas', 'activos', 'juridico'].includes(m)),
   coord_municipal: TODOS_LOS_MODULOS.filter((m) => !['finanzas', 'activos', 'juridico'].includes(m)),
-  coord_seccional: ['promovidos', 'estructura', 'dia-eleccion', 'incidencias'],
+  coord_seccional: ['promovidos', 'estructura', 'dia-eleccion', 'incidencias', 'logistica'],
   promotor: ['promovidos', 'dia-eleccion', 'incidencias'],
   encargado_juridico: ['juridico', 'finanzas', 'activos', 'incidencias', 'promovidos'],
   encargado_finanzas: ['finanzas', 'activos', 'promovidos', 'incidencias'],
@@ -63,8 +63,8 @@ function modulosDeVoluntario(puesto) {
  */
 const MODULOS_POR_PUESTO_COORD_GENERAL = [
   { patron: /secretari[oa] particular/i, modulos: ['agenda'] },
-  { patron: /log[íi]stica|avanzada|seguridad/i, modulos: ['agenda', 'finanzas', 'activos'] },
-  { patron: /movilizaci[oó]n/i, modulos: ['dia-eleccion', 'promovidos'] },
+  { patron: /log[íi]stica|avanzada|seguridad/i, modulos: ['agenda', 'logistica', 'finanzas', 'activos'] },
+  { patron: /movilizaci[oó]n/i, modulos: ['dia-eleccion', 'promovidos', 'logistica'] },
   { patron: /comunicaci[oó]n|prensa/i, modulos: ['marketing', 'juridico'] },
   { patron: /digital|redes sociales/i, modulos: ['marketing', 'reportes'] },
   { patron: /contenido|discurso/i, modulos: ['marketing'] },
