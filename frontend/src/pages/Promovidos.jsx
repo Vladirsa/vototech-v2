@@ -121,6 +121,12 @@ export function ModalAgregar({ onCerrar, onGuardado, seccionInicial }) {
       await api.post('/promovidos', {
         ...form,
         seccion_numero: form.seccion_numero ? parseInt(form.seccion_numero) : undefined,
+        // 🆕 lat/lng arrancan en null cuando no se ha elegido una
+        // dirección real todavía — el backend espera un número o que
+        // el campo ni siquiera venga, nunca "null" explícito (por
+        // eso salía "Expected number, received null").
+        lat: form.lat ?? undefined,
+        lng: form.lng ?? undefined,
         encuesta: form.necesidad_principal ? { necesidad_principal: form.necesidad_principal } : undefined,
       });
       onGuardado();
