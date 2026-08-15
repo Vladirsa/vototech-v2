@@ -87,11 +87,16 @@ export function ModalAgregar({ onCerrar, onGuardado, seccionInicial }) {
       const { data } = await api.post('/ia/leer-credencial', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
       // SOLO se sugiere — el promotor revisa y corrige antes de guardar,
       // exactamente igual que si lo hubiera tecleado él mismo.
+      // 🆕 Se arma el domicilio completo uniendo calle+número y colonia
+      // por separado (la credencial los imprime en líneas distintas,
+      // y antes se perdía la colonia al pedirlo todo junto).
+      const domicilioCompleto = [data.data.calle_numero, data.data.colonia ? `Col. ${data.data.colonia}` : null]
+        .filter(Boolean).join(', ');
       setForm((f) => ({
         ...f,
         nombre: data.data.nombre_completo || f.nombre,
         seccion_numero: data.data.seccion || f.seccion_numero,
-        calle: data.data.domicilio || f.calle,
+        calle: domicilioCompleto || f.calle,
       }));
       setAvisoCredencial({
         confianza: data.data.confianza,
@@ -99,6 +104,8 @@ export function ModalAgregar({ onCerrar, onGuardado, seccionInicial }) {
         distrito_federal: data.data.distrito_federal,
         distrito_local: data.data.distrito_local,
         municipio: data.data.municipio,
+        colonia: data.data.colonia,
+        codigo_postal: data.data.codigo_postal,
       });
     } catch (e) {
       setAvisoCredencial({ confianza: 'baja', advertencia: e.response?.data?.error || 'No se pudo leer la credencial, captúralo a mano.' });
@@ -142,8 +149,9 @@ export function ModalAgregar({ onCerrar, onGuardado, seccionInicial }) {
           {avisoCredencial && (
             <div className={`mt-2 text-[10px] rounded-lg px-2 py-1.5 ${avisoCredencial.confianza === 'alta' ? 'bg-emerald-500/10 text-emerald-300' : avisoCredencial.confianza === 'media' ? 'bg-amber-500/10 text-amber-300' : 'bg-red-500/10 text-red-300'}`}>
               {avisoCredencial.confianza === 'alta' ? '✅ Leída con buena claridad' : avisoCredencial.confianza === 'media' ? '⚠️ Revisa los datos, algo pudo no leerse bien' : `⚠️ ${avisoCredencial.advertencia || 'No se leyó bien, revisa o captura a mano'}`}
-              {(avisoCredencial.distrito_federal || avisoCredencial.distrito_local || avisoCredencial.municipio) && (
+              {(avisoCredencial.distrito_federal || avisoCredencial.distrito_local || avisoCredencial.municipio || avisoCredencial.colonia) && (
                 <div className="mt-1 text-slate-400">
+                  {avisoCredencial.colonia && `Colonia: ${avisoCredencial.colonia} · `}
                   {avisoCredencial.municipio && `Municipio: ${avisoCredencial.municipio} · `}
                   {avisoCredencial.distrito_local && `Dist. Local ${avisoCredencial.distrito_local} · `}
                   {avisoCredencial.distrito_federal && `Dist. Federal ${avisoCredencial.distrito_federal}`}
