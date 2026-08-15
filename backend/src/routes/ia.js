@@ -91,10 +91,7 @@ router.post('/leer-credencial', upload.single('foto'), async (req, res) => {
     mediaType = resultado.mediaType;
   } catch (e) {
     console.error('Error comprimiendo la imagen de credencial:', e);
-    return res.status(500).json({
-      ok: false,
-      error: `DIAGNÓSTICO — falló al comprimir la imagen: ${e.message}`,
-    });
+    return res.status(500).json({ ok: false, error: 'No se pudo procesar la imagen. Intenta con otra foto.' });
   }
 
   try {
@@ -112,11 +109,13 @@ router.post('/leer-credencial', upload.single('foto'), async (req, res) => {
             text: `Esta es una foto de una credencial para votar del INE (México). Extrae ÚNICAMENTE estos datos, tal como aparecen impresos:
 
 Responde SOLO con un objeto JSON (nada de texto antes o después, sin bloques de código) con esta forma exacta:
-{"nombre_completo": "texto o null", "seccion": "número o null", "distrito_federal": "número o null", "distrito_local": "número o null", "municipio": "texto o null", "domicilio": "calle, número y colonia, texto o null", "confianza": "alta|media|baja", "advertencia": "texto si algo no se pudo leer bien, o null"}
+{"nombre_completo": "texto o null", "seccion": "número o null", "distrito_federal": "número o null", "distrito_local": "número o null", "municipio": "texto o null", "calle_numero": "solo calle y número, texto o null", "colonia": "SOLO el nombre de la colonia/fraccionamiento/barrio, texto o null", "codigo_postal": "5 dígitos o null", "confianza": "alta|media|baja", "advertencia": "texto si algo no se pudo leer bien, o null"}
 
 Reglas:
+- La credencial del INE imprime el domicilio en varias líneas (calle y número, luego colonia, luego a veces C.P. y localidad) — sepáralos en sus propios campos, no los mezcles todos en uno solo.
+- "colonia" es SOLO el nombre del barrio/fraccionamiento/colonia — no repitas ahí la calle ni el municipio.
 - NUNCA inventes un dato que no puedas leer con razonable certeza — es preferible null con advertencia que un dato incorrecto.
-- No incluyas la CURP, clave de elector, ni ningún otro dato distinto a los 6 campos de arriba.
+- No incluyas la CURP, clave de elector, ni ningún otro dato distinto a los de arriba.
 - Si la imagen no es una credencial de elector legible, o está muy borrosa, pon "confianza":"baja" y explica en "advertencia".`,
           },
         ],
@@ -130,19 +129,13 @@ Reglas:
       datosExtraidos = JSON.parse(jsonLimpio);
     } catch (e) {
       console.error('Respuesta de Claude no era JSON válido:', textoRespuesta.slice(0, 300));
-      return res.status(500).json({
-        ok: false,
-        error: `DIAGNÓSTICO — Claude respondió pero no en el formato esperado. Respuesta cruda: ${textoRespuesta.slice(0, 200)}`,
-      });
+      return res.status(500).json({ ok: false, error: 'La IA no pudo leer la credencial con suficiente claridad. Captúralo a mano.' });
     }
 
     res.json({ ok: true, data: datosExtraidos });
   } catch (e) {
     console.error('Error leyendo credencial (llamada a Claude):', e);
-    res.status(500).json({
-      ok: false,
-      error: `DIAGNÓSTICO — falló la llamada a Claude: ${e.message}`,
-    });
+    res.status(500).json({ ok: false, error: 'No se pudo leer la credencial. Captúralo a mano.' });
   }
 });
 
