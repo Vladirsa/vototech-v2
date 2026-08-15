@@ -30,7 +30,15 @@ export default function BuscadorCalle({ valor, onSeleccion }) {
   const buscarDirecciones = async (q) => {
     setBuscando(true);
     try {
-      const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q + ', Tlaxcala, México')}&limit=6&countrycodes=mx`;
+      // 🆕 LA CORRECCIÓN REAL — antes solo se agregaba "Tlaxcala,
+      // México" como texto de ayuda, que Nominatim puede ignorar si
+      // encuentra una coincidencia que le parece "mejor" en otro
+      // estado (por eso salía "Francisco I. Madero" de otro lugar).
+      // Con "viewbox" + "bounded=1" se le pone un límite geográfico
+      // REAL — nunca regresa nada fuera de esa caja, sin importar
+      // qué tan bien coincida el texto en otro lado.
+      const cajaTlaxcala = '-98.75,19.65,-97.85,19.00'; // izquierda,arriba,derecha,abajo
+      const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=6&countrycodes=mx&viewbox=${cajaTlaxcala}&bounded=1`;
       const resp = await fetch(url, { headers: { 'Accept-Language': 'es' } });
       const data = await resp.json();
       setSugerencias(data);
