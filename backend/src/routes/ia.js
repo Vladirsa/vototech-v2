@@ -13,34 +13,19 @@ const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
 
 /**
- * 🆕 LA CORRECCIÓN REAL DEL "NO SE PUDO LEER" — las fotos que toma un
- * celular moderno pesan 8-15MB, y la API de Claude tiene un límite de
- * tamaño por imagen bastante más chico que eso; mandarla tal cual
- * hacía que la petición fallara con una excepción real (no un
- * problema de que la IA "no entendiera" la foto).
- *
- * Esto redimensiona la imagen a 1568px en su lado más largo (el
- * tamaño óptimo que la propia documentación de Claude recomienda
- * para visión — mandar algo más grande no mejora la lectura, Claude
- * la reduce internamente de todos modos) y la comprime a JPEG
- * calidad 85 — el resultado pesa unos cuantos cientos de KB en vez
- * de varios MB. Todo pasa en memoria, nunca se guarda en disco.
+ * Redimensiona a 1568px en su lado más largo (tamaño óptimo para
+ * Claude Vision) y comprime a JPEG calidad 85 — todo en memoria,
+ * nunca se guarda en disco.
  */
 async function comprimirParaClaude(bufferOriginal) {
   const bufferComprimido = await sharp(bufferOriginal)
-    .rotate() // respeta la orientación EXIF (fotos de celular vienen "acostadas" en los metadatos)
+    .rotate()
     .resize(1568, 1568, { fit: 'inside', withoutEnlargement: true })
     .jpeg({ quality: 85 })
     .toBuffer();
   return { buffer: bufferComprimido, mediaType: 'image/jpeg' };
 }
 
-/**
- * POST /api/ia/leer-acta
- * Lee la foto de un acta de escrutinio y extrae los votos por
- * partido — pero SOLO como sugerencia para que el representante
- * confirme o corrija, nunca se guarda automático.
- */
 router.post('/leer-acta', upload.single('foto'), async (req, res) => {
   if (!req.file) return res.status(400).json({ ok: false, error: 'No se recibió ninguna foto' });
 
@@ -89,20 +74,30 @@ Reglas:
 
 /**
  * POST /api/ia/leer-credencial
- * Lee una credencial de elector (INE) y extrae SOLO los datos que ya
- * se capturan a mano en el formulario de Promovidos: nombre, sección,
- * distritos, y domicilio.
  *
- * 🔒 LA FOTO NUNCA SE GUARDA — llega en memoria, se comprime y se
- * manda una sola vez a Claude para leerla, y se descarta al terminar
- * la petición. No se sube a ningún bucket, no se guarda ninguna
- * referencia a la imagen en la base de datos.
+ * 🆕 ESTA VEZ SÍ TIENE EL DIAGNÓSTICO DETALLADO — separa el error en
+ * 2 posibles causas (falla al comprimir la imagen vs. falla al
+ * llamar a Claude) y te dice cuál fue exactamente, en vez del mensaje
+ * genérico de siempre. Es temporal, para encontrar la causa real —
+ * en cuanto la encontremos, se vuelve a poner un mensaje bonito.
  */
 router.post('/leer-credencial', upload.single('foto'), async (req, res) => {
   if (!req.file) return res.status(400).json({ ok: false, error: 'No se recibió ninguna foto' });
 
+  let buffer, mediaType;
   try {
-    const { buffer, mediaType } = await comprimirParaClaude(req.file.buffer);
+    const resultado = await comprimirParaClaude(req.file.buffer);
+    buffer = resultado.buffer;
+    mediaType = resultado.mediaType;
+  } catch (e) {
+    console.error('Error comprimiendo la imagen de credencial:', e);
+    return res.status(500).json({
+      ok: false,
+      error: `DIAGNÓSTICO — falló al comprimir la imagen: ${e.message}`,
+    });
+  }
+
+  try {
     const base64 = buffer.toString('base64');
 
     const respuesta = await anthropic.messages.create({
@@ -134,19 +129,23 @@ Reglas:
     try {
       datosExtraidos = JSON.parse(jsonLimpio);
     } catch (e) {
-      return res.status(500).json({ ok: false, error: 'La IA no pudo leer la credencial con suficiente claridad. Captúralo a mano.' });
+      console.error('Respuesta de Claude no era JSON válido:', textoRespuesta.slice(0, 300));
+      return res.status(500).json({
+        ok: false,
+        error: `DIAGNÓSTICO — Claude respondió pero no en el formato esperado. Respuesta cruda: ${textoRespuesta.slice(0, 200)}`,
+      });
     }
 
     res.json({ ok: true, data: datosExtraidos });
   } catch (e) {
-    console.error('Error leyendo credencial:', e);
-    res.status(500).json({ ok: false, error: 'No se pudo leer la credencial. Captúralo a mano.' });
+    console.error('Error leyendo credencial (llamada a Claude):', e);
+    res.status(500).json({
+      ok: false,
+      error: `DIAGNÓSTICO — falló la llamada a Claude: ${e.message}`,
+    });
   }
 });
 
-/**
- * GET /api/ia/estado
- */
 router.get('/estado', async (req, res) => {
   if (!process.env.ANTHROPIC_API_KEY) {
     return res.json({
