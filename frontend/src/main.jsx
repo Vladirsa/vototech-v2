@@ -1,7 +1,49 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
+import { registerSW } from 'virtual:pwa-register'
 import './index.css'
 import App from './App.jsx'
+
+/**
+ * 🆕 LA CORRECCIÓN REAL DEL "SIGO VIENDO LA VERSIÓN VIEJA" — antes no
+ * había NINGÚN registro personalizado del Service Worker; sin esto,
+ * el navegador solo revisa si hay una versión nueva cuando le da la
+ * gana (básicamente nunca, en una PWA instalada que la gente no
+ * cierra por completo). Con esto:
+ *
+ * 1. Se revisa una versión nueva cada 60 segundos mientras la app
+ *    está abierta, Y cada vez que vuelves a ella desde segundo plano
+ *    (que es exactamente cuándo la gente reabre el ícono instalado).
+ * 2. En cuanto se detecta una versión nueva, se activa sola
+ *    (skipWaiting + clients.claim ya viven en sw.js) y se recarga la
+ *    página automáticamente — ya no hace falta borrar caché a mano.
+ */
+const actualizarSW = registerSW({
+  immediate: true,
+  onRegisteredSW(swUrl, registration) {
+    if (!registration) return;
+
+    // Revisión activa cada 60 segundos
+    setInterval(() => {
+      registration.update().catch(() => {});
+    }, 60 * 1000);
+
+    // Y también justo al volver a la app (celular bloqueado → desbloqueado,
+    // o cambiar de app y regresar) — el momento más común en que la
+    // gente "reabre" el ícono sin que eso cuente como recarga completa.
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        registration.update().catch(() => {});
+      }
+    });
+  },
+  onNeedRefresh() {
+    // Ya hay una versión nueva lista — se recarga sola, sin pedirle
+    // nada a la persona (evita que alguien se quede atorado sin saber
+    // que existe un botón de actualizar).
+    actualizarSW(true);
+  },
+});
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
