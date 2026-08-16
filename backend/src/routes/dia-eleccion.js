@@ -29,6 +29,112 @@ async function capturaBloqueadaPara(campanaId, rol) {
 router.use(requiereAuth);
 
 /**
+ * 🆕 GET /api/dia-eleccion/casillas-sugeridas
+ * Cuántas casillas le tocan REALMENTE a cada sección de tu
+ * territorio, según la regla oficial del INE: una casilla por cada
+ * 750 electores o fracción (Art. 253, 258 y 284 de la LGIPE) — así
+ * puedes ir asignando representantes ANTES de que el INE publique
+ * su propio listado oficial, en vez de esperar hasta el final.
+ *
+ * Compara contra las casillas que YA registraste en el sistema, para
+ * que se vea claro cuántas faltan por dar de alta en cada sección.
+ */
+router.get('/casillas-sugeridas', async (req, res) => {
+  const campanaId = req.usuario.campana_id;
+
+  const campanaRes = await query('SELECT territorio_tipo, territorio_id FROM campanas WHERE id=$1', [campanaId]);
+  const campana = campanaRes.rows[0];
+
+  let filtroTerritorio = '';
+  const params = [req.usuario.estado_id];
+  if (campana?.territorio_tipo === 'municipio' && campana.territorio_id) {
+    filtroTerritorio = 'AND s.municipio_id = (SELECT id FROM municipios WHERE estado_id=$1 AND clave_ine=$2)';
+    params.push(campana.territorio_id);
+  } else if (campana?.territorio_tipo === 'distrito_local' && campana.territorio_id) {
+    filtroTerritorio = 'AND s.distrito_local = $2';
+    params.push(campana.territorio_id);
+  } else if (campana?.territorio_tipo === 'distrito_federal' && campana.territorio_id) {
+    filtroTerritorio = 'AND s.distrito_federal = $2';
+    params.push(campana.territorio_id);
+  } else if (campana?.territorio_tipo === 'seccion' && campana.territorio_id) {
+    filtroTerritorio = 'AND s.numero = $2';
+    params.push(campana.territorio_id);
+  }
+  // 'estatal' (gobernador/senador) no agrega filtro — todo el estado
+
+  const secciones = await query(
+    `SELECT s.id, s.numero, m.nombre as municipio, s.lista_nominal,
+       CEIL(GREATEST(1, COALESCE(s.lista_nominal, 0))::numeric / 750) as casillas_sugeridas
+     FROM secciones s
+     JOIN municipios m ON m.id = s.municipio_id
+     WHERE s.estado_id=$1 ${filtroTerritorio} AND s.lista_nominal > 0
+     ORDER BY s.numero`,
+    params
+  );
+
+  const yaRegistradas = await query(
+    `SELECT s.numero, COUNT(*) as total FROM casillas c
+     JOIN secciones s ON s.id = c.seccion_id
+     WHERE c.campana_id=$1 GROUP BY s.numero`,
+    [campanaId]
+  );
+  const registradasPorSeccion = {};
+  yaRegistradas.rows.forEach((r) => { registradasPorSeccion[r.numero] = parseInt(r.total); });
+
+  const data = secciones.rows.map((s) => {
+    const sugeridas = parseInt(s.casillas_sugeridas);
+    const registradas = registradasPorSeccion[s.numero] || 0;
+    return {
+      seccion: s.numero, municipio: s.municipio, lista_nominal: s.lista_nominal,
+      casillas_sugeridas: sugeridas, casillas_registradas: registradas,
+      faltantes: Math.max(0, sugeridas - registradas),
+    };
+  });
+
+  res.json({
+    ok: true, data,
+    resumen: {
+      total_secciones: data.length,
+      total_casillas_sugeridas: data.reduce((s, d) => s + d.casillas_sugeridas, 0),
+      total_casillas_registradas: data.reduce((s, d) => s + d.casillas_registradas, 0),
+      total_faltantes: data.reduce((s, d) => s + d.faltantes, 0),
+    },
+  });
+});
+
+/**
+ * 🆕 POST /api/dia-eleccion/casillas-sugeridas/:seccion_numero/generar
+ * Da de alta de un jalón las casillas que le faltan a una sección
+ * (B, C1, C2...) según el cálculo de 750 electores por casilla —
+ * ya quedan listas para asignarles representante una por una.
+ */
+router.post('/casillas-sugeridas/:seccion_numero/generar', async (req, res) => {
+  const campanaId = req.usuario.campana_id;
+  const numeroSeccion = parseInt(req.params.seccion_numero);
+
+  const seccionRes = await query('SELECT id, lista_nominal FROM secciones WHERE estado_id=$2 AND numero=$1', [numeroSeccion, req.usuario.estado_id]);
+  if (!seccionRes.rows[0]) return res.status(404).json({ ok: false, error: 'Sección no encontrada' });
+  const seccionId = seccionRes.rows[0].id;
+  const sugeridas = Math.ceil(Math.max(1, seccionRes.rows[0].lista_nominal || 0) / 750);
+
+  const existentesRes = await query('SELECT numero FROM casillas WHERE campana_id=$1 AND seccion_id=$2', [campanaId, seccionId]);
+  const existentes = new Set(existentesRes.rows.map((r) => r.numero));
+
+  const creadas = [];
+  // La primera siempre es "B" (Básica); de ahí en adelante C1, C2... (Contiguas)
+  const nombresCasilla = ['B', ...Array.from({ length: Math.max(0, sugeridas - 1) }, (_, i) => `C${i + 1}`)];
+  for (const nombre of nombresCasilla) {
+    if (existentes.has(nombre)) continue;
+    const r = await query(
+      `INSERT INTO casillas (campana_id, seccion_id, numero) VALUES ($1,$2,$3) RETURNING *`,
+      [campanaId, seccionId, nombre]
+    );
+    creadas.push(r.rows[0]);
+  }
+  res.status(201).json({ ok: true, data: creadas, mensaje: `${creadas.length} casilla(s) nueva(s) creada(s), listas para asignar representante.` });
+});
+
+/**
  * GET /api/dia-eleccion/prep
  * El checklist de preparación — todo lo que hay que cerrar ANTES del
  * día D: cobertura de casillas, representantes confirmados, y qué
