@@ -681,6 +681,14 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
   };
   const refEstiloSeccion = useRef(estiloSeccion);
   refEstiloSeccion.current = estiloSeccion;
+  // 🆕 LA CORRECCIÓN REAL — el manejador de clic de cada sección se
+  // "graba" UNA sola vez cuando el mapa carga (Leaflet no lo vuelve a
+  // ejecutar después). Sin esta referencia, el clic siempre recordaba
+  // el valor de dibujandoCaminata de ESE momento (false) — por eso mi
+  // corrección anterior no funcionaba en la práctica, aunque estaba
+  // bien escrita. Con la referencia, siempre lee el valor actual.
+  const refDibujandoCaminata = useRef(dibujandoCaminata);
+  refDibujandoCaminata.current = dibujandoCaminata;
   const alPasarMouse = (feature, capa) => {
     capa.on({
       mouseover: (e) => {
@@ -702,7 +710,7 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
         // debajo también abría su propia ficha técnica al mismo
         // tiempo, y esa interrupción hacía que pareciera que la ruta
         // "se perdía" a medio trazo.
-        if (dibujandoCaminata) return;
+        if (refDibujandoCaminata.current) return;
         if (modoCapa === 'secciones') { alClickSeccion(feature.properties.seccion); return; }
         if (modoCapa === 'senaduria') { setTerritorioActivo({ tipo: 'senaduria', numero: null }); return; }
         const numero = feature.properties[modoCapa];
