@@ -1,11 +1,32 @@
 import { Router } from 'express';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { z } from 'zod';
 import { query } from '../db/pool.js';
 import { requiereAuth } from '../middleware/auth.js';
 import { getIo } from '../io.js';
 import { registrarAuditoria } from '../lib/auditoria.js';
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const router = Router();
+
+// 🆕 Mismo cache en memoria que ya usa geo.js — para calcular el
+// centro aproximado de cada sección y poder posicionar sus casillas
+// en el mapa automáticamente, sin que nadie tenga que colocarlas a mano.
+let cacheGeoSecciones = null;
+function centroDeSeccion(numeroSeccion) {
+  if (!cacheGeoSecciones) {
+    const rutaArchivo = path.join(__dirname, '../db/secciones_tlaxcala.geojson');
+    cacheGeoSecciones = JSON.parse(fs.readFileSync(rutaArchivo, 'utf-8'));
+  }
+  const feature = cacheGeoSecciones.features.find((f) => f.properties.seccion === numeroSeccion);
+  if (!feature) return null;
+  const anillo = feature.geometry.coordinates[0];
+  let sumaLat = 0, sumaLng = 0;
+  anillo.forEach(([lng, lat]) => { sumaLat += lat; sumaLng += lng; });
+  return { lat: sumaLat / anillo.length, lng: sumaLng / anillo.length };
+}
 
 // ── Roles que SIEMPRE pueden seguir capturando, incluso tras el cierre ──
 const ROLES_ALTOS_MANDO = ['candidato', 'jefe_campana', 'coord_general'];
@@ -105,8 +126,10 @@ router.get('/casillas-sugeridas', async (req, res) => {
 /**
  * 🆕 POST /api/dia-eleccion/casillas-sugeridas/:seccion_numero/generar
  * Da de alta de un jalón las casillas que le faltan a una sección
- * (B, C1, C2...) según el cálculo de 750 electores por casilla —
- * ya quedan listas para asignarles representante una por una.
+ * (B, C1, C2...) según el cálculo de 750 electores por casilla — y
+ * las posiciona automáticamente cerca del centro de la sección (con
+ * un pequeño desfase para que no queden todas exactamente encimadas),
+ * listas para arrastrarse a su ubicación real en cuanto se sepa.
  */
 router.post('/casillas-sugeridas/:seccion_numero/generar', async (req, res) => {
   const campanaId = req.usuario.campana_id;
@@ -119,19 +142,26 @@ router.post('/casillas-sugeridas/:seccion_numero/generar', async (req, res) => {
 
   const existentesRes = await query('SELECT numero FROM casillas WHERE campana_id=$1 AND seccion_id=$2', [campanaId, seccionId]);
   const existentes = new Set(existentesRes.rows.map((r) => r.numero));
+  const centro = centroDeSeccion(numeroSeccion);
 
   const creadas = [];
-  // La primera siempre es "B" (Básica); de ahí en adelante C1, C2... (Contiguas)
   const nombresCasilla = ['B', ...Array.from({ length: Math.max(0, sugeridas - 1) }, (_, i) => `C${i + 1}`)];
-  for (const nombre of nombresCasilla) {
+  for (let i = 0; i < nombresCasilla.length; i++) {
+    const nombre = nombresCasilla[i];
     if (existentes.has(nombre)) continue;
+    // Pequeño desfase en espiral para que las casillas de una misma
+    // sección no queden todas apiladas exactamente en el mismo punto.
+    const angulo = i * 2.4;
+    const radio = 0.0006 * (1 + Math.floor(i / 6));
+    const lat = centro ? centro.lat + Math.cos(angulo) * radio : null;
+    const lng = centro ? centro.lng + Math.sin(angulo) * radio : null;
     const r = await query(
-      `INSERT INTO casillas (campana_id, seccion_id, numero) VALUES ($1,$2,$3) RETURNING *`,
-      [campanaId, seccionId, nombre]
+      `INSERT INTO casillas (campana_id, seccion_id, numero, lat, lng) VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+      [campanaId, seccionId, nombre, lat, lng]
     );
     creadas.push(r.rows[0]);
   }
-  res.status(201).json({ ok: true, data: creadas, mensaje: `${creadas.length} casilla(s) nueva(s) creada(s), listas para asignar representante.` });
+  res.status(201).json({ ok: true, data: creadas, mensaje: `${creadas.length} casilla(s) nueva(s) creada(s) y posicionada(s) en el mapa — arrástralas a su ubicación real en cuanto la sepas.` });
 });
 
 /**
@@ -173,19 +203,70 @@ router.get('/prep', async (req, res) => {
   });
 });
 
+/**
+ * 🆕 GET /api/dia-eleccion/casillas-estadisticas
+ * Para el panel del candidato — cobertura general y alertas claras
+ * de qué falta cerrar antes del día D.
+ */
+router.get('/casillas-estadisticas', async (req, res) => {
+  const campanaId = req.usuario.campana_id;
+  const casillas = await query(
+    `SELECT c.*, s.numero as seccion_numero, u.nombre as representante_nombre, u2.nombre as suplente_nombre
+     FROM casillas c JOIN secciones s ON s.id=c.seccion_id
+     LEFT JOIN usuarios u ON u.id = c.representante_id
+     LEFT JOIN usuarios u2 ON u2.id = c.suplente_id
+     WHERE c.campana_id=$1 ORDER BY s.numero, c.numero`,
+    [campanaId]
+  );
+  const total = casillas.rows.length;
+  const conRepresentante = casillas.rows.filter((c) => c.representante_id).length;
+  const conSuplente = casillas.rows.filter((c) => c.suplente_id).length;
+  const confirmadas = casillas.rows.filter((c) => c.confirmado_asistencia).length;
+  const conUbicacion = casillas.rows.filter((c) => c.lat && c.lng).length;
+
+  const alertas = [];
+  const sinRepresentante = casillas.rows.filter((c) => !c.representante_id);
+  if (sinRepresentante.length > 0) {
+    alertas.push({ nivel: 'alta', texto: `${sinRepresentante.length} casilla(s) sin representante asignado`, secciones: [...new Set(sinRepresentante.map((c) => c.seccion_numero))] });
+  }
+  const sinSuplente = casillas.rows.filter((c) => c.representante_id && !c.suplente_id);
+  if (sinSuplente.length > 0) {
+    alertas.push({ nivel: 'media', texto: `${sinSuplente.length} casilla(s) con representante pero sin suplente`, secciones: [...new Set(sinSuplente.map((c) => c.seccion_numero))] });
+  }
+  const sinConfirmar = casillas.rows.filter((c) => c.representante_id && !c.confirmado_asistencia);
+  if (sinConfirmar.length > 0) {
+    alertas.push({ nivel: 'media', texto: `${sinConfirmar.length} representante(s) sin confirmar asistencia todavía`, secciones: [...new Set(sinConfirmar.map((c) => c.seccion_numero))] });
+  }
+
+  res.json({
+    ok: true,
+    data: {
+      total_casillas: total,
+      con_representante: conRepresentante,
+      con_suplente: conSuplente,
+      confirmadas_asistencia: confirmadas,
+      con_ubicacion_en_mapa: conUbicacion,
+      porcentaje_cobertura: total > 0 ? Math.round((conRepresentante / total) * 100) : 0,
+      alertas,
+    },
+  });
+});
+
 const esquemaCasilla = z.object({
   seccion_numero: z.number().int(),
   numero: z.string().default('B'),
   lat: z.number().optional(),
   lng: z.number().optional(),
   direccion: z.string().max(255).optional(),
-  representante_id: z.string().uuid().optional(),
+  representante_id: z.string().uuid().nullable().optional(),
+  suplente_id: z.string().uuid().nullable().optional(),
 });
 
 /**
  * POST /api/dia-eleccion/casillas
- * Registrar dónde está una casilla y quién la cubre — se usa desde
- * el mapa (pin arrastrable) o desde este mismo módulo.
+ * Registrar dónde está una casilla y quién la cubre (representante Y
+ * suplente) — se usa desde el mapa (pin arrastrable) o desde el
+ * panel de Prep.
  */
 router.post('/casillas', async (req, res) => {
   const parseado = esquemaCasilla.safeParse(req.body);
@@ -195,31 +276,83 @@ router.post('/casillas', async (req, res) => {
   const seccion = await query('SELECT id FROM secciones WHERE estado_id=$2 AND numero=$1', [d.seccion_numero, req.usuario.estado_id]);
   if (!seccion.rows[0]) return res.status(404).json({ ok: false, error: 'Sección no encontrada' });
 
-  const resultado = await query(
-    `INSERT INTO casillas (campana_id, seccion_id, numero, lat, lng, direccion, representante_id)
-     VALUES ($1,$2,$3,$4,$5,$6,$7)
-     ON CONFLICT (campana_id, seccion_id, numero)
-     DO UPDATE SET lat=COALESCE($4, casillas.lat), lng=COALESCE($5, casillas.lng),
-       direccion=COALESCE($6, casillas.direccion), representante_id=COALESCE($7, casillas.representante_id)
-     RETURNING *`,
-    [req.usuario.campana_id, seccion.rows[0].id, d.numero, d.lat || null, d.lng || null, d.direccion || null, d.representante_id || null]
+  // 🆕 Primero se asegura que la fila exista (alta si es nueva, sin
+  // tocar nada si ya existía) — y LUEGO solo se actualizan los campos
+  // que de verdad vinieron en la petición. Así, asignar un
+  // representante nunca borra por accidente al suplente que ya
+  // estaba, ni viceversa — cada campo se actualiza solo si alguien
+  // realmente lo mandó.
+  await query(
+    `INSERT INTO casillas (campana_id, seccion_id, numero) VALUES ($1,$2,$3)
+     ON CONFLICT (campana_id, seccion_id, numero) DO NOTHING`,
+    [req.usuario.campana_id, seccion.rows[0].id, d.numero]
   );
+
+  const campos = [];
+  const valores = [];
+  let i = 1;
+  if (d.lat !== undefined) { campos.push(`lat=$${i++}`); valores.push(d.lat); }
+  if (d.lng !== undefined) { campos.push(`lng=$${i++}`); valores.push(d.lng); }
+  if (d.direccion !== undefined) { campos.push(`direccion=$${i++}`); valores.push(d.direccion); }
+  if ('representante_id' in req.body) { campos.push(`representante_id=$${i++}`); valores.push(d.representante_id ?? null); }
+  if ('suplente_id' in req.body) { campos.push(`suplente_id=$${i++}`); valores.push(d.suplente_id ?? null); }
+
+  let resultado;
+  if (campos.length > 0) {
+    valores.push(req.usuario.campana_id, seccion.rows[0].id, d.numero);
+    resultado = await query(
+      `UPDATE casillas SET ${campos.join(', ')} WHERE campana_id=$${i} AND seccion_id=$${i + 1} AND numero=$${i + 2} RETURNING *`,
+      valores
+    );
+  } else {
+    resultado = await query(
+      `SELECT * FROM casillas WHERE campana_id=$1 AND seccion_id=$2 AND numero=$3`,
+      [req.usuario.campana_id, seccion.rows[0].id, d.numero]
+    );
+  }
   res.status(201).json({ ok: true, data: resultado.rows[0] });
 });
 
 /**
+ * 🆕 PATCH /api/dia-eleccion/casillas/:id/posicion
+ * Mover el pin de una casilla en el mapa (al arrastrarlo) — separado
+ * del POST general para no arriesgar pisar representante/suplente
+ * por accidente al solo mover el punto.
+ */
+router.patch('/casillas/:id/posicion', async (req, res) => {
+  const { lat, lng } = req.body;
+  if (typeof lat !== 'number' || typeof lng !== 'number') return res.status(400).json({ ok: false, error: 'Coordenadas inválidas' });
+  const resultado = await query(
+    `UPDATE casillas SET lat=$1, lng=$2 WHERE id=$3 AND campana_id=$4 RETURNING *`,
+    [lat, lng, req.params.id, req.usuario.campana_id]
+  );
+  if (!resultado.rows[0]) return res.status(404).json({ ok: false, error: 'No encontrada' });
+  res.json({ ok: true, data: resultado.rows[0] });
+});
+
+/**
  * GET /api/dia-eleccion/casillas
- * Todas las casillas con ubicación — para la capa del mapa.
+ * Todas las casillas con ubicación — para la capa del mapa. Incluye
+ * cuántas personas se espera que voten ahí (lista nominal de su
+ * sección repartida entre sus casillas) y el nombre del suplente.
  */
 router.get('/casillas', async (req, res) => {
   const resultado = await query(
-    `SELECT c.*, s.numero as seccion_numero, u.nombre as representante_nombre
+    `SELECT c.*, s.numero as seccion_numero, s.lista_nominal as seccion_lista_nominal,
+            u.nombre as representante_nombre, u.telefono as representante_telefono,
+            u2.nombre as suplente_nombre, u2.telefono as suplente_telefono,
+            (SELECT COUNT(*) FROM casillas c2 WHERE c2.campana_id=c.campana_id AND c2.seccion_id=c.seccion_id) as total_casillas_seccion
      FROM casillas c JOIN secciones s ON s.id=c.seccion_id
      LEFT JOIN usuarios u ON u.id = c.representante_id
+     LEFT JOIN usuarios u2 ON u2.id = c.suplente_id
      WHERE c.campana_id=$1`,
     [req.usuario.campana_id]
   );
-  res.json({ ok: true, data: resultado.rows });
+  const conEstimado = resultado.rows.map((c) => ({
+    ...c,
+    personas_esperadas: c.total_casillas_seccion > 0 ? Math.round((c.seccion_lista_nominal || 0) / c.total_casillas_seccion) : null,
+  }));
+  res.json({ ok: true, data: conEstimado });
 });
 
 /**
