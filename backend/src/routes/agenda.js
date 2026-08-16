@@ -76,6 +76,8 @@ const esquemaEvento = z.object({
   responsable_apellido_materno: z.string().max(80).optional(),
   referencias_ubicacion: z.string().max(300).optional(),
   tipo_lugar: z.enum(['calle', 'auditorio', 'deportivo', 'parque', 'otro']).optional(),
+  // 🆕 Liga de videollamada — para el modelo "1 Zoom, muchas casas"
+  link_virtual: z.string().max(500).optional(),
 });
 
 router.post('/', async (req, res) => {
@@ -98,8 +100,8 @@ router.post('/', async (req, res) => {
     `INSERT INTO agenda (campana_id, titulo, tipo, fecha_inicio, fecha_fin, lugar, seccion_id, descripcion, creado_por, lat, lng,
        anfitrion_nombre, anfitrion_telefono, estructura_relacionada, duracion_minutos, grupo_social, ofrece_aperitivo, detalle_aperitivo, personas_esperadas,
        color_alerta, etiquetas, responsable_nombres, responsable_apellido_paterno, responsable_apellido_materno, referencias_ubicacion, tipo_lugar,
-       estado, propuesto_por, aprobado_por, aprobado_en)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30) RETURNING *`,
+       estado, propuesto_por, aprobado_por, aprobado_en, link_virtual)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31) RETURNING *`,
     [req.usuario.campana_id, d.titulo, d.tipo, d.fecha_inicio, d.fecha_fin || null,
      d.lugar || null, seccionId, d.descripcion || null, req.usuario.sub, d.lat || null, d.lng || null,
      d.anfitrion_nombre || null, d.anfitrion_telefono || null, d.estructura_relacionada || null,
@@ -107,7 +109,8 @@ router.post('/', async (req, res) => {
      d.detalle_aperitivo || null, d.personas_esperadas || null,
      d.color_alerta || null, d.etiquetas, d.responsable_nombres || null, d.responsable_apellido_paterno || null,
      d.responsable_apellido_materno || null, d.referencias_ubicacion || null, d.tipo_lugar || null,
-     estado, puedeAprobarDirecto ? null : req.usuario.sub, puedeAprobarDirecto ? req.usuario.sub : null, puedeAprobarDirecto ? new Date() : null]
+     estado, puedeAprobarDirecto ? null : req.usuario.sub, puedeAprobarDirecto ? req.usuario.sub : null, puedeAprobarDirecto ? new Date() : null,
+     d.link_virtual || null]
   );
 
   res.status(201).json({ ok: true, data: resultado.rows[0] });
@@ -522,6 +525,104 @@ router.get('/:id/pdf', async (req, res) => {
   }
 
   doc.end();
+});
+
+/**
+ * ═══════════════════════════════════════════════════════════════
+ * 🆕 SEDES — para el modelo "una llamada de Zoom, muchas casas a la
+ * vez": una candidata se conecta UNA sola vez por videollamada, y
+ * decenas de enlaces la proyectan en sus propias casas, cada uno
+ * con 20-30 personas reunidas. Esto registra cada casa como una
+ * "sede" del mismo evento, con su enlace responsable y cuánta gente
+ * se espera/asistió — para saber el alcance real de la reunión
+ * (no solo "1 evento", sino "70 casas, 1,850 personas").
+ * ═══════════════════════════════════════════════════════════════
+ */
+
+router.get('/:id/sedes', async (req, res) => {
+  const resultado = await query(
+    `SELECT s.*, u.nombre as usuario_nombre, sec.numero as seccion_numero
+     FROM agenda_sedes s
+     LEFT JOIN usuarios u ON u.id = s.usuario_id
+     LEFT JOIN secciones sec ON sec.id = s.seccion_id
+     WHERE s.evento_id=$1 ORDER BY s.creado_en ASC`,
+    [req.params.id]
+  );
+  const totalEsperadas = resultado.rows.reduce((sum, s) => sum + (s.personas_esperadas || 0), 0);
+  const totalConfirmadas = resultado.rows.reduce((sum, s) => sum + (s.personas_confirmadas || 0), 0);
+  const conectadas = resultado.rows.filter((s) => s.conectado).length;
+  res.json({
+    ok: true, data: resultado.rows,
+    resumen: { total_sedes: resultado.rows.length, total_esperadas: totalEsperadas, total_confirmadas: totalConfirmadas, sedes_conectadas: conectadas },
+  });
+});
+
+const esquemaSede = z.object({
+  enlace_nombre: z.string().min(2).max(200),
+  enlace_telefono: z.string().max(20).optional(),
+  usuario_id: z.string().uuid().optional(),
+  direccion: z.string().max(255).optional(),
+  lat: z.number().optional(),
+  lng: z.number().optional(),
+  seccion_numero: z.number().int().optional(),
+  personas_esperadas: z.number().int().positive().default(20),
+  notas: z.string().max(300).optional(),
+});
+
+router.post('/:id/sedes', async (req, res) => {
+  const parseado = esquemaSede.safeParse(req.body);
+  if (!parseado.success) return res.status(400).json({ ok: false, error: parseado.error.errors[0].message });
+  const d = parseado.data;
+
+  const evento = await query('SELECT id FROM agenda WHERE id=$1 AND campana_id=$2', [req.params.id, req.usuario.campana_id]);
+  if (!evento.rows[0]) return res.status(404).json({ ok: false, error: 'Evento no encontrado' });
+
+  let seccionId = null;
+  if (d.seccion_numero) {
+    const s = await query('SELECT id FROM secciones WHERE estado_id=$2 AND numero=$1', [d.seccion_numero, req.usuario.estado_id]);
+    seccionId = s.rows[0]?.id || null;
+  }
+
+  const resultado = await query(
+    `INSERT INTO agenda_sedes (evento_id, campana_id, enlace_nombre, enlace_telefono, usuario_id, direccion, lat, lng, seccion_id, personas_esperadas, notas, creado_por)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
+    [req.params.id, req.usuario.campana_id, d.enlace_nombre, d.enlace_telefono || null, d.usuario_id || null,
+     d.direccion || null, d.lat || null, d.lng || null, seccionId, d.personas_esperadas, d.notas || null, req.usuario.sub]
+  );
+  res.status(201).json({ ok: true, data: resultado.rows[0] });
+});
+
+/** Marca una sede como "ya conectada" el día de la reunión, y opcionalmente cuánta gente asistió de verdad. */
+router.patch('/sedes/:sedeId/conectar', async (req, res) => {
+  const { personas_confirmadas } = req.body;
+  const resultado = await query(
+    `UPDATE agenda_sedes SET conectado=true, personas_confirmadas=$1 WHERE id=$2 RETURNING *`,
+    [personas_confirmadas ?? null, req.params.sedeId]
+  );
+  if (!resultado.rows[0]) return res.status(404).json({ ok: false, error: 'Sede no encontrada' });
+  res.json({ ok: true, data: resultado.rows[0] });
+});
+
+router.patch('/sedes/:sedeId', async (req, res) => {
+  const parseado = esquemaSede.partial().safeParse(req.body);
+  if (!parseado.success) return res.status(400).json({ ok: false, error: parseado.error.errors[0].message });
+  const d = parseado.data;
+  const campos = [];
+  const valores = [];
+  let i = 1;
+  for (const [campo, valor] of Object.entries(d)) {
+    if (campo === 'seccion_numero') continue;
+    campos.push(`${campo}=$${i++}`); valores.push(valor);
+  }
+  if (campos.length === 0) return res.status(400).json({ ok: false, error: 'Nada que actualizar' });
+  valores.push(req.params.sedeId);
+  const resultado = await query(`UPDATE agenda_sedes SET ${campos.join(', ')} WHERE id=$${i} RETURNING *`, valores);
+  res.json({ ok: true, data: resultado.rows[0] });
+});
+
+router.delete('/sedes/:sedeId', async (req, res) => {
+  await query('DELETE FROM agenda_sedes WHERE id=$1', [req.params.sedeId]);
+  res.json({ ok: true });
 });
 
 export default router;
