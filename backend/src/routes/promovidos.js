@@ -15,11 +15,50 @@ router.use(requiereAuth); // todo este módulo requiere sesión
  * campaña A nunca puede ver datos de la campaña B, ni por error
  * ni a propósito.
  */
+/**
+ * 🆕 GET /api/promovidos
+ * Lista los promovidos de la campaña del usuario autenticado — ahora
+ * con una PUNTUACIÓN de 0 a 100 por cada uno, la misma técnica que
+ * usan las campañas profesionales desde Obama 2008: en vez de solo
+ * etiquetas sueltas, un número que combina todo lo que ya sabes de
+ * esa persona en una sola cifra accionable.
+ *
+ * Cómo se arma (100 puntos en total):
+ * - Hasta 30 pts: qué tan fuerte es tu partido HISTÓRICAMENTE en la
+ *   sección de este promovido (si no hay dato, se le da 10 neutral)
+ * - Hasta 30 pts: su clasificación manual (base=30, persuadible=15, adversario=0)
+ * - Hasta 20 pts: su temperatura (caliente=20, tibio=10, frío=0)
+ * - 10 pts: si ya está marcado como comprometido
+ * - Hasta 10 pts: qué tan reciente fue el último contacto (más
+ *   reciente = más confiable el dato, no solo "más contactado")
+ *
+ * IMPORTANTE: la puntuación es una AYUDA para ordenar prioridades,
+ * no una certeza — un promovido con 90 puntos sigue siendo una
+ * persona, no un número garantizado.
+ */
 router.get('/', async (req, res) => {
-  const { seccion, clasificacion, registrador, temperatura, buscar } = req.query;
+  const { seccion, clasificacion, registrador, temperatura, buscar, orden } = req.query;
   let sql = `
-    SELECT p.*, s.numero as seccion_numero, u.nombre as registrado_por_nombre
+    SELECT p.*, s.numero as seccion_numero, u.nombre as registrado_por_nombre,
+      GREATEST(0, LEAST(100, (
+        COALESCE(
+          (SELECT ROUND(30.0 * rh.votos / NULLIF(rh.total_votos, 0))
+           FROM resultados_historicos rh
+           WHERE rh.seccion_id = p.seccion_id AND rh.partido = c.partido
+           ORDER BY (rh.tipo_eleccion = c.tipo_eleccion) DESC, rh.anio DESC LIMIT 1),
+          10
+        )
+        + CASE p.clasificacion WHEN 'base' THEN 30 WHEN 'persuadible' THEN 15 ELSE 0 END
+        + CASE p.temperatura WHEN 'caliente' THEN 20 WHEN 'tibio' THEN 10 ELSE 0 END
+        + CASE WHEN p.comprometido THEN 10 ELSE 0 END
+        + CASE
+            WHEN p.ultimo_contacto > now() - interval '7 days' THEN 10
+            WHEN p.ultimo_contacto > now() - interval '30 days' THEN 5
+            ELSE 0
+          END
+      ))) as puntuacion
     FROM promovidos p
+    JOIN campanas c ON c.id = p.campana_id
     LEFT JOIN secciones s ON s.id = p.seccion_id
     LEFT JOIN usuarios u ON u.id = p.registrado_por
     WHERE p.campana_id = $1`;
@@ -30,7 +69,8 @@ router.get('/', async (req, res) => {
   if (registrador) { params.push(registrador); sql += ` AND p.registrado_por = $${params.length}`; }
   if (temperatura) { params.push(temperatura); sql += ` AND p.temperatura = $${params.length}`; }
   if (buscar) { params.push(`%${buscar}%`); sql += ` AND (unaccent(p.nombre) ILIKE unaccent($${params.length}) OR p.telefono ILIKE $${params.length})`; }
-  sql += ' ORDER BY p.creado_en DESC LIMIT 2000';
+  sql += orden === 'puntuacion' ? ' ORDER BY puntuacion DESC' : ' ORDER BY p.creado_en DESC';
+  sql += ' LIMIT 2000';
 
   const resultado = await query(sql, params);
   res.json({ ok: true, data: resultado.rows });
