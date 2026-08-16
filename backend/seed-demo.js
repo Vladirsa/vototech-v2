@@ -364,6 +364,59 @@ export async function crearDemo(opciones = {}) {
   }
   console.log('✅ 2 eventos pasados marcados como realizados');
 
+  // 🆕 14. Caminatas de ejemplo — trazos reales sobre el mapa, con
+  // ruta en GeoJSON (recta simple, suficiente para verse bien en la
+  // demo sin depender de la API de rutas real), ligadas a una sección
+  // real y con su propia entrada en Agenda, tal como se comporta el
+  // módulo real cuando alguien la usa desde el mapa.
+  const caminatasEjemplo = [
+    {
+      titulo: 'Recorrido Av. Juárez — Col. Centro',
+      calle_inicio: 'Av. Juárez #10', calle_fin: 'Av. Juárez #180',
+      calles_intermedias: 'Calle Hidalgo, Calle Morelos',
+      acompanantes: 'Coordinador Zona Norte, 4 brigadistas',
+      distancia_km: 1.8, tiempo_min: 24,
+      // Puntos aproximados sobre Apizaco — es una demo, no necesita
+      // pegarse a calles reales como sí lo hace la función en vivo.
+      puntos: [[-98.1520, 19.4160], [-98.1500, 19.4155], [-98.1480, 19.4150], [-98.1465, 19.4145]],
+    },
+    {
+      titulo: 'Caminata Barrio San José',
+      calle_inicio: 'Calle 5 de Mayo', calle_fin: 'Calle Independencia',
+      calles_intermedias: 'Calle Reforma',
+      acompanantes: 'Coordinador Zona Centro, 6 brigadistas',
+      distancia_km: 1.2, tiempo_min: 16,
+      puntos: [[-98.1550, 19.4180], [-98.1535, 19.4172], [-98.1520, 19.4165]],
+    },
+  ];
+  for (const c of caminatasEjemplo) {
+    const secc = secciones[Math.floor(Math.random() * secciones.length)];
+    const s = await query('SELECT id FROM secciones WHERE estado_id=29 AND numero=$1', [secc]);
+    const diasAdelante = 3 + Math.floor(Math.random() * 5);
+    const fecha = new Date(Date.now() + diasAdelante * 86400000).toISOString();
+
+    // Se crea también su evento de Agenda, exactamente como hace la
+    // función real cuando alguien traza una caminata pidiendo que se
+    // agende.
+    const eventoAgenda = await query(
+      `INSERT INTO agenda (campana_id, titulo, tipo, fecha_inicio, lugar, creado_por) VALUES ($1,$2,'recorrido',$3,$4,$5) RETURNING id`,
+      [campanaId, c.titulo, fecha, c.calle_inicio, jefeId]
+    );
+
+    const geojson = {
+      type: 'Feature',
+      properties: {},
+      geometry: { type: 'LineString', coordinates: c.puntos },
+    };
+    await query(
+      `INSERT INTO caminatas (campana_id, titulo, calle_inicio, calle_fin, calles_intermedias, ruta_geojson, distancia_km, tiempo_estimado_min, acompanantes, fecha, seccion_id, agenda_id, creado_por)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+      [campanaId, c.titulo, c.calle_inicio, c.calle_fin, c.calles_intermedias, JSON.stringify(geojson),
+       c.distancia_km, c.tiempo_min, c.acompanantes, fecha, s.rows[0]?.id, eventoAgenda.rows[0].id, jefeId]
+    );
+  }
+  console.log(`✅ ${caminatasEjemplo.length} caminatas de ejemplo (con su evento de Agenda ligado)`);
+
   console.log('\n🎉 Cuenta DEMO lista.\n');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   console.log('  Subdominio: demo');
