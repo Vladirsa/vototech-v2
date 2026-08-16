@@ -13,14 +13,19 @@ const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
 
 /**
- * Redimensiona a 1568px en su lado más largo (tamaño óptimo para
- * Claude Vision) y comprime a JPEG calidad 85 — todo en memoria,
- * nunca se guarda en disco.
+ * Redimensiona a 1200px en su lado más largo (suficiente para texto
+ * impreso, como una credencial o un acta) y comprime a JPEG calidad
+ * 85 — todo en memoria, nunca se guarda en disco.
+ *
+ * 🆕 Se usa Claude Haiku 4.5 en vez de Sonnet para estas lecturas —
+ * es 2 veces más barato ($1/$5 vs $2/$10 por millón de tokens) y de
+ * sobra para leer texto impreso claro, que no necesita el
+ * razonamiento más potente (y más caro) de Sonnet.
  */
 async function comprimirParaClaude(bufferOriginal) {
   const bufferComprimido = await sharp(bufferOriginal)
     .rotate()
-    .resize(1568, 1568, { fit: 'inside', withoutEnlargement: true })
+    .resize(1200, 1200, { fit: 'inside', withoutEnlargement: true })
     .jpeg({ quality: 85 })
     .toBuffer();
   return { buffer: bufferComprimido, mediaType: 'image/jpeg' };
@@ -34,7 +39,7 @@ router.post('/leer-acta', upload.single('foto'), async (req, res) => {
     const base64 = buffer.toString('base64');
 
     const respuesta = await anthropic.messages.create({
-      model: 'claude-sonnet-5',
+      model: 'claude-haiku-4-5-20251001',
       max_tokens: 500,
       messages: [{
         role: 'user',
@@ -98,7 +103,7 @@ router.post('/leer-credencial', upload.single('foto'), async (req, res) => {
     const base64 = buffer.toString('base64');
 
     const respuesta = await anthropic.messages.create({
-      model: 'claude-sonnet-5',
+      model: 'claude-haiku-4-5-20251001',
       max_tokens: 500,
       messages: [{
         role: 'user',
@@ -147,7 +152,7 @@ router.get('/estado', async (req, res) => {
     });
   }
   try {
-    await anthropic.messages.create({ model: 'claude-sonnet-5', max_tokens: 10, messages: [{ role: 'user', content: 'di "ok"' }] });
+    await anthropic.messages.create({ model: 'claude-haiku-4-5-20251001', max_tokens: 10, messages: [{ role: 'user', content: 'di "ok"' }] });
     res.json({ ok: true, data: { funciona: true, mensaje: 'El Centro IA está funcionando correctamente.' } });
   } catch (e) {
     res.json({
