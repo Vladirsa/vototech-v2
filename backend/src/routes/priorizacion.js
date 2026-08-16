@@ -253,6 +253,46 @@ router.get('/hoy', async (req, res) => {
 });
 
 /**
+ * 🆕 GET /api/priorizacion/densidad-promovidos
+ * ESTE ENDPOINT NO EXISTÍA — el mapa lo llamaba (para el panel "Modo
+ * Campaña": total promovidos, secciones trabajadas, Base/Persuadible/
+ * Adversario) pero como no existía, la petición fallaba en silencio
+ * y el panel siempre mostraba 0 en todo, aunque sí hubiera promovidos
+ * reales (el otro panel, "Concentrado General", usa un endpoint
+ * distinto que sí existe, por eso mostraba el número correcto).
+ *
+ * Devuelve, por cada sección con al menos un promovido, cuántos hay
+ * en total y cuántos de cada clasificación — para pintar la densidad
+ * en el mapa y sumar el resumen general.
+ */
+router.get('/densidad-promovidos', async (req, res) => {
+  const campanaId = req.usuario.campana_id;
+  try {
+    const promosRes = await query(
+      `SELECT s.numero as seccion, p.clasificacion, COUNT(*) as total
+       FROM promovidos p
+       JOIN secciones s ON s.id = p.seccion_id
+       WHERE p.campana_id = $1
+       GROUP BY s.numero, p.clasificacion`,
+      [campanaId]
+    );
+    const porSeccion = {};
+    promosRes.rows.forEach((fila) => {
+      if (!porSeccion[fila.seccion]) {
+        porSeccion[fila.seccion] = { seccion: fila.seccion, total: 0, base: 0, persuadible: 0, adversario: 0 };
+      }
+      const cantidad = parseInt(fila.total);
+      porSeccion[fila.seccion][fila.clasificacion] = cantidad;
+      porSeccion[fila.seccion].total += cantidad;
+    });
+    res.json({ ok: true, data: Object.values(porSeccion) });
+  } catch (e) {
+    console.error('Error en densidad de promovidos:', e);
+    res.status(500).json({ ok: false, error: 'Error calculando densidad de promovidos' });
+  }
+});
+
+/**
  * GET /api/priorizacion/seccion/:numero
  * Ficha técnica completa de UNA sección: padrón, resultados históricos
  * reales, promovidos actuales por clasificación, y qué falta para
