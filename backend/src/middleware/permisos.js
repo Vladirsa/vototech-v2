@@ -33,6 +33,10 @@ const MODULOS_POR_ROL = {
   promotor: ['promovidos', 'dia-eleccion', 'incidencias'],
   encargado_juridico: ['juridico', 'finanzas', 'activos', 'incidencias', 'promovidos'],
   encargado_finanzas: ['finanzas', 'activos', 'promovidos', 'incidencias'],
+  // 🆕 Representante de Casilla — acceso mínimo, solo lo que necesita
+  // el día D para reportar el resultado de SU casilla. No ve
+  // promovidos, finanzas, ni nada más del resto de la campaña.
+  representante_casilla: ['dia-eleccion'],
   voluntario: ['promovidos'],
 };
 
