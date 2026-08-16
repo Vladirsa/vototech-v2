@@ -161,6 +161,93 @@ router.get('/activos-excel', requiereRol(...ROLES_EXPORT), async (req, res) => {
 });
 
 /**
+ * 🆕 GET /api/exportar/propaganda-ine
+ * Reporte de bardas/espectaculares/mantas con las columnas EXACTAS
+ * que pide el INE (Oficio INE/UTF/DRN/13800/2020): empresa, ubicación,
+ * dimensiones, precio, duración, fotografía, número del Registro
+ * Nacional de Proveedores, e identificador único del RNP.
+ *
+ * VotoTech no sube esto automático al INE — no existe forma de
+ * hacerlo por API (se captura manualmente en el portal). Este
+ * reporte es el atajo real: ordena todo exactamente como lo pide el
+ * formulario oficial, para que el responsable jurídico/de finanzas
+ * copie cada dato una sola vez, en vez de volver a levantar la
+ * información desde cero.
+ */
+router.get('/propaganda-ine', requiereRol(...ROLES_EXPORT), async (req, res) => {
+  const datos = await query(
+    `SELECT a.codigo_inventario, a.tipo, a.direccion, a.dimensiones, s.numero as seccion,
+            a.empresa, a.costo, a.fecha_ini, a.fecha_vence, a.foto_url,
+            a.numero_rnp_proveedor, a.identificador_ine_rnp, r.nombre as responsable, a.estado
+     FROM activos a
+     LEFT JOIN secciones s ON s.id = a.seccion_id
+     LEFT JOIN usuarios r ON r.id = a.responsable_id
+     WHERE a.campana_id=$1 AND a.tipo IN ('barda','espectacular','manta')
+     ORDER BY a.fecha_ini ASC`,
+    [req.usuario.campana_id]
+  );
+
+  const libro = new ExcelJS.Workbook();
+  const hoja = libro.addWorksheet('Propaganda — Reporte INE');
+  hoja.columns = [
+    { header: 'Tipo de propaganda', key: 'tipo', width: 16 },
+    { header: 'I. Empresa/proveedor', key: 'empresa', width: 24 },
+    { header: 'III. Ubicación completa', key: 'direccion', width: 32 },
+    { header: 'III. Dimensiones', key: 'dimensiones', width: 14 },
+    { header: 'IV. Precio', key: 'costo', width: 12 },
+    { header: 'V. Fecha inicio', key: 'fecha_ini', width: 14 },
+    { header: 'V. Fecha fin/vigencia', key: 'fecha_vence', width: 16 },
+    { header: 'VII. Fotografía (liga)', key: 'foto_url', width: 40 },
+    { header: 'VIII. No. RNP del proveedor', key: 'numero_rnp_proveedor', width: 20 },
+    { header: 'IX. Identificador único RNP', key: 'identificador_ine_rnp', width: 22 },
+    { header: 'Sección electoral', key: 'seccion', width: 12 },
+    { header: 'Responsable (VotoTech)', key: 'responsable', width: 22 },
+    { header: 'Código interno (VotoTech)', key: 'codigo_inventario', width: 16 },
+    { header: 'Estado', key: 'estado', width: 12 },
+  ];
+  const TIPO_LABEL = { barda: 'Barda', espectacular: 'Espectacular', manta: 'Manta' };
+  const faltantes = [];
+  datos.rows.forEach((f) => {
+    const camposFaltantes = [];
+    if (!f.dimensiones) camposFaltantes.push('dimensiones');
+    if (!f.foto_url) camposFaltantes.push('fotografía');
+    if (!f.numero_rnp_proveedor) camposFaltantes.push('No. RNP');
+    if (camposFaltantes.length > 0) faltantes.push(`${TIPO_LABEL[f.tipo]} en ${f.direccion || 'sin dirección'}: falta ${camposFaltantes.join(', ')}`);
+
+    hoja.addRow({
+      tipo: TIPO_LABEL[f.tipo] || f.tipo,
+      empresa: f.empresa || '',
+      direccion: f.direccion || '',
+      dimensiones: f.dimensiones || '⚠️ FALTA',
+      costo: f.costo ? parseFloat(f.costo) : null,
+      fecha_ini: f.fecha_ini,
+      fecha_vence: f.fecha_vence,
+      foto_url: f.foto_url || '⚠️ FALTA',
+      numero_rnp_proveedor: f.numero_rnp_proveedor || '⚠️ FALTA',
+      identificador_ine_rnp: f.identificador_ine_rnp || '',
+      seccion: f.seccion,
+      responsable: f.responsable || '',
+      codigo_inventario: f.codigo_inventario,
+      estado: f.estado || 'activo',
+    });
+  });
+  hoja.getColumn('costo').numFmt = '$#,##0.00';
+  estiloEncabezado(hoja);
+
+  if (faltantes.length > 0) {
+    const hojaFaltantes = libro.addWorksheet('⚠️ Datos incompletos');
+    hojaFaltantes.columns = [{ header: 'Pendiente por completar', key: 'texto', width: 80 }];
+    faltantes.forEach((t) => hojaFaltantes.addRow({ texto: t }));
+    estiloEncabezado(hojaFaltantes);
+  }
+
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename=propaganda_ine_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  await libro.xlsx.write(res);
+  res.end();
+});
+
+/**
  * 🆕 GET /api/exportar/comprobantes-pdf
  * El "paquete de comprobantes" — un PDF armado con cada gasto que
  * tiene evidencia adjunta, mostrando la foto del comprobante junto

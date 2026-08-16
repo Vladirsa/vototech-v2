@@ -103,8 +103,12 @@ const esquemaActivo = z.object({
   subtipo: z.string().max(50).optional(),
   motivo: z.enum(['promocion_voto', 'reunion', 'otro']).optional(),
   destinatario: z.string().max(200).optional(),
-  // 🆕 Ciclo de vida — a quién se le asigna la responsabilidad del bien
   responsable_id: z.string().uuid().optional(),
+  // 🆕 Campos exactos que pide el INE para reportar propaganda
+  // (bardas/espectaculares/mantas) — Oficio INE/UTF/DRN/13800/2020.
+  dimensiones: z.string().max(50).optional(), // ej: "3m x 6m"
+  identificador_ine_rnp: z.string().max(50).optional(), // el que el RNP le asigna al proveedor, NO el que genera VotoTech
+  numero_rnp_proveedor: z.string().max(50).optional(), // número del proveedor en el Registro Nacional de Proveedores
 });
 
 router.post('/', async (req, res) => {
@@ -124,12 +128,13 @@ router.post('/', async (req, res) => {
   const codigoInventario = `ACT-${new Date().getFullYear()}-${String(parseInt(conteoRes.rows[0].total) + 1).padStart(6, '0')}`;
 
   const resultado = await query(
-    `INSERT INTO activos (campana_id, tipo, seccion_id, direccion, lat, lng, empresa, costo, fecha_ini, fecha_vence, nombre_rep, telefono_rep, notas, cantidad, subtipo, registrado_por, codigo_inventario, responsable_id)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING *`,
+    `INSERT INTO activos (campana_id, tipo, seccion_id, direccion, lat, lng, empresa, costo, fecha_ini, fecha_vence, nombre_rep, telefono_rep, notas, cantidad, subtipo, registrado_por, codigo_inventario, responsable_id, dimensiones, identificador_ine_rnp, numero_rnp_proveedor)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21) RETURNING *`,
     [req.usuario.campana_id, d.tipo, seccionId, d.direccion || null, d.lat || null, d.lng || null,
      d.empresa || null, d.costo || null, d.fecha_ini || null, d.fecha_vence || null,
      d.nombre_rep || null, d.telefono_rep || null, d.notas || null, d.cantidad || null, d.subtipo || null,
-     req.usuario.sub, codigoInventario, d.responsable_id || null]
+     req.usuario.sub, codigoInventario, d.responsable_id || null, d.dimensiones || null,
+     d.identificador_ine_rnp || null, d.numero_rnp_proveedor || null]
   );
 
   // 🆕 Primer renglón del kardex — el alta siempre queda registrada.
@@ -254,6 +259,47 @@ router.post('/evidencia-baja', upload.single('foto'), async (req, res) => {
 
   const { data } = supabase.storage.from('documentos').getPublicUrl(ruta);
   res.json({ ok: true, data: { url: data.publicUrl } });
+});
+
+/**
+ * 🆕 POST /api/activos/:id/foto
+ * Sube la foto del anuncio YA COLOCADO (barda pintada, espectacular
+ * instalado, manta puesta) — es un requisito real del INE tener
+ * fotografía del anuncio, distinto de la foto de evidencia al darlo
+ * de baja.
+ */
+router.post('/:id/foto', upload.single('foto'), async (req, res) => {
+  const supabase = clienteSupabase();
+  if (!supabase) return res.status(500).json({ ok: false, error: 'Almacenamiento no configurado en el servidor' });
+  if (!req.file) return res.status(400).json({ ok: false, error: 'No se recibió ninguna foto' });
+
+  const activo = await query('SELECT id FROM activos WHERE id=$1 AND campana_id=$2', [req.params.id, req.usuario.campana_id]);
+  if (!activo.rows[0]) return res.status(404).json({ ok: false, error: 'Activo no encontrado' });
+
+  const ruta = `${req.usuario.campana_id}/activos-foto/${crypto.randomBytes(8).toString('hex')}-${req.file.originalname}`;
+  const { error } = await supabase.storage.from('documentos').upload(ruta, req.file.buffer, { contentType: req.file.mimetype });
+  if (error) return res.status(500).json({ ok: false, error: 'No se pudo subir la foto' });
+
+  const { data } = supabase.storage.from('documentos').getPublicUrl(ruta);
+  await query('UPDATE activos SET foto_url=$1 WHERE id=$2', [data.publicUrl, req.params.id]);
+  res.json({ ok: true, data: { url: data.publicUrl } });
+});
+
+/**
+ * 🆕 PATCH /api/activos/:id/foto-ine
+ * Editar los campos específicos que pide el INE, sin necesidad de
+ * pasar por el resto del formulario — dimensiones, identificador del
+ * RNP, y número del proveedor en el RNP.
+ */
+router.patch('/:id/datos-ine', async (req, res) => {
+  const { dimensiones, identificador_ine_rnp, numero_rnp_proveedor } = req.body;
+  const resultado = await query(
+    `UPDATE activos SET dimensiones=$1, identificador_ine_rnp=$2, numero_rnp_proveedor=$3
+     WHERE id=$4 AND campana_id=$5 RETURNING *`,
+    [dimensiones || null, identificador_ine_rnp || null, numero_rnp_proveedor || null, req.params.id, req.usuario.campana_id]
+  );
+  if (!resultado.rows[0]) return res.status(404).json({ ok: false, error: 'Activo no encontrado' });
+  res.json({ ok: true, data: resultado.rows[0] });
 });
 
 /**
