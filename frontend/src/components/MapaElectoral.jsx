@@ -290,9 +290,15 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
   const [activos, setActivos] = useState([]);
   const [capaActivos, setCapaActivos] = useState(false);
   useEffect(() => {
-    api.get('/activos').then(r => setActivos(r.data.data.filter(a => a.lat && a.lng))).catch(() => setActivos([]));
+    // 🆕 Ya no se cargan activos tipo "ine_representante" en esta capa
+    // — esa figura ahora vive únicamente como representante/suplente
+    // de cada Casilla, no como un punto de Activos separado y
+    // duplicado. Los que ya existían de antes simplemente no se
+    // muestran más aquí (los datos siguen intactos en tu base, por
+    // si algún día se necesitan).
+    api.get('/activos').then(r => setActivos(r.data.data.filter(a => a.lat && a.lng && a.tipo !== 'ine_representante'))).catch(() => setActivos([]));
   }, []);
-  const ICONO_ACTIVO = { espectacular: '📺', barda: '🧱', manta: '🎏', ine_representante: '🪪', utilitario: '👕' };
+  const ICONO_ACTIVO = { espectacular: '📺', barda: '🧱', manta: '🎏', utilitario: '👕' };
   const iconoActivo = (tipo) => new L.DivIcon({
     className: '',
     html: `<div style="font-size:18px;filter:drop-shadow(0 1px 3px rgba(0,0,0,.7))">${ICONO_ACTIVO[tipo] || '📍'}</div>`,
@@ -370,9 +376,17 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
   useEffect(() => {
     api.get('/dia-eleccion/casillas').then(r => setCasillas(r.data.data.filter(c => c.lat && c.lng))).catch(() => setCasillas([]));
   }, []);
+  const cargarCasillas = () => api.get('/dia-eleccion/casillas').then(r => setCasillas(r.data.data.filter(c => c.lat && c.lng))).catch(() => setCasillas([]));
+  // 🆕 Al arrastrar el pin de una casilla, se guarda su nueva
+  // ubicación real — endpoint dedicado, así nunca arriesga borrar al
+  // representante/suplente ya asignados por moverla de lugar.
+  const moverCasilla = async (id, lat, lng) => {
+    await api.patch(`/dia-eleccion/casillas/${id}/posicion`, { lat, lng });
+    cargarCasillas();
+  };
   const iconoCasilla = (conRepresentante) => new L.DivIcon({
     className: '',
-    html: `<div style="font-size:18px;filter:drop-shadow(0 1px 3px rgba(0,0,0,.7))">${conRepresentante ? '🗳️' : '❗'}</div>`,
+    html: `<div style="font-size:18px;filter:drop-shadow(0 1px 3px rgba(0,0,0,.7));cursor:grab">${conRepresentante ? '🗳️' : '❗'}</div>`,
     iconSize: [22, 22],
   });
   const [capaPulso, setCapaPulso] = useState(false);
@@ -411,7 +425,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
     { id: 'barda', ic: '🧱', label: 'Barda' },
     { id: 'espectacular', ic: '📺', label: 'Espectacular' },
     { id: 'manta', ic: '🎏', label: 'Manta/Lona' },
-    { id: 'ine_representante', ic: '🪪', label: 'Representante INE' },
     { id: 'utilitario', ic: '👕', label: 'Material (playeras, etc)' },
     { id: 'evento', ic: '📅', label: 'Evento/Reunión' },
     { id: 'promovido', ic: '🤝', label: 'Promovido' },
@@ -869,14 +882,26 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
           </Marker>
         ))}
         {capaCasillas && casillas.map((c) => (
-          <Marker key={c.id} position={[c.lat, c.lng]} icon={iconoCasilla(!!c.representante_id)}>
+          <Marker key={c.id} position={[c.lat, c.lng]} icon={iconoCasilla(!!c.representante_id)}
+            draggable={true}
+            eventHandlers={{
+              dragend: (e) => {
+                const { lat, lng } = e.target.getLatLng();
+                moverCasilla(c.id, lat, lng);
+              },
+            }}>
             <Popup>
-              <div style={{ fontSize: 12 }}>
+              <div style={{ fontSize: 12, minWidth: 180 }}>
                 <strong>🗳️ Sección {c.seccion_numero} · Casilla {c.numero}</strong><br />
                 {c.direccion && <>📍 {c.direccion}<br /></>}
+                {c.personas_esperadas && <>👥 ~{c.personas_esperadas.toLocaleString()} personas esperadas<br /></>}
                 {c.representante_nombre
-                  ? <>👤 {c.representante_nombre} {c.confirmado_asistencia ? '✅ Confirmado' : '⏳ Sin confirmar'}</>
-                  : <span style={{ color: '#dc2626' }}>❗ Sin representante asignado</span>}
+                  ? <>👤 Rep: {c.representante_nombre} {c.confirmado_asistencia ? '✅' : '⏳'}{c.representante_telefono && ` · ${c.representante_telefono}`}<br /></>
+                  : <span style={{ color: '#dc2626' }}>❗ Sin representante asignado<br /></span>}
+                {c.suplente_nombre
+                  ? <>🔁 Suplente: {c.suplente_nombre}{c.suplente_telefono && ` · ${c.suplente_telefono}`}<br /></>
+                  : <span style={{ color: '#f59e0b' }}>⚠️ Sin suplente<br /></span>}
+                <em style={{ fontSize: 10, color: '#888' }}>Arrastra el pin para ajustar la ubicación real</em>
               </div>
             </Popup>
           </Marker>
@@ -885,8 +910,8 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
           <Marker key={a.id} position={[a.lat, a.lng]} icon={iconoActivo(a.tipo)}>
             <Popup>
               <div style={{ fontSize: 12 }}>
-                <strong>{ICONO_ACTIVO[a.tipo]} {a.tipo === 'ine_representante' ? a.nombre_rep : a.direccion}</strong><br />
-                {a.tipo !== 'ine_representante' && a.empresa && <>Empresa: {a.empresa}<br /></>}
+                <strong>{ICONO_ACTIVO[a.tipo]} {a.direccion}</strong><br />
+                {a.empresa && <>Empresa: {a.empresa}<br /></>}
                 Estado: {a.estado}
               </div>
             </Popup>
@@ -1758,14 +1783,6 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
                 <input placeholder="Número de casilla (ej: B, C1)" value={formPunto.numero_casilla || ''} onChange={(e) => setFormPunto({ ...formPunto, numero_casilla: e.target.value })}
                   className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
                 <input placeholder="Dirección/referencia" value={formPunto.direccion || ''} onChange={(e) => setFormPunto({ ...formPunto, direccion: e.target.value })}
-                  className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
-              </>
-            )}
-            {tipoColocando === 'ine_representante' && (
-              <>
-                <input placeholder="Nombre del representante" value={formPunto.nombre_rep || ''} onChange={(e) => setFormPunto({ ...formPunto, nombre_rep: e.target.value })}
-                  className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
-                <input placeholder="Teléfono" value={formPunto.telefono_rep || ''} onChange={(e) => setFormPunto({ ...formPunto, telefono_rep: e.target.value })}
                   className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
               </>
             )}
