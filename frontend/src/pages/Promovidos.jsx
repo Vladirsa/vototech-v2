@@ -546,14 +546,16 @@ export default function Promovidos() {
   const [filtroTemperatura, setFiltroTemperatura] = useState('todas');
   const [detalleId, setDetalleId] = useState(null);
   const [mostrarImportar, setMostrarImportar] = useState(false);
+  const [ordenarPorPuntuacion, setOrdenarPorPuntuacion] = useState(false);
 
   const cargar = () => {
     setCargando(true);
     const ep = modoSeguimiento ? '/promovidos/seguimiento-prioritario' : '/promovidos';
-    api.get(ep).then((r) => { setLista(r.data.data); setCargando(false); });
+    const parametro = !modoSeguimiento && ordenarPorPuntuacion ? '?orden=puntuacion' : '';
+    api.get(ep + parametro).then((r) => { setLista(r.data.data); setCargando(false); });
   };
 
-  useEffect(() => { cargar(); }, [modoSeguimiento]);
+  useEffect(() => { cargar(); }, [modoSeguimiento, ordenarPorPuntuacion]);
 
   // Si se llegó desde el mapa con una sección específica (ej: /promovidos?seccion=12),
   // filtrar la lista para mostrar solo esa sección — así el botón "Ver promovidos
@@ -640,6 +642,12 @@ export default function Promovidos() {
               <option value="tibio">🌡️ Tibio</option>
               <option value="caliente">🔥 Caliente</option>
             </select>
+            {/* 🆕 Ordenar por puntuación — los más "ganados" primero */}
+            <button onClick={() => setOrdenarPorPuntuacion(!ordenarPorPuntuacion)}
+              className={`px-3 py-2 rounded-lg text-xs font-bold whitespace-nowrap ${ordenarPorPuntuacion ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'}`}
+              title="Ordena de mayor a menor puntuación (0-100)">
+              📊 {ordenarPorPuntuacion ? 'Por puntuación' : 'Ordenar por puntuación'}
+            </button>
           </div>
         )}
 
@@ -677,7 +685,17 @@ export default function Promovidos() {
                         {p.dias_sin_contacto != null && `· ${p.dias_sin_contacto} días sin contacto`}
                       </div>
                     </div>
-                    <span className={`text-[10px] font-bold ${est.color}`}>{est.label}</span>
+                    <div className="flex items-center gap-2">
+                      {/* 🆕 Puntuación 0-100 — combina afinidad histórica de la
+                          sección, clasificación, temperatura, compromiso, y qué
+                          tan reciente fue el contacto en un solo número. */}
+                      {p.puntuacion != null && (
+                        <span className={`text-[10px] font-black px-2 py-1 rounded-lg ${p.puntuacion >= 70 ? 'bg-emerald-500/20 text-emerald-400' : p.puntuacion >= 40 ? 'bg-amber-500/20 text-amber-400' : 'bg-slate-700/50 text-slate-400'}`}>
+                          {p.puntuacion}
+                        </span>
+                      )}
+                      <span className={`text-[10px] font-bold ${est.color}`}>{est.label}</span>
+                    </div>
                   </div>
                   {modoSeguimiento && (
                     <div className="flex gap-1.5 mt-3">
