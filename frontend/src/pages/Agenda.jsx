@@ -352,23 +352,29 @@ function VistaCalendarioMes({ eventos, mesActual, onCambiarMes, onDiaClick }) {
         <span className="text-sm font-bold text-white capitalize">{mesActual.toLocaleDateString('es-MX', { month: 'long', year: 'numeric' })}</span>
         <button onClick={() => onCambiarMes(1)} className="text-slate-400 px-2">→</button>
       </div>
-      <div className="grid grid-cols-7 gap-1 text-center text-[9px] text-slate-500 mb-1">
+      <div className="grid grid-cols-7 gap-1.5 text-center text-xs font-bold text-slate-500 mb-1.5">
         {['D', 'L', 'M', 'M', 'J', 'V', 'S'].map((d, i) => <div key={i}>{d}</div>)}
       </div>
-      <div className="grid grid-cols-7 gap-1">
+      <div className="grid grid-cols-7 gap-1.5">
         {dias.map((dia, i) => {
           if (!dia) return <div key={i} />;
           const eventosDia = eventosPorDia[dia.toDateString()] || [];
           const esHoy = dia.toDateString() === new Date().toDateString();
           return (
             <button key={i} onClick={() => eventosDia.length > 0 && onDiaClick(eventosDia)}
-              className={`aspect-square rounded-lg flex flex-col items-center justify-center text-[10px] relative ${esHoy ? 'bg-indigo-600 text-white font-bold' : 'text-slate-300 hover:bg-slate-800'}`}>
+              className={`aspect-square rounded-lg flex flex-col items-center justify-center text-base md:text-lg font-bold relative ${esHoy ? 'bg-indigo-600 text-white' : 'text-slate-200 hover:bg-slate-800'}`}>
               {dia.getDate()}
               {eventosDia.length > 0 && (
-                <div className="flex gap-0.5 mt-0.5">
-                  {eventosDia.slice(0, 3).map((e, j) => (
-                    <span key={j} className={`w-1 h-1 rounded-full ${(COLOR_ESTILO[e.color_alerta] || COLOR_ESTILO.indigo).punto}`} />
+                <div className="flex gap-0.5 mt-0.5 items-center">
+                  {/* 🆕 Íconos reales del tipo de evento (no solo un
+                      punto de color) — hasta 2 visibles, y un "+N" si
+                      hay más, para ver de un vistazo QUÉ hay ese día. */}
+                  {eventosDia.slice(0, 2).map((e, j) => (
+                    <span key={j} className="text-xs leading-none" title={e.titulo}>{TIPO_ICONO[e.tipo] || '📌'}</span>
                   ))}
+                  {eventosDia.length > 2 && (
+                    <span className="text-[9px] font-bold text-indigo-300 leading-none">+{eventosDia.length - 2}</span>
+                  )}
                 </div>
               )}
             </button>
