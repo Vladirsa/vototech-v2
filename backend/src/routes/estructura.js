@@ -185,7 +185,7 @@ const esquemaMiembro = z.object({
   email: z.string().email(),
   telefono: z.string().max(20).optional(),
   password: z.string().min(8),
-  rol: z.enum(['jefe_campana', 'coord_general', 'coord_distrital', 'coord_municipal', 'coord_seccional', 'promotor', 'encargado_juridico', 'encargado_finanzas', 'voluntario']),
+  rol: z.enum(['jefe_campana', 'coord_general', 'coord_distrital', 'coord_municipal', 'coord_seccional', 'promotor', 'encargado_juridico', 'encargado_finanzas', 'representante_casilla', 'voluntario']),
   puesto: z.string().max(100).optional(),
   parent_id: z.string().uuid().optional(),
   territorio_tipo: z.string().optional(),
@@ -232,7 +232,7 @@ router.post('/', async (req, res) => {
 const esquemaEditar = z.object({
   nombre: z.string().min(2).max(200).optional(),
   telefono: z.string().max(20).optional(),
-  rol: z.enum(['jefe_campana', 'coord_general', 'coord_distrital', 'coord_municipal', 'coord_seccional', 'promotor', 'encargado_juridico', 'encargado_finanzas', 'voluntario']).optional(),
+  rol: z.enum(['jefe_campana', 'coord_general', 'coord_distrital', 'coord_municipal', 'coord_seccional', 'promotor', 'encargado_juridico', 'encargado_finanzas', 'representante_casilla', 'voluntario']).optional(),
   puesto: z.string().max(100).nullable().optional(),
   parent_id: z.string().uuid().nullable().optional(),
   territorio_tipo: z.string().nullable().optional(),
