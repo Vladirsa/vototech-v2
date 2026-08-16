@@ -10,14 +10,14 @@ const TIPO_LABEL = { evento: 'Evento', reunion: 'Reunión', recorrido: 'Recorrid
 // rojo). Los nombres coinciden exactamente con lo que acepta el
 // backend (COLORES_VALIDOS en agenda.js).
 const COLOR_ESTILO = {
-  indigo:  { borde: 'border-l-indigo-500',  bg: 'bg-indigo-500/10',  punto: 'bg-indigo-400',  swatch: 'bg-indigo-500',  label: 'Normal' },
-  emerald: { borde: 'border-l-emerald-500', bg: 'bg-emerald-500/10', punto: 'bg-emerald-400', swatch: 'bg-emerald-500', label: 'Confirmado fuerte' },
-  amber:   { borde: 'border-l-amber-500',   bg: 'bg-amber-500/10',   punto: 'bg-amber-400',   swatch: 'bg-amber-500',   label: 'Importante' },
-  red:     { borde: 'border-l-red-500',     bg: 'bg-red-500/10',     punto: 'bg-red-400',     swatch: 'bg-red-500',     label: 'Urgente/Crisis' },
-  purple:  { borde: 'border-l-purple-500',  bg: 'bg-purple-500/10',  punto: 'bg-purple-400',  swatch: 'bg-purple-500',  label: 'Estratégico' },
-  pink:    { borde: 'border-l-pink-500',    bg: 'bg-pink-500/10',    punto: 'bg-pink-400',    swatch: 'bg-pink-500',    label: 'Medios/Prensa' },
-  cyan:    { borde: 'border-l-cyan-500',    bg: 'bg-cyan-500/10',    punto: 'bg-cyan-400',    swatch: 'bg-cyan-500',    label: 'Digital/Redes' },
-  slate:   { borde: 'border-l-slate-500',   bg: 'bg-slate-500/10',   punto: 'bg-slate-400',   swatch: 'bg-slate-500',   label: 'Interno/Bajo perfil' },
+  indigo:  { borde: 'border-l-indigo-500',  bg: 'bg-indigo-500/10',  punto: 'bg-indigo-400',  swatch: 'bg-indigo-500',  texto: 'text-indigo-300',  label: 'Normal' },
+  emerald: { borde: 'border-l-emerald-500', bg: 'bg-emerald-500/10', punto: 'bg-emerald-400', swatch: 'bg-emerald-500', texto: 'text-emerald-300', label: 'Confirmado fuerte' },
+  amber:   { borde: 'border-l-amber-500',   bg: 'bg-amber-500/10',   punto: 'bg-amber-400',   swatch: 'bg-amber-500',   texto: 'text-amber-300',   label: 'Importante' },
+  red:     { borde: 'border-l-red-500',     bg: 'bg-red-500/10',     punto: 'bg-red-400',     swatch: 'bg-red-500',     texto: 'text-red-300',     label: 'Urgente/Crisis' },
+  purple:  { borde: 'border-l-purple-500',  bg: 'bg-purple-500/10',  punto: 'bg-purple-400',  swatch: 'bg-purple-500',  texto: 'text-purple-300',  label: 'Estratégico' },
+  pink:    { borde: 'border-l-pink-500',    bg: 'bg-pink-500/10',    punto: 'bg-pink-400',    swatch: 'bg-pink-500',    texto: 'text-pink-300',    label: 'Medios/Prensa' },
+  cyan:    { borde: 'border-l-cyan-500',    bg: 'bg-cyan-500/10',    punto: 'bg-cyan-400',    swatch: 'bg-cyan-500',    texto: 'text-cyan-300',    label: 'Digital/Redes' },
+  slate:   { borde: 'border-l-slate-500',   bg: 'bg-slate-500/10',   punto: 'bg-slate-400',   swatch: 'bg-slate-500',   texto: 'text-slate-300',   label: 'Interno/Bajo perfil' },
 };
 
 // 🆕 Estado de aprobación — solo Candidato o Secretario Particular
@@ -586,16 +586,16 @@ export default function Agenda() {
   const TarjetaEvento = ({ e }) => {
     const est = COLOR_ESTILO[e.color_alerta] || COLOR_ESTILO.indigo;
     return (
-      <div className={`rounded-xl border-l-4 ${est.borde} border-y border-r border-slate-800 p-4 ${e.realizado ? 'bg-slate-900/30 opacity-60' : 'bg-slate-900/60'}`}>
+      <div className={`rounded-xl border-l-[6px] ${est.borde} border-y border-r border-slate-800 p-4 ${e.realizado ? 'bg-slate-900/30 opacity-60' : 'bg-slate-900/60'}`}>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <span className="text-2xl">{TIPO_ICONO[e.tipo]}</span>
+            <span className="text-4xl">{TIPO_ICONO[e.tipo]}</span>
             <div>
-              <div className="text-sm font-bold text-white flex items-center gap-1.5 flex-wrap">
+              <div className="text-base font-bold text-white flex items-center gap-1.5 flex-wrap">
                 {e.titulo}
-                {e.realizado && <span className="text-emerald-400 text-[10px]">✅ Realizado</span>}
+                {e.realizado && <span className="text-emerald-400 text-xs">✅ Realizado</span>}
               </div>
-              <div className="text-[10px] text-slate-500">
+              <div className="text-xs text-slate-400 mt-0.5">
                 {new Date(e.fecha_inicio).toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' })}
                 {e.lugar && ` · ${e.lugar}`}{e.seccion_numero && ` · Secc. ${e.seccion_numero}`}
               </div>
@@ -612,13 +612,14 @@ export default function Agenda() {
           </div>
         </div>
 
-        {/* 🆕 Estado de aprobación + etiquetas */}
-        <div className="flex items-center gap-1.5 flex-wrap mt-2 pl-11">
+        {/* 🆕 Estado de aprobación + etiquetas — más grandes y con
+            íconos, para que se distingan de un vistazo rápido */}
+        <div className="flex items-center gap-2 flex-wrap mt-3 pl-14">
           {e.estado && e.estado !== 'confirmado' && ESTADO_ESTILO[e.estado] && (
-            <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${ESTADO_ESTILO[e.estado].color}`}>{ESTADO_ESTILO[e.estado].label}</span>
+            <span className={`text-xs font-bold px-3 py-1 rounded-full ${ESTADO_ESTILO[e.estado].color}`}>{ESTADO_ESTILO[e.estado].label}</span>
           )}
           {(e.etiquetas || []).map((et, i) => (
-            <span key={i} className="text-[9px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full">#{et}</span>
+            <span key={i} className={`text-xs font-bold px-3 py-1 rounded-full ${est.bg} ${est.texto}`}>🏷️ {et}</span>
           ))}
         </div>
 
