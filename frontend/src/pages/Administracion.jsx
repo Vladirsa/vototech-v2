@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api, { descargarArchivo } from '../lib/api';
 import BuscadorCalle from '../components/BuscadorCalle';
+import SelectorUbicacionMapa from '../components/SelectorUbicacionMapa';
 
 const CATEGORIAS = ['utilitarios', 'propaganda_impresa', 'espectaculares', 'eventos', 'transporte', 'personal', 'tecnologia', 'publicidad_digital', 'otro'];
 const TIPO_COMPROBANTE = { factura: '🧾 Factura', nota: '📝 Nota de venta', recibo: '🧻 Recibo', sin_comprobante: '⚠️ Sin comprobante' };
@@ -59,7 +60,7 @@ function BotonEvidencia({ url, onSubir }) {
 
 /** Modal para agregar un nuevo activo — mismo formulario que ya existía en Activos.jsx. */
 function ModalAgregarActivo({ onCerrar, onGuardado }) {
-  const [form, setForm] = useState({ tipo: 'espectacular', seccion_numero: '', direccion: '', empresa: '', costo: '', fecha_ini: '', fecha_vence: '', nombre_rep: '', telefono_rep: '', lat: null, lng: null, cantidad: '', motivo: 'promocion_voto', destinatario: '' });
+  const [form, setForm] = useState({ tipo: 'espectacular', seccion_numero: '', direccion: '', empresa: '', costo: '', fecha_ini: '', fecha_vence: '', nombre_rep: '', telefono_rep: '', lat: null, lng: null, cantidad: '', motivo: 'promocion_voto', destinatario: '', dimensiones: '', identificador_ine_rnp: '', numero_rnp_proveedor: '' });
   const [error, setError] = useState('');
 
   const guardar = async () => {
@@ -69,11 +70,15 @@ function ModalAgregarActivo({ onCerrar, onGuardado }) {
         seccion_numero: form.seccion_numero ? parseInt(form.seccion_numero) : undefined,
         costo: form.costo ? parseFloat(form.costo) : undefined,
         cantidad: form.cantidad ? parseInt(form.cantidad) : undefined,
+        lat: form.lat ?? undefined,
+        lng: form.lng ?? undefined,
       });
       if (data.alerta_legal) alert(data.alerta_legal);
       onGuardado();
     } catch (err) { setError(err.response?.data?.error || 'Error al guardar'); }
   };
+
+  const esPropaganda = ['espectacular', 'barda', 'manta'].includes(form.tipo);
 
   return (
     <div className="fixed inset-0 bg-black/70 flex items-end md:items-center justify-center z-50">
@@ -90,6 +95,26 @@ function ModalAgregarActivo({ onCerrar, onGuardado }) {
           className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
 
         <BuscadorCalle valor={form.direccion} onSeleccion={(d) => setForm({ ...form, direccion: d.direccion_completa, lat: d.lat, lng: d.lng })} />
+
+        {/* 🆕 Mapa para marcar el punto exacto — útil cuando no hay una
+            dirección clara que buscar (carretera, entronques, etc.),
+            o para afinar el punto después de la búsqueda por texto. */}
+        <SelectorUbicacionMapa lat={form.lat} lng={form.lng} onCambio={(lat, lng) => setForm({ ...form, lat, lng })} />
+
+        {/* 🆕 Campos exactos que pide el INE para propaganda (bardas,
+            espectaculares, mantas) — solo se muestran cuando aplica. */}
+        {esPropaganda && (
+          <div className="bg-slate-800/40 border border-slate-700 rounded-lg p-3 space-y-2">
+            <div className="text-[10px] font-bold text-slate-400 uppercase">📋 Para el reporte al INE</div>
+            <input placeholder="Dimensiones (ej: 3m x 6m)" value={form.dimensiones} onChange={(e) => setForm({ ...form, dimensiones: e.target.value })}
+              className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white text-xs" />
+            <input placeholder="No. del proveedor en el RNP (si lo tiene)" value={form.numero_rnp_proveedor} onChange={(e) => setForm({ ...form, numero_rnp_proveedor: e.target.value })}
+              className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white text-xs" />
+            <input placeholder="Identificador único del RNP (si lo tiene)" value={form.identificador_ine_rnp} onChange={(e) => setForm({ ...form, identificador_ine_rnp: e.target.value })}
+              className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white text-xs" />
+            <p className="text-[9px] text-slate-500">La foto del anuncio ya colocado se sube después, desde la lista de Activos.</p>
+          </div>
+        )}
 
         {form.tipo === 'ine_representante' ? (
           <>
@@ -423,6 +448,14 @@ export default function Administracion() {
     try { await api.patch(`/activos/${id}/estado`, { estado }); cargarActivos(); }
     catch (e) { alert(e.response?.data?.error || 'No se pudo cambiar el estado'); }
   };
+  // 🆕 Foto del anuncio ya colocado — requisito real del INE, distinto
+  // de la foto de evidencia al dar de baja.
+  const subirFotoActivo = async (id, archivo) => {
+    const fd = new FormData();
+    fd.append('foto', archivo);
+    try { await api.post(`/activos/${id}/foto`, fd, { headers: { 'Content-Type': 'multipart/form-data' } }); cargarActivos(); }
+    catch (e) { alert('No se pudo subir la foto'); }
+  };
   const eliminarActivo = async (id) => {
     if (!confirm('¿Eliminar este activo?')) return;
     try { await api.delete(`/activos/${id}`); cargarActivos(); }
@@ -664,15 +697,30 @@ export default function Administracion() {
                         {a.fecha_vence && ` · vence ${new Date(a.fecha_vence).toLocaleDateString('es-MX')}`}
                       </div>
                       {a.responsable_nombre && <div className="text-[10px] text-indigo-400 mt-0.5">👤 {a.responsable_nombre}</div>}
+                      {a.dimensiones && <div className="text-[10px] text-slate-500 mt-0.5">📐 {a.dimensiones}</div>}
                     </div>
-                    <span className={`text-[9px] font-bold px-2 py-1 rounded-full whitespace-nowrap ${ESTADO_ACTIVO_COLOR[a.estado] || ESTADO_ACTIVO_COLOR.activo}`}>{a.estado === 'baja' ? (DESTINO_BAJA_LABEL[a.destino_baja] || 'De baja') : a.estado}</span>
+                    {a.foto_url ? (
+                      <img src={a.foto_url} alt="" className="w-12 h-12 rounded-lg object-cover flex-shrink-0" />
+                    ) : (
+                      <span className={`text-[9px] font-bold px-2 py-1 rounded-full whitespace-nowrap ${ESTADO_ACTIVO_COLOR[a.estado] || ESTADO_ACTIVO_COLOR.activo}`}>{a.estado === 'baja' ? (DESTINO_BAJA_LABEL[a.destino_baja] || 'De baja') : a.estado}</span>
+                    )}
                   </div>
+                  {a.foto_url && (
+                    <span className={`inline-block mt-1.5 text-[9px] font-bold px-2 py-1 rounded-full ${ESTADO_ACTIVO_COLOR[a.estado] || ESTADO_ACTIVO_COLOR.activo}`}>{a.estado === 'baja' ? (DESTINO_BAJA_LABEL[a.destino_baja] || 'De baja') : a.estado}</span>
+                  )}
                   {a.riesgo_acto_anticipado && (
                     <div className="mt-2 text-[9px] bg-red-500/10 text-red-400 rounded-lg px-2 py-1.5">
                       ⚠️ Colocado antes del inicio oficial de campaña — riesgo de "acto anticipado", el ITE ha sancionado casos similares
                     </div>
                   )}
                   <div className="flex gap-2 mt-2 items-center flex-wrap">
+                    {['espectacular', 'barda', 'manta'].includes(a.tipo) && (
+                      <label className="text-[10px] text-cyan-400 font-bold cursor-pointer">
+                        📷 {a.foto_url ? 'Cambiar foto' : 'Subir foto'}
+                        <input type="file" accept="image/*" className="hidden"
+                          onChange={(e) => e.target.files[0] && subirFotoActivo(a.id, e.target.files[0])} />
+                      </label>
+                    )}
                     {a.tipo === 'utilitario' && <button onClick={() => setEntregasDe(a)} className="text-[10px] text-indigo-400 font-bold">📦 Entregas</button>}
                     {a.estado !== 'baja' && <button onClick={() => setResponsableDe(a)} className="text-[10px] text-purple-400 font-bold">👤 Asignar responsable</button>}
                     <button onClick={() => setKardexDe(a)} className="text-[10px] text-slate-400 font-bold">📋 Kardex</button>
@@ -770,6 +818,7 @@ export default function Administracion() {
               <div className="flex flex-wrap gap-2">
                 <button onClick={() => descargarArchivo('/exportar/gastos', 'gastos_ople.xlsx')} className="px-3 py-2 rounded-lg bg-emerald-700/50 text-emerald-300 text-xs font-bold">📥 Gastos + resumen OPLE</button>
                 <button onClick={() => descargarArchivo('/exportar/activos-excel', 'inventario_activos.xlsx')} className="px-3 py-2 rounded-lg bg-emerald-700/50 text-emerald-300 text-xs font-bold">📥 Inventario de activos</button>
+                <button onClick={() => descargarArchivo('/exportar/propaganda-ine', 'propaganda_ine.xlsx')} className="px-3 py-2 rounded-lg bg-cyan-700/50 text-cyan-300 text-xs font-bold" title="Columnas exactas del formulario del INE para bardas/espectaculares/mantas">📥 Propaganda (formato INE)</button>
                 <button onClick={() => descargarArchivo('/exportar/respaldo-completo', 'respaldo_completo.xlsx')} className="px-3 py-2 rounded-lg bg-emerald-700/50 text-emerald-300 text-xs font-bold">📥 Respaldo completo</button>
               </div>
             </div>
