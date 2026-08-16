@@ -80,6 +80,11 @@ const ANIOS_DISPONIBLES = {
   pres_comunidad: [2024, 2021],
   gobernador: [2021],
   dip_local: [2021],
+  // 🆕 Faltaban por completo — por eso el mapa nunca coloreaba estos
+  // tipos aunque los datos sí existían en la base (626 secciones cada
+  // uno): sin año disponible, nunca se armaba la consulta correcta.
+  dip_federal: [2024],
+  senador: [2024],
 };
 function capasDeTerritorioDisponibles(territorioTipo) {
   if (territorioTipo === 'seccion') return ['secciones'];
@@ -691,6 +696,13 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
         e.target.setStyle(refEstiloSeccion.current(feature));
       },
       click: () => {
+        // 🆕 Mientras se está trazando una caminata, el clic en el mapa
+        // es SOLO para agregar el punto de la ruta (lo captura
+        // CapturaTrazoCaminata) — antes, el polígono de la sección
+        // debajo también abría su propia ficha técnica al mismo
+        // tiempo, y esa interrupción hacía que pareciera que la ruta
+        // "se perdía" a medio trazo.
+        if (dibujandoCaminata) return;
         if (modoCapa === 'secciones') { alClickSeccion(feature.properties.seccion); return; }
         if (modoCapa === 'senaduria') { setTerritorioActivo({ tipo: 'senaduria', numero: null }); return; }
         const numero = feature.properties[modoCapa];
@@ -1109,8 +1121,8 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
       )}
       {!esMobile && (
       <div
-        className="absolute bg-slate-900/95 backdrop-blur border border-indigo-500/30 rounded-2xl shadow-2xl w-64 select-none z-[1000] flex flex-col"
-        style={{ left: panelPos.x, top: panelPos.y, maxHeight: 'calc(100vh - 120px)' }}
+        className="absolute bg-slate-900/95 backdrop-blur border border-indigo-500/30 rounded-2xl shadow-2xl select-none z-[1000] flex flex-col resize overflow-hidden"
+        style={{ left: panelPos.x, top: panelPos.y, width: 256, height: 480, minWidth: 220, minHeight: 180, maxWidth: '90vw', maxHeight: 'calc(100vh - 100px)' }}
       >
         <div
           className="flex items-center justify-between px-4 py-3 cursor-move border-b border-slate-700 flex-shrink-0"
@@ -1120,7 +1132,9 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
             <span className="text-lg">🎨</span>
             <div>
               <div className="text-sm font-bold text-white">Coloreado del mapa</div>
-              <div className="text-[10px] text-indigo-400">⠿ Arrastra para mover</div>
+              {/* 🆕 Se puede agrandar/achicar jalando la esquina
+                  inferior derecha del panel — ancho y alto, a tu gusto. */}
+              <div className="text-[10px] text-indigo-400">⠿ Arrastra para mover · ⤡ jala la esquina para el tamaño</div>
             </div>
           </div>
           <button
@@ -1130,10 +1144,7 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
             <div className={`w-4 h-4 bg-white rounded-full transition-transform ${coloreadoActivo ? 'translate-x-5' : 'translate-x-0.5'}`} />
           </button>
         </div>
-        <div
-          className="overflow-y-auto resize-y"
-          style={{ minHeight: '120px', maxHeight: 'calc(100vh - 180px)', height: '420px' }}
-        >
+        <div className="overflow-y-auto flex-1">
         {coloreadoActivo && (
           <div className="flex gap-1 p-3 pb-0">
             <button onClick={() => setModoColoreado('partido')}
