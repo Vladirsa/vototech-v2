@@ -188,6 +188,50 @@ router.post('/importar-calles-inegi', async (req, res) => {
   }
 });
 
+/**
+ * 🆕 POST /api/admin/generar-casillas-oficiales
+ * Genera de golpe las casillas estimadas para las 634 secciones del
+ * estado (regla INE: 1 casilla por cada 750 electores o fracción) —
+ * un catálogo de referencia ESTATAL, independiente de cualquier
+ * campaña, para que la numeración (B, C1, C2...) sea consistente sin
+ * importar qué campaña la consulte. Seguro de correr más de una vez
+ * — no duplica lo que ya existe.
+ */
+router.post('/generar-casillas-oficiales', async (req, res) => {
+  try {
+    const secciones = await query(
+      `SELECT id, numero, lista_nominal FROM secciones WHERE estado_id=29 AND lista_nominal > 0`
+    );
+
+    let creadas = 0, secccionesProcesadas = 0;
+    for (const s of secciones.rows) {
+      secccionesProcesadas++;
+      const sugeridas = Math.ceil(Math.max(1, s.lista_nominal || 0) / 750);
+      const personasEstimadas = Math.round(s.lista_nominal / sugeridas);
+      const nombresCasilla = ['B', ...Array.from({ length: Math.max(0, sugeridas - 1) }, (_, i) => `C${i + 1}`)];
+
+      for (const numero of nombresCasilla) {
+        const resultado = await query(
+          `INSERT INTO casillas_oficiales_estado (seccion_id, numero, lista_nominal_seccion, personas_estimadas)
+           VALUES ($1,$2,$3,$4)
+           ON CONFLICT (seccion_id, numero) DO NOTHING RETURNING id`,
+          [s.id, numero, s.lista_nominal, personasEstimadas]
+        );
+        if (resultado.rows[0]) creadas++;
+      }
+    }
+
+    res.json({
+      ok: true,
+      mensaje: `${creadas} casillas nuevas generadas en ${secccionesProcesadas} secciones (las que ya existían no se duplicaron).`,
+      creadas, secccionesProcesadas,
+    });
+  } catch (e) {
+    console.error('Error generando casillas oficiales:', e);
+    res.status(500).json({ ok: false, error: 'No se pudo generar: ' + e.message });
+  }
+});
+
 router.get('/respaldos/:campanaId', async (req, res) => {
   const lista = await listarRespaldos(req.params.campanaId);
   res.json({ ok: true, data: lista });
