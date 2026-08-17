@@ -177,11 +177,15 @@ export default function AdminPlataforma() {
     setMensajeCalles('');
     try {
       const { data } = await axios.post(`${API_URL}/admin/importar-calles-inegi`, {}, { headers });
-      setMensajeCalles(`✅ Capa usada: "${data.capaUsada}" — ${data.cargadas} calles cargadas de ${data.totalDescargadas} descargadas (${data.sinNombre} sin nombre, ${data.errores} con error).`);
+      let msg = `✅ ${data.cargadas} calles cargadas · ${data.totalLocalidades} localidades revisadas (${data.localidadesSinVialidades} sin datos) · ${data.sinNombre} sin nombre · ${data.errores} con error.`;
+      if (data.cargadas === 0 && data.ejemploPropiedadesVialidad) {
+        msg += `\n\n⚠️ 0 cargadas — revisa estas propiedades reales de una vialidad para ajustar el nombre de campo: ${JSON.stringify(data.ejemploPropiedadesVialidad)}`;
+      }
+      setMensajeCalles(msg);
     } catch (e) {
       const detalle = e.response?.data;
-      if (detalle?.capasDisponibles) {
-        setMensajeCalles(`⚠️ No se detectó la capa de vialidades automáticamente. Capas disponibles: ${detalle.capasDisponibles.join(', ')}\n\nCopia este listado y pásaselo a Claude para ajustar el script.`);
+      if (detalle?.propiedadesDeEjemplo) {
+        setMensajeCalles(`⚠️ No se detectó el campo de la clave de localidad. Propiedades reales encontradas: ${JSON.stringify(detalle.propiedadesDeEjemplo)}\n\nCopia esto y pásaselo a Claude para ajustar el script.`);
       } else {
         setMensajeCalles('⚠️ Error: ' + (detalle?.error || e.message));
       }
