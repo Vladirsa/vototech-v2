@@ -242,23 +242,31 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
   const [modoColoreado, setModoColoreado] = useState('partido');
   const [prioridadPorSeccion, setPrioridadPorSeccion] = useState({});
   const [densidadPorSeccion, setDensidadPorSeccion] = useState({});
+  // 🆕 Total real de promovidos — incluye a los que no tienen sección
+  // vinculada. Antes, este panel sumaba SOLO lo que aparecía en
+  // densidadPorSeccion (que por diseño excluye a quien no tiene
+  // sección), y por eso mostraba un número más bajo que el
+  // "Concentrado General" — no era un error de datos, dos cuentas
+  // distintas nada más. Ahora ambos coinciden.
+  const [totalRealPromovidos, setTotalRealPromovidos] = useState(null);
   const resumenCampana = useMemo(() => {
     const filas = Object.values(densidadPorSeccion);
     return {
-      totalPromovidos: filas.reduce((s, f) => s + f.total, 0),
+      totalPromovidos: totalRealPromovidos ?? filas.reduce((s, f) => s + f.total, 0),
       base: filas.reduce((s, f) => s + f.base, 0),
       persuadible: filas.reduce((s, f) => s + f.persuadible, 0),
       adversario: filas.reduce((s, f) => s + f.adversario, 0),
       seccionesConTrabajo: Object.keys(densidadPorSeccion).length,
     };
-  }, [densidadPorSeccion]);
+  }, [densidadPorSeccion, totalRealPromovidos]);
   useEffect(() => {
     if (modoColoreado !== 'campana') return;
     api.get('/priorizacion/densidad-promovidos').then(r => {
       const mapa = {};
       r.data.data.forEach((f) => { mapa[f.seccion] = { total: parseInt(f.total), base: parseInt(f.base), persuadible: parseInt(f.persuadible), adversario: parseInt(f.adversario) }; });
       setDensidadPorSeccion(mapa);
-    }).catch(() => setDensidadPorSeccion({}));
+      setTotalRealPromovidos(r.data.total_real ?? null);
+    }).catch(() => { setDensidadPorSeccion({}); setTotalRealPromovidos(null); });
   }, [modoColoreado]);
   useEffect(() => {
     if (modoColoreado !== 'prioridad') return;
