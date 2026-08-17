@@ -67,6 +67,17 @@ export function ModalAgregar({ onCerrar, onGuardado, seccionInicial }) {
   });
   const [error, setError] = useState('');
   const [guardando, setGuardando] = useState(false);
+  // 🆕 Info derivada de la sección (municipio, distritos) — se llena
+  // sola al escribir el número, sin que la persona tenga que saberla.
+  const [infoSeccion, setInfoSeccion] = useState(null);
+  useEffect(() => {
+    const numero = parseInt(form.seccion_numero);
+    if (!numero || isNaN(numero)) { setInfoSeccion(null); return; }
+    const temporizador = setTimeout(() => {
+      api.get(`/secciones/${numero}/info`).then((r) => setInfoSeccion(r.data.data)).catch(() => setInfoSeccion(null));
+    }, 400);
+    return () => clearTimeout(temporizador);
+  }, [form.seccion_numero]);
   // 🆕 Lectura de credencial INE con IA — solo extrae texto, la foto
   // nunca se guarda (ver ia.js: /leer-credencial usa memoria, no storage).
   const [leyendoCredencial, setLeyendoCredencial] = useState(false);
@@ -117,7 +128,7 @@ export function ModalAgregar({ onCerrar, onGuardado, seccionInicial }) {
     if (!form.consentimiento) { setError('Se requiere el consentimiento del ciudadano (LFPDPPP)'); return; }
     setGuardando(true);
     try {
-      await api.post('/promovidos', {
+      const { data } = await api.post('/promovidos', {
         ...form,
         seccion_numero: form.seccion_numero ? parseInt(form.seccion_numero) : undefined,
         // 🆕 lat/lng arrancan en null cuando no se ha elegido una
@@ -128,6 +139,10 @@ export function ModalAgregar({ onCerrar, onGuardado, seccionInicial }) {
         lng: form.lng ?? undefined,
         encuesta: form.necesidad_principal ? { necesidad_principal: form.necesidad_principal } : undefined,
       });
+      // 🆕 Si la dirección buscada cae geográficamente en otra
+      // sección distinta a la que se escribió, se avisa — no bloquea
+      // el guardado, pero conviene revisarlo.
+      if (data.alerta_seccion_no_coincide) alert(data.alerta_seccion_no_coincide);
       onGuardado();
     } catch (err) {
       setError(err.response?.data?.error || 'Error al guardar');
@@ -172,6 +187,13 @@ export function ModalAgregar({ onCerrar, onGuardado, seccionInicial }) {
           className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
         <input placeholder="Sección electoral" type="number" value={form.seccion_numero} onChange={(e) => actualizar('seccion_numero', e.target.value)}
           className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+        {/* 🆕 Se llena solo al escribir la sección — municipio y
+            distritos, sin que nadie los tenga que saber de memoria. */}
+        {infoSeccion && (
+          <div className="text-[10px] text-indigo-300 bg-indigo-500/10 rounded-lg px-3 py-1.5 -mt-1">
+            📍 {infoSeccion.municipio} · Dist. Local {infoSeccion.distrito_local} · Dist. Federal {infoSeccion.distrito_federal}
+          </div>
+        )}
         <BuscadorCalle
           valor={form.calle}
           seccionNumero={form.seccion_numero}
