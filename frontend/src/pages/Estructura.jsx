@@ -312,6 +312,19 @@ function ModalDetalleMiembro({ miembro, miembros, onCerrar, onActualizado }) {
   const [reasignando, setReasignando] = useState(false);
   const [nuevoDestino, setNuevoDestino] = useState('');
   const [editando, setEditando] = useState(false);
+  // 🆕 Checklist de documentos — solo aplica a Candidato y
+  // Representante de Casilla (los únicos roles con documentación
+  // legal específica que hay que llevar control).
+  const [checklistDocs, setChecklistDocs] = useState(null);
+  useEffect(() => {
+    if (['candidato', 'representante_casilla'].includes(miembro.rol)) {
+      api.get(`/documentos-persona/${miembro.id}`).then((r) => setChecklistDocs(r.data.data)).catch(() => setChecklistDocs(null));
+    }
+  }, [miembro.id, miembro.rol]);
+  const marcarDocumento = async (tipo, entregado) => {
+    await api.patch(`/documentos-persona/${miembro.id}/${tipo}`, { entregado });
+    api.get(`/documentos-persona/${miembro.id}`).then((r) => setChecklistDocs(r.data.data));
+  };
   const [form, setForm] = useState({ nombre: miembro.nombre, telefono: miembro.telefono || '', rol: miembro.rol, puesto: miembro.puesto || '', parent_id: miembro.parent_id || '', meta_diaria: miembro.meta_diaria || '', territorio_tipo: miembro.territorio_tipo || 'seccion', territorio_id: miembro.territorio_id || '' });
   const hijosDirectos = miembros.filter((m) => m.parent_id === miembro.id);
   useEffect(() => {
@@ -375,6 +388,27 @@ function ModalDetalleMiembro({ miembro, miembros, onCerrar, onActualizado }) {
                 {miembro.ultimo_acceso ? `Último acceso: ${new Date(miembro.ultimo_acceso).toLocaleDateString('es-MX')}` : 'Nunca ha entrado'}
               </span>
             </div>
+            {/* 🆕 Checklist de documentos — solo Candidato y
+                Representante de Casilla lo tienen, según lo que
+                exige el INE (credencial/registro) y la LGIPE
+                (nombramiento de representantes). */}
+            {checklistDocs && (
+              <div className={`rounded-xl border p-3 space-y-2 ${checklistDocs.completo ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-amber-500/10 border-amber-500/30'}`}>
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold text-slate-300 uppercase">📋 Documentación</span>
+                  <span className={`text-[10px] font-bold ${checklistDocs.completo ? 'text-emerald-400' : 'text-amber-400'}`}>
+                    {checklistDocs.completo ? '✅ Completa' : `⚠️ Faltan ${checklistDocs.faltantes}`}
+                  </span>
+                </div>
+                {checklistDocs.checklist.map((doc) => (
+                  <label key={doc.tipo} className="flex items-start gap-2 text-[11px] text-slate-300 cursor-pointer">
+                    <input type="checkbox" checked={doc.entregado} onChange={(e) => marcarDocumento(doc.tipo, e.target.checked)}
+                      className="mt-0.5" />
+                    <span className={doc.entregado ? 'line-through text-slate-500' : ''}>{doc.label}</span>
+                  </label>
+                ))}
+              </div>
+            )}
             {rendimientoRama && (
               <div className="bg-gradient-to-br from-indigo-950/60 to-purple-950/40 border border-indigo-800/30 rounded-xl p-3">
                 <div className="text-[10px] font-bold text-indigo-300 uppercase mb-2">🌳 Rendimiento de toda su rama</div>
