@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { query } from '../db/pool.js';
 import { requiereAuth } from '../middleware/auth.js';
 import { registrarAuditoria } from '../lib/auditoria.js';
+import { encontrarSeccionRealDelPunto } from '../lib/geoUtils.js';
 
 const router = Router();
 router.use(requiereAuth); // todo este módulo requiere sesión
@@ -153,12 +154,20 @@ router.get('/seguimiento-prioritario', async (req, res) => {
 });
 
 // ── VALIDACIÓN DE ENTRADA ──────────────────────────────────────
+/**
+ * 🆕 Mayúsculas siempre — mismo formato que imprime la credencial del
+ * INE, para que no queden nombres mezclados ("Juan Pérez" junto a
+ * "MARIA LOPEZ" junto a "pedro garcia"). Se limpia espacios extra de
+ * paso (a veces el teclado del celular deja dobles espacios).
+ */
+const aMayusculas = (s) => s.trim().replace(/\s+/g, ' ').toUpperCase();
+
 const esquemaPromovido = z.object({
-  nombre: z.string().min(2).max(200),
+  nombre: z.string().min(2).max(200).transform(aMayusculas),
   telefono: z.string().max(20).optional(),
   curp: z.string().max(18).optional(),
   seccion_numero: z.number().int().optional(),
-  calle: z.string().max(255).optional(),
+  calle: z.string().max(255).optional().transform((v) => (v ? aMayusculas(v) : v)),
   partido: z.string().max(20).optional(),
   comprometido: z.boolean().default(false),
   temperatura: z.enum(['frio', 'tibio', 'caliente']).default('tibio'),
@@ -339,7 +348,22 @@ router.post('/', async (req, res) => {
        d.situacion_grave || null, req.usuario.sub, d.consentimiento, d.genero || null, d.rango_edad || null]
     );
 
-    res.status(201).json({ ok: true, data: resultado.rows[0] });
+    // 🆕 Si se dio una sección Y una ubicación exacta, se revisa que
+    // esa dirección de verdad caiga dentro del polígono de esa
+    // sección — un promovido puede tener su credencial de una
+    // sección, pero la calle que se buscó cae geográficamente en
+    // otra (pasa seguido: la gente se muda, o se teclea mal el
+    // número). No bloquea el guardado, solo avisa para que se pueda
+    // corregir si fue un error.
+    let alertaSeccionNoCoincide = null;
+    if (seccionId && d.lat && d.lng) {
+      const seccionReal = encontrarSeccionRealDelPunto(d.lat, d.lng);
+      if (seccionReal && seccionReal !== d.seccion_numero) {
+        alertaSeccionNoCoincide = `⚠️ Escribiste sección ${d.seccion_numero}, pero la dirección que buscaste cae geográficamente en la sección ${seccionReal}. Revisa cuál es la correcta.`;
+      }
+    }
+
+    res.status(201).json({ ok: true, data: resultado.rows[0], alerta_seccion_no_coincide: alertaSeccionNoCoincide });
   } catch (e) {
     console.error('Error creando promovido:', e);
     res.status(500).json({ ok: false, error: 'Error al guardar' });
@@ -427,11 +451,11 @@ router.get('/:id', async (req, res) => {
 });
 
 const esquemaEditar = z.object({
-  nombre: z.string().min(2).max(200).optional(),
+  nombre: z.string().min(2).max(200).optional().transform((v) => (v ? aMayusculas(v) : v)),
   telefono: z.string().max(20).optional(),
   curp: z.string().max(18).optional(),
   seccion_numero: z.number().int().optional(),
-  calle: z.string().max(255).optional(),
+  calle: z.string().max(255).optional().transform((v) => (v ? aMayusculas(v) : v)),
   partido: z.string().max(20).optional(),
   comprometido: z.boolean().optional(),
   temperatura: z.enum(['frio', 'tibio', 'caliente']).optional(),

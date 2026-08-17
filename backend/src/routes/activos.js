@@ -5,6 +5,7 @@ import crypto from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 import { query } from '../db/pool.js';
 import { requiereAuth } from '../middleware/auth.js';
+import { encontrarSeccionRealDelPunto } from '../lib/geoUtils.js';
 
 const router = Router();
 router.use(requiereAuth);
@@ -169,7 +170,17 @@ router.post('/', async (req, res) => {
     }
   }
 
-  res.status(201).json({ ok: true, data: resultado.rows[0], alerta_legal: alertaLegal });
+  // 🆕 Si se dio sección Y ubicación exacta, se revisa que el pin
+  // caiga de verdad dentro de esa sección — igual que en Promovidos.
+  let alertaSeccionNoCoincide = null;
+  if (seccionId && d.lat && d.lng) {
+    const seccionReal = encontrarSeccionRealDelPunto(d.lat, d.lng);
+    if (seccionReal && seccionReal !== d.seccion_numero) {
+      alertaSeccionNoCoincide = `⚠️ Escribiste sección ${d.seccion_numero}, pero el punto que marcaste en el mapa cae geográficamente en la sección ${seccionReal}. Revisa cuál es la correcta.`;
+    }
+  }
+
+  res.status(201).json({ ok: true, data: resultado.rows[0], alerta_legal: alertaLegal, alerta_seccion_no_coincide: alertaSeccionNoCoincide });
 });
 
 /**
