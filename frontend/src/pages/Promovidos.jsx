@@ -1,8 +1,8 @@
 import { useEffect, useState, useRef } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { MapContainer, TileLayer, Marker } from 'react-leaflet';
 import api, { descargarArchivo } from '../lib/api';
 import BuscadorCalle from '../components/BuscadorCalle';
+import SelectorUbicacionMapa from '../components/SelectorUbicacionMapa';
 import InsigniaPartido from '../components/InsigniaPartido';
 import Papa from 'papaparse';
 // XLSX (SheetJS) se importa DINÁMICAMENTE dentro de leerArchivo() —
@@ -175,19 +175,13 @@ export function ModalAgregar({ onCerrar, onGuardado, seccionInicial }) {
           className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
         <BuscadorCalle
           valor={form.calle}
+          seccionNumero={form.seccion_numero}
           onSeleccion={(datos) => setForm((f) => ({ ...f, calle: datos.calle, lat: datos.lat, lng: datos.lng }))}
         />
-        {form.lat && form.lng && (
-          <div className="rounded-lg overflow-hidden border border-slate-700">
-            <div style={{ height: 140 }}>
-              <MapContainer center={[form.lat, form.lng]} zoom={17} style={{ height: '100%', width: '100%' }} zoomControl={false} dragging={false} scrollWheelZoom={false}>
-                <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-                <Marker position={[form.lat, form.lng]} />
-              </MapContainer>
-            </div>
-            <p className="text-[9px] text-slate-500 bg-slate-800 px-2 py-1.5">📍 Así va a quedar posicionado en el mapa — confirma que sea el lugar correcto</p>
-          </div>
-        )}
+        {/* 🆕 Mapa interactivo — antes era solo una vista previa fija
+            (dragging={false}), ahora se puede tocar para ajustar el
+            punto exacto, igual que en Activos. */}
+        <SelectorUbicacionMapa lat={form.lat} lng={form.lng} onCambio={(lat, lng) => setForm((f) => ({ ...f, lat, lng }))} />
 
         <select value={form.partido} onChange={(e) => actualizar('partido', e.target.value)}
           className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
