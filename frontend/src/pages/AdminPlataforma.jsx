@@ -178,8 +178,8 @@ export default function AdminPlataforma() {
     try {
       const { data } = await axios.post(`${API_URL}/admin/importar-calles-inegi`, {}, { headers });
       let msg = `✅ ${data.cargadas} calles cargadas · ${data.totalLocalidades} localidades revisadas (${data.localidadesSinVialidades} sin datos) · ${data.sinNombre} sin nombre · ${data.errores} con error.`;
-      if (data.cargadas === 0 && data.ejemploPropiedadesVialidad) {
-        msg += `\n\n⚠️ 0 cargadas — revisa estas propiedades reales de una vialidad para ajustar el nombre de campo: ${JSON.stringify(data.ejemploPropiedadesVialidad)}`;
+      if (data.cargadas === 0 && data.diagnosticoPrimeraPeticion) {
+        msg += `\n\n⚠️ DIAGNÓSTICO (primera petición probada):\n${JSON.stringify(data.diagnosticoPrimeraPeticion, null, 2)}\n\nCopia esto completo y pásaselo a Claude.`;
       }
       setMensajeCalles(msg);
     } catch (e) {
