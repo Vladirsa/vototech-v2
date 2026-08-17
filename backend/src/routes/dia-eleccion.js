@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { z } from 'zod';
+import PDFDocument from 'pdfkit';
 import { query } from '../db/pool.js';
 import { requiereAuth } from '../middleware/auth.js';
 import { getIo } from '../io.js';
@@ -328,6 +329,97 @@ router.patch('/casillas/:id/posicion', async (req, res) => {
   );
   if (!resultado.rows[0]) return res.status(404).json({ ok: false, error: 'No encontrada' });
   res.json({ ok: true, data: resultado.rows[0] });
+});
+
+/**
+ * 🆕 PATCH /api/dia-eleccion/casillas/:id/datos-nombramiento
+ * Guarda la clave de elector y el domicilio del representante — son
+ * 2 de los datos que exige la LGIPE (Art. 259 y Lineamientos de
+ * Registro de Representantes) para el nombramiento formal, y que no
+ * se piden en ningún otro lado del sistema.
+ */
+router.patch('/casillas/:id/datos-nombramiento', async (req, res) => {
+  const { representante_clave_elector, representante_domicilio } = req.body;
+  const campos = [];
+  const valores = [];
+  let i = 1;
+  if (representante_clave_elector !== undefined) { campos.push(`representante_clave_elector=$${i++}`); valores.push(representante_clave_elector); }
+  if (representante_domicilio !== undefined) { campos.push(`representante_domicilio=$${i++}`); valores.push(representante_domicilio); }
+  if (campos.length === 0) return res.status(400).json({ ok: false, error: 'Nada que actualizar' });
+  valores.push(req.params.id, req.usuario.campana_id);
+  const resultado = await query(
+    `UPDATE casillas SET ${campos.join(', ')} WHERE id=$${i} AND campana_id=$${i + 1} RETURNING *`,
+    valores
+  );
+  if (!resultado.rows[0]) return res.status(404).json({ ok: false, error: 'No encontrada' });
+  res.json({ ok: true, data: resultado.rows[0] });
+});
+
+/**
+ * 🆕 GET /api/dia-eleccion/casillas/:id/nombramiento-pdf
+ * Genera el nombramiento del representante con los campos que exige
+ * la LGIPE Art. 259 y los Lineamientos de Registro de Representantes:
+ * partido, nombre, carácter (propietario/suplente), distrito, sección,
+ * casilla, domicilio, clave de elector, y espacio para firma y fecha.
+ *
+ * IMPORTANTE: este PDF es un borrador para AGILIZAR el trámite — el
+ * registro real y válido se hace ante el Consejo Distrital del INE,
+ * en los plazos que marca la ley (hasta 13 días antes de la elección
+ * para el registro, 10 días antes como límite para el Consejo).
+ */
+router.get('/casillas/:id/nombramiento-pdf', async (req, res) => {
+  const casillaRes = await query(
+    `SELECT c.*, s.numero as seccion_numero, s.distrito_local, s.distrito_federal,
+            u.nombre as representante_nombre, u2.nombre as suplente_nombre,
+            camp.nombre_candidato, camp.partido
+     FROM casillas c
+     JOIN secciones s ON s.id = c.seccion_id
+     JOIN campanas camp ON camp.id = c.campana_id
+     LEFT JOIN usuarios u ON u.id = c.representante_id
+     LEFT JOIN usuarios u2 ON u2.id = c.suplente_id
+     WHERE c.id=$1 AND c.campana_id=$2`,
+    [req.params.id, req.usuario.campana_id]
+  );
+  const c = casillaRes.rows[0];
+  if (!c) return res.status(404).json({ ok: false, error: 'No encontrada' });
+  if (!c.representante_id) return res.status(400).json({ ok: false, error: 'Esta casilla todavía no tiene representante asignado' });
+
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename=nombramiento_seccion${c.seccion_numero}_casilla${c.numero}.pdf`);
+
+  const doc = new PDFDocument({ margin: 50 });
+  doc.pipe(res);
+
+  doc.fontSize(14).font('Helvetica-Bold').text('NOMBRAMIENTO DE REPRESENTANTE ANTE MESA DIRECTIVA DE CASILLA', { align: 'center' });
+  doc.moveDown(0.3);
+  doc.fontSize(8).font('Helvetica').fillColor('#666').text('Conforme al Art. 259 de la LGIPE y los Lineamientos para el Registro de Representantes — borrador para agilizar el trámite ante el Consejo Distrital', { align: 'center' });
+  doc.fillColor('#000');
+  doc.moveDown(1.5);
+
+  const fila = (etiqueta, valor) => {
+    doc.fontSize(10).font('Helvetica-Bold').text(etiqueta, { continued: true }).font('Helvetica').text(`  ${valor || '_____________________'}`);
+    doc.moveDown(0.5);
+  };
+
+  fila('I. Partido político o coalición:', c.partido || '_____________________');
+  fila('II. Nombre del representante propietario:', c.representante_nombre);
+  fila('   Nombre del representante suplente:', c.suplente_nombre);
+  fila('III. Distrito Electoral Federal:', c.distrito_federal);
+  fila('     Distrito Electoral Local:', c.distrito_local);
+  fila('     Sección:', c.seccion_numero);
+  fila('     Casilla:', c.numero);
+  fila('IV. Domicilio del representante:', c.representante_domicilio);
+  fila('V. Clave de la credencial para votar:', c.representante_clave_elector);
+  fila('VI. Lugar y fecha de expedición:', `Tlaxcala, a ${new Date().toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' })}`);
+
+  doc.moveDown(3);
+  doc.fontSize(9).text('_______________________________', { align: 'center' });
+  doc.text('Firma del representante', { align: 'center' });
+  doc.moveDown(0.3);
+  doc.fontSize(7).fillColor('#888').text('La firma podrá realizarse hasta antes de acreditarse en la casilla el día de la jornada electoral (Art. 261 LGIPE).', { align: 'center' });
+
+  await query('UPDATE casillas SET nombramiento_generado_en=now() WHERE id=$1', [c.id]);
+  doc.end();
 });
 
 /**
