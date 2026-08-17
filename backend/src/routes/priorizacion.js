@@ -285,7 +285,24 @@ router.get('/densidad-promovidos', async (req, res) => {
       porSeccion[fila.seccion][fila.clasificacion] = cantidad;
       porSeccion[fila.seccion].total += cantidad;
     });
-    res.json({ ok: true, data: Object.values(porSeccion) });
+
+    // 🆕 EL AJUSTE REAL — el desglose por sección (arriba) solo puede
+    // incluir promovidos con una sección válida vinculada (si no
+    // sabemos su sección, no hay dónde dibujarlos en el mapa). Pero
+    // el TOTAL de la campaña sí debe contar a TODOS, con o sin
+    // sección — si no, dos paneles distintos muestran números
+    // distintos y parece un error aunque no lo sea. Aquí se manda
+    // aparte el total de verdad, sin excluir a nadie.
+    const totalRealRes = await query(
+      `SELECT COUNT(*) as total FROM promovidos WHERE campana_id=$1`,
+      [campanaId]
+    );
+
+    res.json({
+      ok: true,
+      data: Object.values(porSeccion),
+      total_real: parseInt(totalRealRes.rows[0].total),
+    });
   } catch (e) {
     console.error('Error en densidad de promovidos:', e);
     res.status(500).json({ ok: false, error: 'Error calculando densidad de promovidos' });
