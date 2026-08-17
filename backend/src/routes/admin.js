@@ -5,6 +5,7 @@ import { requiereSuperAdmin } from '../middleware/superAdmin.js';
 import { generarToken } from '../middleware/auth.js';
 import { crearDemo } from '../../seed-demo.js';
 import { repararListaNominal } from '../../seed.js';
+import { importarCallesInegi } from '../../import-calles-inegi.js';
 import { listarRespaldos, generarLinkDescarga, ejecutarRestauracion } from '../lib/respaldoAutomatico.js';
 
 const router = Router();
@@ -29,11 +30,6 @@ router.get('/codigos-acceso', async (req, res) => {
   res.json({ ok: true, data: resultado.rows });
 });
 
-/**
- * GET /api/admin/campanas
- * Todas las campañas registradas en la plataforma, con su estado
- * de aprobación — esto es tu panel de control central.
- */
 router.get('/campanas', async (req, res) => {
   const resultado = await query(
     `SELECT c.*, COUNT(u.id) as total_usuarios, MAX(u.ultimo_acceso) as ultimo_acceso,
@@ -44,16 +40,7 @@ router.get('/campanas', async (req, res) => {
   res.json({ ok: true, data: resultado.rows });
 });
 
-/**
- * PATCH /api/admin/campanas/:id/aprobar
- * Sin esto, la campaña puede haberse registrado con un código
- * válido, pero SIGUE sin poder entrar al sistema hasta que tú,
- * manualmente, le des luz verde aquí.
- */
 router.patch('/campanas/:id/aprobar', async (req, res) => {
-  // Al aprobar, se activa Y se le da 1 mes de gracia automático desde
-  // hoy — el candidato ya puede usar el sistema mientras se coordina
-  // el primer pago formal.
   const resultado = await query(
     `UPDATE campanas SET estado_aprobacion='aprobada', activa=true,
        fecha_activacion=now(), fecha_vencimiento=now() + interval '1 month'
@@ -79,10 +66,6 @@ router.patch('/campanas/:id/rechazar', async (req, res) => {
   res.json({ ok: true, data: resultado.rows[0] });
 });
 
-/**
- * GET /api/admin/municipios
- * Catálogo de municipios de Tlaxcala, para el selector al generar demos.
- */
 router.get('/municipios', async (req, res) => {
   const resultado = await query(
     `SELECT clave_ine, nombre FROM municipios WHERE estado_id=29 ORDER BY nombre`
@@ -90,12 +73,6 @@ router.get('/municipios', async (req, res) => {
   res.json({ ok: true, data: resultado.rows });
 });
 
-/**
- * POST /api/admin/crear-demo
- * Crea (o reconstruye desde cero) la cuenta demo con datos de ejemplo
- * completos — ahora personalizable por tipo de elección y municipio,
- * para presentar a cada candidato con SU propio territorio.
- */
 router.post('/crear-demo', async (req, res) => {
   try {
     const { tipoEleccion, municipioClaveIne, nombreMunicipio, distritoNumero } = req.body;
@@ -112,13 +89,6 @@ router.post('/crear-demo', async (req, res) => {
   }
 });
 
-/**
- * POST /api/admin/campanas/:id/continuar
- * Genera un token válido para entrar a revisar CUALQUIER campaña
- * sin necesitar su contraseña — solo tú, con tu SUPER_ADMIN_KEY,
- * puedes hacer esto. Útil para dar soporte o revisar antes de
- * aprobar/renovar. Entra con el usuario 'candidato' de esa campaña.
- */
 router.post('/campanas/:id/continuar', async (req, res) => {
   const usuario = await query(
     `SELECT u.*, c.subdominio, c.estado_id FROM usuarios u
@@ -133,28 +103,15 @@ router.post('/campanas/:id/continuar', async (req, res) => {
   res.json({ ok: true, data: { token, subdominio: usuario.rows[0].subdominio, nombre: usuario.rows[0].nombre } });
 });
 
-/**
- * DELETE /api/admin/codigos-acceso/:id
- * Elimina un código de acceso que ya no quieres que se pueda usar
- * (por ejemplo, uno que compartiste por error o ya no aplica).
- */
 router.delete('/codigos-acceso/:id', async (req, res) => {
   await query('DELETE FROM codigos_acceso_campana WHERE id=$1', [req.params.id]);
   res.json({ ok: true });
 });
 
-/**
- * PATCH /api/admin/campanas/:id/renovar
- * Extiende el vencimiento — se usa cada vez que el candidato paga
- * su mensualidad. body: { meses: 1 } (o 3, 12, lo que hayan pagado)
- */
 router.patch('/campanas/:id/renovar', async (req, res) => {
   const meses = parseInt(req.body.meses) || 1;
   if (meses < 1 || meses > 24) return res.status(400).json({ ok: false, error: 'Meses inválido' });
 
-  // Si ya venció, la renovación cuenta desde HOY (no desde la fecha
-  // vieja de vencimiento) — así no se "acumulan" meses fantasma de
-  // cuando estuvo suspendida.
   const resultado = await query(
     `UPDATE campanas SET
        fecha_vencimiento = GREATEST(COALESCE(fecha_vencimiento, now()), now()) + ($1 || ' months')::interval,
@@ -168,13 +125,6 @@ router.patch('/campanas/:id/renovar', async (req, res) => {
   res.json({ ok: true, data: resultado.rows[0] });
 });
 
-/**
- * PATCH /api/admin/campanas/:id/pausar
- * Suspende el acceso SIN borrar nada — nadie de esa campaña puede
- * iniciar sesión mientras esté pausada, pero todos sus datos siguen
- * intactos. Útil para "no ha pagado este mes" o "pidió una pausa
- * temporal", sin la irreversibilidad de borrar.
- */
 router.patch('/campanas/:id/pausar', async (req, res) => {
   const resultado = await query(`UPDATE campanas SET activa=false WHERE id=$1 RETURNING *`, [req.params.id]);
   if (!resultado.rows[0]) return res.status(404).json({ ok: false, error: 'No encontrada' });
@@ -183,11 +133,6 @@ router.patch('/campanas/:id/pausar', async (req, res) => {
   res.json({ ok: true, data: resultado.rows[0] });
 });
 
-/**
- * PATCH /api/admin/campanas/:id/reactivar
- * Levanta la pausa — vuelve a dejar entrar, sin tocar la fecha de
- * vencimiento (eso es cosa de "renovar", no de "reactivar").
- */
 router.patch('/campanas/:id/reactivar', async (req, res) => {
   const resultado = await query(`UPDATE campanas SET activa=true WHERE id=$1 RETURNING *`, [req.params.id]);
   if (!resultado.rows[0]) return res.status(404).json({ ok: false, error: 'No encontrada' });
@@ -196,18 +141,10 @@ router.patch('/campanas/:id/reactivar', async (req, res) => {
   res.json({ ok: true, data: resultado.rows[0] });
 });
 
-/**
- * DELETE /api/admin/campanas/:id
- * Borra la campaña por completo — usuarios, promovidos, todo (el
- * CASCADE en las tablas se encarga). No hay reversa, así que el
- * frontend debe confirmar dos veces antes de llamar esto.
- */
 router.delete('/campanas/:id', async (req, res) => {
   try {
     const resultado = await query('DELETE FROM campanas WHERE id=$1 RETURNING nombre_candidato', [req.params.id]);
     if (!resultado.rows[0]) return res.status(404).json({ ok: false, error: 'No encontrada' });
-    // campana_id queda NULL (la campaña ya no existe) pero el nombre se
-    // conserva — así la bitácora sigue teniendo sentido después de borrar.
     await query(`INSERT INTO admin_bitacora (nombre_campana, accion) VALUES ($1,'borrada')`, [resultado.rows[0].nombre_candidato]);
     res.json({ ok: true, mensaje: `Campaña de ${resultado.rows[0].nombre_candidato} eliminada por completo` });
   } catch (e) {
@@ -216,21 +153,11 @@ router.delete('/campanas/:id', async (req, res) => {
   }
 });
 
-/**
- * GET /api/admin/bitacora
- * Historial de qué se aprobó, rechazó, renovó o borró, y cuándo.
- */
 router.get('/bitacora', async (req, res) => {
   const resultado = await query('SELECT * FROM admin_bitacora ORDER BY creado_en DESC LIMIT 100');
   res.json({ ok: true, data: resultado.rows });
 });
 
-/**
- * POST /api/admin/reparar-lista-nominal
- * Corrige bases de datos que se cargaron antes de que el sistema
- * guardara la lista nominal real por sección — un solo click, sin
- * tener que borrar y recargar todo.
- */
 router.post('/reparar-lista-nominal', async (req, res) => {
   try {
     const actualizadas = await repararListaNominal();
@@ -241,13 +168,31 @@ router.post('/reparar-lista-nominal', async (req, res) => {
   }
 });
 
-/** GET /api/admin/respaldos/:campanaId — lista de respaldos de CUALQUIER campaña, libre, sin pedir permiso a nadie */
+/**
+ * 🆕 POST /api/admin/importar-calles-inegi
+ * Descarga el catálogo de vialidades del INEGI para Tlaxcala y lo
+ * carga a la base — un botón, sin necesitar Shell de Render (que
+ * requiere plan de pago). Puede tardar varios minutos; el frontend
+ * debe avisar que no se cierre la pestaña mientras corre.
+ */
+router.post('/importar-calles-inegi', async (req, res) => {
+  try {
+    const resultado = await importarCallesInegi();
+    if (!resultado.ok) {
+      return res.status(422).json(resultado); // capa no detectada — trae el listado para ajustar
+    }
+    res.json(resultado);
+  } catch (e) {
+    console.error('Error importando calles del INEGI:', e);
+    res.status(500).json({ ok: false, error: 'No se pudo importar: ' + e.message });
+  }
+});
+
 router.get('/respaldos/:campanaId', async (req, res) => {
   const lista = await listarRespaldos(req.params.campanaId);
   res.json({ ok: true, data: lista });
 });
 
-/** GET /api/admin/respaldos/:campanaId/descargar/:archivo — link temporal de descarga, libre */
 router.get('/respaldos/:campanaId/descargar/:archivo', async (req, res) => {
   try {
     const url = await generarLinkDescarga(req.params.campanaId, req.params.archivo);
@@ -257,7 +202,6 @@ router.get('/respaldos/:campanaId/descargar/:archivo', async (req, res) => {
   }
 });
 
-/** GET /api/admin/solicitudes-restauracion — todas las solicitudes pendientes, de todas las campañas */
 router.get('/solicitudes-restauracion', async (req, res) => {
   const r = await query(
     `SELECT s.*, c.nombre_candidato, u.nombre as solicitado_por_nombre FROM solicitudes_restauracion s
@@ -268,12 +212,6 @@ router.get('/solicitudes-restauracion', async (req, res) => {
   res.json({ ok: true, data: r.rows });
 });
 
-/**
- * POST /api/admin/solicitar-restauracion
- * Vladir inicia la solicitud (por ejemplo, porque el candidato le
- * llamó pidiéndole ayuda). Su propia solicitud ya cuenta como su
- * aprobación — falta que el candidato apruebe de su lado.
- */
 router.post('/solicitar-restauracion', async (req, res) => {
   const { campana_id, fecha_respaldo } = req.body;
   if (!campana_id || !fecha_respaldo) return res.status(400).json({ ok: false, error: 'Falta campana_id o fecha_respaldo' });
@@ -285,7 +223,6 @@ router.post('/solicitar-restauracion', async (req, res) => {
   res.status(201).json({ ok: true, data: resultado.rows[0], mensaje: 'Solicitud creada — falta que el candidato la apruebe de su lado.' });
 });
 
-/** POST /api/admin/aprobar-restauracion/:id — Vladir aprueba una solicitud que el candidato inició */
 router.post('/aprobar-restauracion/:id', async (req, res) => {
   const solicitud = await query('SELECT * FROM solicitudes_restauracion WHERE id=$1', [req.params.id]);
   if (!solicitud.rows[0]) return res.status(404).json({ ok: false, error: 'Solicitud no encontrada' });
