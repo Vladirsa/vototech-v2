@@ -153,12 +153,15 @@ export default function Dashboard() {
   const [alertasInteligentes, setAlertasInteligentes] = useState([]);
   const [vistaEjecutiva, setVistaEjecutiva] = useState(false);
   const [ejecutivo, setEjecutivo] = useState(null);
+  // 🆕 Estadísticas y alertas de casillas — para el candidato
+  const [casillasStats, setCasillasStats] = useState(null);
 
   useEffect(() => {
     api.get('/dashboard/resumen').then((r) => { setD(r.data.data); setCargando(false); }).catch(() => setCargando(false));
     api.get('/reportes/encuestas-resumen').then((r) => setEncuestasResumen(r.data.data)).catch(() => {});
     api.get('/inteligencia/alertas').then((r) => setAlertasInteligentes(r.data.data)).catch(() => {});
     api.get('/dashboard/ejecutivo').then((r) => setEjecutivo(r.data.data)).catch(() => {});
+    api.get('/dia-eleccion/casillas-estadisticas').then((r) => setCasillasStats(r.data.data)).catch(() => {});
   }, []);
 
   if (cargando || !d) {
@@ -269,6 +272,51 @@ export default function Dashboard() {
                 );
               })}
             </div>
+          </div>
+        )}
+
+        {/* 🆕 Panel de casillas — cobertura y alertas de qué falta
+            cerrar antes del día D. Solo aparece cuando ya hay al
+            menos una casilla registrada, para no saturar el panel a
+            campañas que todavía no llegan a esa etapa. */}
+        {casillasStats && casillasStats.total_casillas > 0 && (
+          <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-xs font-bold text-slate-400 uppercase flex items-center gap-1.5">🗳️ Cobertura de casillas</h2>
+              <Link to="/dia-eleccion" className="text-[10px] text-indigo-400 font-bold">Ver detalle →</Link>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
+              <div className="bg-slate-800/50 rounded-lg p-2.5 text-center">
+                <div className="text-xl font-black text-white">{casillasStats.total_casillas}</div>
+                <div className="text-[9px] text-slate-500">Casillas totales</div>
+              </div>
+              <div className="bg-emerald-500/10 rounded-lg p-2.5 text-center">
+                <div className="text-xl font-black text-emerald-400">{casillasStats.porcentaje_cobertura}%</div>
+                <div className="text-[9px] text-slate-500">Con representante</div>
+              </div>
+              <div className="bg-indigo-500/10 rounded-lg p-2.5 text-center">
+                <div className="text-xl font-black text-indigo-400">{casillasStats.con_suplente}</div>
+                <div className="text-[9px] text-slate-500">Con suplente</div>
+              </div>
+              <div className="bg-purple-500/10 rounded-lg p-2.5 text-center">
+                <div className="text-xl font-black text-purple-400">{casillasStats.confirmadas_asistencia}</div>
+                <div className="text-[9px] text-slate-500">Confirmadas</div>
+              </div>
+            </div>
+            <div className="h-2 bg-slate-800 rounded-full overflow-hidden mb-3">
+              <div className={`h-full ${casillasStats.porcentaje_cobertura >= 90 ? 'bg-emerald-500' : casillasStats.porcentaje_cobertura >= 60 ? 'bg-amber-500' : 'bg-red-500'}`}
+                style={{ width: `${casillasStats.porcentaje_cobertura}%` }} />
+            </div>
+            {casillasStats.alertas.length > 0 && (
+              <div className="space-y-1.5">
+                {casillasStats.alertas.map((a, i) => (
+                  <div key={i} className={`text-[11px] rounded-lg border px-3 py-2 ${a.nivel === 'alta' ? 'bg-red-500/10 border-red-500/40 text-red-300' : 'bg-amber-500/10 border-amber-500/40 text-amber-300'}`}>
+                    {a.nivel === 'alta' ? '🔴' : '🟡'} {a.texto}
+                    {a.secciones.length > 0 && <span className="text-slate-500"> · Secciones: {a.secciones.slice(0, 8).join(', ')}{a.secciones.length > 8 ? '...' : ''}</span>}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
