@@ -169,6 +169,26 @@ export default function AdminPlataforma() {
     setGenerandoCasillas(false);
   };
 
+  // 🆕 Importar calles del INEGI — botón, sin necesitar Shell de Render
+  const [importandoCalles, setImportandoCalles] = useState(false);
+  const [mensajeCalles, setMensajeCalles] = useState('');
+  const importarCalles = async () => {
+    setImportandoCalles(true);
+    setMensajeCalles('');
+    try {
+      const { data } = await axios.post(`${API_URL}/admin/importar-calles-inegi`, {}, { headers });
+      setMensajeCalles(`✅ Capa usada: "${data.capaUsada}" — ${data.cargadas} calles cargadas de ${data.totalDescargadas} descargadas (${data.sinNombre} sin nombre, ${data.errores} con error).`);
+    } catch (e) {
+      const detalle = e.response?.data;
+      if (detalle?.capasDisponibles) {
+        setMensajeCalles(`⚠️ No se detectó la capa de vialidades automáticamente. Capas disponibles: ${detalle.capasDisponibles.join(', ')}\n\nCopia este listado y pásaselo a Claude para ajustar el script.`);
+      } else {
+        setMensajeCalles('⚠️ Error: ' + (detalle?.error || e.message));
+      }
+    }
+    setImportandoCalles(false);
+  };
+
   const [cargandoAgregados, setCargandoAgregados] = useState(false);
   const [mensajeAgregados, setMensajeAgregados] = useState('');
   const [estadoCarga, setEstadoCarga] = useState(29);
@@ -470,6 +490,20 @@ export default function AdminPlataforma() {
           </button>
         </div>
         {mensajeCasillas && <div className="text-xs text-slate-300 bg-slate-900/50 rounded-lg p-2">{mensajeCasillas}</div>}
+
+        {/* 🆕 Catálogo de calles del INEGI — para que el buscador de
+            direcciones (BuscadorCalle) tenga sus propios datos, sin
+            depender de una consulta en vivo a Nominatim cada vez. */}
+        <div className="bg-indigo-500/10 border border-indigo-500/30 rounded-xl p-3 flex items-center justify-between">
+          <div>
+            <div className="text-xs font-bold text-indigo-300">🛣️ Importar calles del INEGI (Tlaxcala)</div>
+            <div className="text-[10px] text-slate-500">Descarga el catálogo oficial de vialidades — tarda varios minutos, no cierres la pestaña</div>
+          </div>
+          <button onClick={importarCalles} disabled={importandoCalles} className="px-3 py-2 rounded-lg bg-indigo-600 text-white text-xs font-bold disabled:opacity-50 flex-shrink-0">
+            {importandoCalles ? '⏳ Descargando...' : 'Importar'}
+          </button>
+        </div>
+        {mensajeCalles && <div className="text-xs text-slate-300 bg-slate-900/50 rounded-lg p-2 whitespace-pre-wrap">{mensajeCalles}</div>}
 
         <div className="bg-indigo-500/10 border border-indigo-500/30 rounded-xl p-3 flex items-center justify-between">
           <div>
