@@ -175,7 +175,14 @@ function PanelCasillasSugeridas() {
   };
 
   const asignarRepresentante = async (seccion, numeroCasilla, representanteId) => {
-    await api.post('/dia-eleccion/casillas', { seccion_numero: seccion, numero: numeroCasilla, representante_id: representanteId || undefined });
+    // 🆕 null expl\u00edcito para poder QUITAR al representante también,
+    // no solo asignarlo (antes, elegir "Sin representante" no
+    // guardaba nada porque mandaba undefined, que el backend ignora).
+    await api.post('/dia-eleccion/casillas', { seccion_numero: seccion, numero: numeroCasilla, representante_id: representanteId || null });
+    cargar();
+  };
+  const asignarSuplente = async (seccion, numeroCasilla, suplenteId) => {
+    await api.post('/dia-eleccion/casillas', { seccion_numero: seccion, numero: numeroCasilla, suplente_id: suplenteId || null });
     cargar();
   };
 
@@ -223,16 +230,27 @@ function PanelCasillasSugeridas() {
                 )}
               </div>
               {seccionExpandida === s.seccion && casillasDeEstaSeccion.length > 0 && (
-                <div className="px-3 pb-2 space-y-1.5 border-t border-slate-700/50 pt-2">
+                <div className="px-3 pb-2 space-y-2 border-t border-slate-700/50 pt-2">
                   {casillasDeEstaSeccion.map((c) => (
-                    <div key={c.id} className="flex items-center justify-between gap-2">
-                      <span className="text-[10px] text-slate-300 font-bold w-10 flex-shrink-0">{c.numero}</span>
+                    <div key={c.id} className="bg-slate-900/40 rounded-lg p-2 space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] text-slate-300 font-bold">Casilla {c.numero}</span>
+                        {c.personas_esperadas && <span className="text-[9px] text-slate-500">👥 ~{c.personas_esperadas.toLocaleString()} personas</span>}
+                        {c.confirmado_asistencia && <span className="text-[9px] text-emerald-400">✅ Confirmado</span>}
+                      </div>
                       <select value={c.representante_id || ''} onChange={(e) => asignarRepresentante(s.seccion, c.numero, e.target.value)}
-                        className="flex-1 px-2 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-white text-[10px]">
-                        <option value="">Sin representante asignado</option>
-                        {equipo.map((u) => <option key={u.id} value={u.id}>{u.nombre}</option>)}
+                        className="w-full px-2 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-white text-[10px]">
+                        <option value="">👤 Sin representante asignado</option>
+                        {equipo.map((u) => <option key={u.id} value={u.id}>👤 {u.nombre}</option>)}
                       </select>
-                      {c.confirmado_asistencia && <span className="text-[9px] text-emerald-400 flex-shrink-0">✅</span>}
+                      {/* 🆕 Suplente — igual de importante, para que la
+                          casilla no se quede sin cubrir si el
+                          representante titular no puede llegar. */}
+                      <select value={c.suplente_id || ''} onChange={(e) => asignarSuplente(s.seccion, c.numero, e.target.value)}
+                        className="w-full px-2 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-white text-[10px]">
+                        <option value="">🔁 Sin suplente asignado</option>
+                        {equipo.map((u) => <option key={u.id} value={u.id}>🔁 {u.nombre}</option>)}
+                      </select>
                     </div>
                   ))}
                 </div>

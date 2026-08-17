@@ -21,7 +21,7 @@ const TIPO_PERSONA = {
 };
 const TIPO_ACTIVO = {
   espectacular: { ic: '📺', label: 'Espectacular' }, barda: { ic: '🧱', label: 'Barda' },
-  manta: { ic: '🎏', label: 'Manta/Lona' }, ine_representante: { ic: '🪪', label: 'Representante INE' },
+  manta: { ic: '🎏', label: 'Manta/Lona' },
   utilitario: { ic: '👕', label: 'Utilitario (playeras, gorras, etc.)' },
 };
 const ESTADO_ACTIVO_COLOR = { activo: 'text-emerald-400 bg-emerald-500/10', vencido: 'text-red-400 bg-red-500/10', retirado: 'text-slate-500 bg-slate-500/10', baja: 'text-slate-500 bg-slate-500/10' };
@@ -116,14 +116,7 @@ function ModalAgregarActivo({ onCerrar, onGuardado }) {
           </div>
         )}
 
-        {form.tipo === 'ine_representante' ? (
-          <>
-            <input placeholder="Nombre del representante" value={form.nombre_rep} onChange={(e) => setForm({ ...form, nombre_rep: e.target.value })}
-              className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
-            <input placeholder="Teléfono" value={form.telefono_rep} onChange={(e) => setForm({ ...form, telefono_rep: e.target.value })}
-              className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
-          </>
-        ) : form.tipo === 'utilitario' ? (
+        {form.tipo === 'utilitario' ? (
           <>
             <input placeholder="¿Qué es? (ej: Playeras talla M, 100 gorras)" value={form.direccion} onChange={(e) => setForm({ ...form, direccion: e.target.value })}
               className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
@@ -689,11 +682,11 @@ export default function Administracion() {
                 <div key={a.id} className="rounded-xl border border-slate-800 bg-slate-900/60 p-3">
                   <div className="flex items-center justify-between">
                     <div>
-                      <div className="text-sm font-bold text-white">{(TIPO_ACTIVO[a.tipo]?.ic || '📦')} {a.tipo === 'ine_representante' ? a.nombre_rep : (a.direccion || 'Sin dirección')}</div>
+                      <div className="text-sm font-bold text-white">{(TIPO_ACTIVO[a.tipo]?.ic || '📦')} {a.direccion || 'Sin dirección'}</div>
                       <div className="text-[10px] text-slate-500">
                         {a.codigo_inventario && `${a.codigo_inventario} · `}
                         {a.seccion_numero && `Sección ${a.seccion_numero} · `}
-                        {a.tipo === 'ine_representante' ? a.telefono_rep : a.tipo === 'utilitario' ? `${a.cantidad || 0} piezas` : a.empresa}
+                        {a.tipo === 'utilitario' ? `${a.cantidad || 0} piezas` : a.empresa}
                         {a.fecha_vence && ` · vence ${new Date(a.fecha_vence).toLocaleDateString('es-MX')}`}
                       </div>
                       {a.responsable_nombre && <div className="text-[10px] text-indigo-400 mt-0.5">👤 {a.responsable_nombre}</div>}
