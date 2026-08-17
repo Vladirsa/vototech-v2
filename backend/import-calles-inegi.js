@@ -70,7 +70,15 @@ export async function importarCallesInegi() {
 
   const municipiosRes = await query(`SELECT id, clave_ine FROM municipios WHERE estado_id=29`);
   const municipiosPorClave = {};
-  municipiosRes.rows.forEach((m) => { municipiosPorClave[String(m.clave_ine)] = m.id; });
+  // 🆕 LA CORRECCIÓN REAL — clave_ine en tu base es un número (1, 2,
+  // 3...), pero el INEGI manda el código con ceros a la izquierda
+  // ("001", "002"...). Sin este padStart, ningún municipio coincidía
+  // nunca, aunque el resto de la importación funcionara bien.
+  municipiosRes.rows.forEach((m) => { municipiosPorClave[String(m.clave_ine).padStart(3, '0')] = m.id; });
+
+  // 🆕 Se borran los datos de la corrida anterior antes de recargar
+  // — así una segunda corrida corrige, no duplica.
+  await query(`DELETE FROM calles_estado WHERE fuente='inegi'`);
 
   let cargadas = 0, sinNombre = 0, errores = 0, localidadesSinVialidades = 0;
   let ejemploPropiedadesVialidad = null;
