@@ -190,6 +190,40 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 }
 
 /**
+ * 🆕 Carga genérica de resultados históricos — para CUALQUIER tipo de
+ * elección y año, pensada para 2027 y adelante, no solo para lo que
+ * ya se cargó de 2024/2021.
+ *
+ * Busca el archivo en 2 convenciones de nombre (las 2 que ya usa tu
+ * repositorio):
+ *   1. historico-{tipo}-{año}.js  (ej: historico-senador-2027.js)
+ *   2. historico-{tipo}.js        (sin año — la convención vieja de 2024)
+ *
+ * Para usarlo con una elección futura, solo hay que SUBIR el archivo
+ * nuevo con el formato correcto a backend/datos-origen/ — este código
+ * no necesita cambiar.
+ */
+export async function cargarResultadosHistoricosGenerico(tipoEleccion, anio) {
+  const tipoUpper = tipoEleccion.toUpperCase();
+  const intentos = [
+    { archivo: `historico-${tipoEleccion}-${anio}.js`, varName: `VT_HIST_${tipoUpper}_${anio}` },
+    { archivo: `historico-${tipoEleccion}.js`, varName: `VT_HIST_${tipoUpper}` },
+  ];
+
+  for (const intento of intentos) {
+    const rutaCompleta = path.join(__dirname, 'datos-origen', intento.archivo);
+    if (!fs.existsSync(rutaCompleta)) continue;
+    const hist = cargarHist(intento.archivo, intento.varName);
+    const n = await cargarResultados(hist, tipoEleccion, parseInt(anio));
+    return { archivo: intento.archivo, filas: n };
+  }
+
+  throw new Error(
+    `No se encontró ningún archivo para "${tipoEleccion} ${anio}". Se buscó "historico-${tipoEleccion}-${anio}.js" y "historico-${tipoEleccion}.js" en backend/datos-origen/ — sube uno de esos 2 nombres con los datos.`
+  );
+}
+
+/**
  * Reparación puntual para bases de datos que ya se cargaron ANTES de
  * que se guardara la lista nominal en la tabla secciones (bug ya
  * corregido en correrSeed, esto lo arregla en instalaciones que ya
@@ -214,4 +248,3 @@ export async function repararListaNominal() {
   }
   return actualizadas;
 }
-
