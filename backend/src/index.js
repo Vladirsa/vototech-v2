@@ -50,6 +50,7 @@ import adminRoutes from './routes/admin.js';
 import blogRoutes from './routes/blog.js';
 import caminatasRoutes from './routes/caminatas.js';
 import logisticaRoutes from './routes/logistica.js';
+import callesRoutes from './routes/calles.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -134,6 +135,10 @@ app.use('/api/caminatas', caminatasRoutes);
 // propia ('logistica'), no reutiliza la de Agenda — así el acceso
 // se puede afinar por separado si algún rol necesita una sin la otra.
 app.use('/api/logistica', requiereAuth, requiereModulo('logistica'), logisticaRoutes);
+// 🆕 Búsqueda local de calles — solo necesita estar autenticado
+// (ya lo exige requiereAuth dentro de calles.js), cualquier rol puede
+// usarla al capturar un promovido o registrar un activo.
+app.use('/api/calles', callesRoutes);
 
 app.get('/api/salud', (req, res) => {
   res.json({ ok: true, servicio: 'VotoTech Backend', hora: new Date().toISOString() });
