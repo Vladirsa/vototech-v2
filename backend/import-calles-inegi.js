@@ -1,95 +1,111 @@
 /**
- * import-calles-inegi.js
+ * import-calles-inegi.js (v3)
  *
- * Descarga el catálogo de vialidades (nombres de calles con
- * ubicación) del servicio WFS público del INEGI, filtrado al estado
- * de Tlaxcala (clave 29), y lo carga a la tabla `calles_estado` de
- * Supabase — para que el buscador de direcciones (BuscadorCalle) ya
- * no dependa de una consulta en vivo a Nominatim cada vez.
+ * Descarga el catálogo de vialidades del servicio REAL del INEGI
+ * (wscatgeo, confirmado en su PDF oficial de dic-2024 — el intento
+ * anterior con "wms61/WFS" falló porque ese servicio tiene el WFS
+ * desactivado a propósito por ellos).
  *
- * 🔒 IMPORTANTE — no se pudo probar en vivo contra el servidor del
- * INEGI (mi entorno de trabajo no tiene salida a gaia.inegi.org.mx).
- * El endpoint y la capa SÍ son reales y públicos, pero el nombre
- * exacto de la capa de vialidades puede variar entre versiones del
- * servicio. El Paso 0 le pregunta al INEGI qué capas existen de
- * verdad antes de intentar descargar nada, y si no logra adivinar
- * cuál es la correcta, el mensaje de resultado te va a decir
- * exactamente qué capas sí encontró para que me digas cuál es.
+ * Cómo funciona: las vialidades se piden POR LOCALIDAD (no por
+ * estado directo), así que primero se pide la lista de localidades
+ * de Tlaxcala, y luego se piden las vialidades de cada una.
  *
- * Se ejecuta desde el botón "Importar calles del INEGI" en el Panel
- * de Administración — no necesita acceso a Shell de Render.
+ * 🔒 Sigue sin poder probarse en vivo desde mi entorno. Los nombres
+ * exactos de los campos dentro de cada respuesta se intentan
+ * adivinar con varias opciones comunes; si ninguna coincide, el
+ * resultado trae las propiedades reales para ajustar sin adivinar
+ * a ciegas otra vez.
  */
 
 import { query } from './src/db/pool.js';
 
-const WFS_BASE = 'https://gaia.inegi.org.mx/NLB/tunnel/wms/wms61';
-const CLAVE_ESTADO_TLAXCALA = '29';
+const BASE = 'https://gaia.inegi.org.mx/wscatgeo/v2';
+const CVE_AGEE_TLAXCALA = '29';
 
-async function detectarCapaVialidades() {
-  const url = `${WFS_BASE}?service=WFS&version=2.0.0&request=GetCapabilities`;
-  const resp = await fetch(url);
-  const texto = await resp.text();
-  const nombres = [...texto.matchAll(/<Name>(.*?)<\/Name>/g)].map((m) => m[1]);
-  const candidatas = nombres.filter((n) => /via|calle|street|road|eje/i.test(n));
-  return { candidatas, totalCapas: nombres.length, todasLasCapas: nombres };
+const CAMPOS_CVE_LOCALIDAD = ['cvegeoLoc', 'CVEGEO', 'cve_loc', 'clave', 'CVE_LOC', 'cvegeo'];
+const CAMPOS_NOMBRE_CALLE = ['NOMVIAL', 'NOMBRE', 'nombre', 'name', 'NOM_VIAL'];
+
+function primerValorQueExista(objeto, listaCampos) {
+  for (const campo of listaCampos) {
+    if (objeto?.[campo] != null && objeto[campo] !== '') return objeto[campo];
+  }
+  return null;
 }
 
-async function descargarVialidades(nombreCapa) {
-  const url = `${WFS_BASE}?service=WFS&version=2.0.0&request=GetFeature&typeName=${nombreCapa}` +
-    `&outputFormat=application/json&CQL_FILTER=CVE_ENT='${CLAVE_ESTADO_TLAXCALA}'`;
+async function obtenerLocalidadesDeTlaxcala() {
+  const url = `${BASE}/geo/localidades/pol/${CVE_AGEE_TLAXCALA}`;
   const resp = await fetch(url);
-  if (!resp.ok) throw new Error(`El servidor del INEGI respondió con error ${resp.status} para la capa "${nombreCapa}"`);
+  if (!resp.ok) throw new Error(`No se pudo obtener la lista de localidades (${resp.status}) — url: ${url}`);
   const geojson = await resp.json();
-  if (!geojson.features) throw new Error(`La respuesta para "${nombreCapa}" no traía datos utilizables (sin "features")`);
+  if (!geojson.features || geojson.features.length === 0) {
+    throw new Error('La lista de localidades vino vacía — revisa manualmente esta URL en el navegador: ' + url);
+  }
   return geojson.features;
 }
 
 function centroDeGeometria(geometry) {
-  const coords = geometry.type === 'MultiLineString' ? geometry.coordinates.flat() : geometry.coordinates;
+  if (!geometry) return null;
+  const coords = geometry.type === 'MultiLineString' || geometry.type === 'MultiPolygon'
+    ? geometry.coordinates.flat(geometry.type === 'MultiPolygon' ? 2 : 1)
+    : geometry.type === 'Polygon' ? geometry.coordinates.flat(1)
+    : geometry.coordinates;
+  if (!coords || coords.length === 0) return null;
   let sumaLat = 0, sumaLng = 0;
   coords.forEach(([lng, lat]) => { sumaLat += lat; sumaLng += lng; });
   return { lat: sumaLat / coords.length, lng: sumaLng / coords.length };
 }
 
 export async function importarCallesInegi() {
-  const { candidatas, totalCapas, todasLasCapas } = await detectarCapaVialidades();
+  const localidades = await obtenerLocalidadesDeTlaxcala();
 
-  if (candidatas.length === 0) {
+  const primeraLocalidad = localidades[0].properties;
+  const campoClaveDetectado = CAMPOS_CVE_LOCALIDAD.find((c) => primeraLocalidad[c] != null);
+  if (!campoClaveDetectado) {
     return {
       ok: false,
-      error: `No se encontró ninguna capa con nombre reconocible de "vialidades" entre las ${totalCapas} capas del servicio.`,
-      capasDisponibles: todasLasCapas.slice(0, 60),
+      error: 'No se pudo detectar el campo de la clave de localidad en la respuesta del INEGI.',
+      propiedadesDeEjemplo: primeraLocalidad,
     };
   }
-
-  const nombreCapa = candidatas[0];
-  const features = await descargarVialidades(nombreCapa);
 
   const municipiosRes = await query(`SELECT id, clave_ine FROM municipios WHERE estado_id=29`);
   const municipiosPorClave = {};
   municipiosRes.rows.forEach((m) => { municipiosPorClave[String(m.clave_ine)] = m.id; });
 
-  let cargadas = 0, sinNombre = 0, errores = 0;
-  for (const f of features) {
-    const nombre = f.properties?.NOMVIAL || f.properties?.NOMBRE || f.properties?.name;
-    if (!nombre) { sinNombre++; continue; }
+  let cargadas = 0, sinNombre = 0, errores = 0, localidadesSinVialidades = 0;
+  let ejemploPropiedadesVialidad = null;
+
+  for (const loc of localidades) {
+    const cveLoc = loc.properties[campoClaveDetectado];
+    const claveMun = String(loc.properties.CVE_MUN || loc.properties.cve_agem || loc.properties.CVEAGEM || '');
     try {
-      const { lat, lng } = centroDeGeometria(f.geometry);
-      const claveMun = String(f.properties?.CVE_MUN || '');
-      const municipioId = municipiosPorClave[claveMun] || null;
-      await query(
-        `INSERT INTO calles_estado (nombre, municipio_id, lat, lng, fuente) VALUES ($1,$2,$3,$4,'inegi')`,
-        [nombre, municipioId, lat, lng]
-      );
-      cargadas++;
-    } catch (e) { errores++; }
+      const resp = await fetch(`${BASE}/vialidades/${cveLoc}`);
+      if (!resp.ok) { localidadesSinVialidades++; continue; }
+      const geojson = await resp.json();
+      if (!geojson.features || geojson.features.length === 0) { localidadesSinVialidades++; continue; }
+
+      for (const f of geojson.features) {
+        if (!ejemploPropiedadesVialidad) ejemploPropiedadesVialidad = f.properties;
+        const nombre = primerValorQueExista(f.properties, CAMPOS_NOMBRE_CALLE);
+        if (!nombre) { sinNombre++; continue; }
+        const centro = centroDeGeometria(f.geometry);
+        if (!centro) { sinNombre++; continue; }
+        try {
+          await query(
+            `INSERT INTO calles_estado (nombre, municipio_id, lat, lng, fuente) VALUES ($1,$2,$3,$4,'inegi')`,
+            [nombre, municipiosPorClave[claveMun] || null, centro.lat, centro.lng]
+          );
+          cargadas++;
+        } catch (e) { errores++; }
+      }
+    } catch (e) { localidadesSinVialidades++; }
   }
 
   return {
     ok: true,
-    capaUsada: nombreCapa,
-    candidatasEncontradas: candidatas,
-    totalDescargadas: features.length,
+    totalLocalidades: localidades.length,
+    localidadesSinVialidades,
     cargadas, sinNombre, errores,
+    ejemploPropiedadesVialidad,
   };
 }
