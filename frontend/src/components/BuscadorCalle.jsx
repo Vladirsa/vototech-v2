@@ -1,9 +1,12 @@
 import { useState, useRef, useEffect } from 'react';
+import api from '../lib/api';
 
 /**
- * Busca calles/direcciones reales usando Nominatim (el buscador
- * gratuito de OpenStreetMap, sin necesidad de API key). Limitado
- * geográficamente a Tlaxcala para resultados más precisos.
+ * Busca calles/direcciones — primero en el catálogo LOCAL (cargado
+ * del INEGI, ~17,000 calles reales de Tlaxcala), y solo si no
+ * encuentra nada ahí, cae a Nominatim (OpenStreetMap) como respaldo.
+ * Mucho más rápido en el caso común, y funciona igual de bien sin
+ * depender de qué tan cargada esté la red en ese momento.
  *
  * 🆕 LA CORRECCIÓN REAL DEL "NO SE LLENA CON LA CREDENCIAL" — antes
  * este componente guardaba su propio texto con useState(valor) y
@@ -30,18 +33,36 @@ export default function BuscadorCalle({ valor, onSeleccion }) {
   const buscarDirecciones = async (q) => {
     setBuscando(true);
     try {
-      // 🆕 LA CORRECCIÓN REAL — antes solo se agregaba "Tlaxcala,
-      // México" como texto de ayuda, que Nominatim puede ignorar si
-      // encuentra una coincidencia que le parece "mejor" en otro
-      // estado (por eso salía "Francisco I. Madero" de otro lugar).
-      // Con "viewbox" + "bounded=1" se le pone un límite geográfico
-      // REAL — nunca regresa nada fuera de esa caja, sin importar
-      // qué tan bien coincida el texto en otro lado.
+      // 🆕 Primero el catálogo local — rápido, tuyo, sin depender de
+      // ningún servicio externo.
+      const { data } = await api.get(`/calles/buscar?q=${encodeURIComponent(q)}`);
+      if (data.data.length > 0) {
+        setSugerencias(data.data.map((c) => ({
+          fuente: 'local',
+          texto_mostrar: `${c.nombre}${c.municipio ? `, ${c.municipio}` : ''}`,
+          calle: c.nombre,
+          direccion_completa: `${c.nombre}${c.municipio ? `, ${c.municipio}, Tlaxcala` : ', Tlaxcala'}`,
+          lat: c.lat, lng: c.lng,
+        })));
+        setMostrar(true);
+        setBuscando(false);
+        return;
+      }
+    } catch (e) { /* si falla la búsqueda local, sigue con el respaldo de abajo */ }
+
+    // Respaldo — Nominatim, solo si el catálogo local no encontró nada.
+    try {
       const cajaTlaxcala = '-98.75,19.65,-97.85,19.00'; // izquierda,arriba,derecha,abajo
       const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=6&countrycodes=mx&viewbox=${cajaTlaxcala}&bounded=1`;
       const resp = await fetch(url, { headers: { 'Accept-Language': 'es' } });
       const data = await resp.json();
-      setSugerencias(data);
+      setSugerencias(data.map((s) => ({
+        fuente: 'nominatim',
+        texto_mostrar: s.display_name,
+        calle: s.display_name.split(',')[0],
+        direccion_completa: s.display_name,
+        lat: parseFloat(s.lat), lng: parseFloat(s.lon),
+      })));
       setMostrar(data.length > 0);
     } catch (e) { setSugerencias([]); }
     setBuscando(false);
@@ -69,15 +90,14 @@ export default function BuscadorCalle({ valor, onSeleccion }) {
   };
 
   const seleccionar = (s) => {
-    const calleCorta = s.display_name.split(',')[0];
-    ultimoValorPropio.current = calleCorta; // marca este cambio como propio, no dispara el useEffect de arriba
-    setTexto(calleCorta);
+    ultimoValorPropio.current = s.calle; // marca este cambio como propio, no dispara el useEffect de arriba
+    setTexto(s.calle);
     setMostrar(false);
     onSeleccion({
-      calle: calleCorta,
-      direccion_completa: s.display_name,
-      lat: parseFloat(s.lat),
-      lng: parseFloat(s.lon),
+      calle: s.calle,
+      direccion_completa: s.direccion_completa,
+      lat: s.lat,
+      lng: s.lng,
     });
   };
 
@@ -96,7 +116,7 @@ export default function BuscadorCalle({ valor, onSeleccion }) {
           {sugerencias.map((s, i) => (
             <button key={i} onClick={() => seleccionar(s)}
               className="w-full text-left px-3 py-2 text-xs text-slate-300 hover:bg-slate-800 border-b border-slate-800 last:border-0">
-              📍 {s.display_name}
+              {s.fuente === 'local' ? '📍' : '🌐'} {s.texto_mostrar}
             </button>
           ))}
         </div>
