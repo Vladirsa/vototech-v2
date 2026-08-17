@@ -104,20 +104,31 @@ export async function importarCallesInegi() {
       }
 
       if (!resp.ok) { localidadesSinVialidades++; continue; }
-      let geojson;
-      try { geojson = JSON.parse(textoCrudo); } catch (e) { localidadesSinVialidades++; continue; }
-      if (!geojson.features || geojson.features.length === 0) { localidadesSinVialidades++; continue; }
+      let respuestaJson;
+      try { respuestaJson = JSON.parse(textoCrudo); } catch (e) { localidadesSinVialidades++; continue; }
+      // 🆕 LA CORRECCIÓN REAL — la respuesta no es GeoJSON con
+      // ".features", es un objeto simple {"datos": [...]} — y cada
+      // calle NO trae su propia coordenada, solo el nombre. Se usa
+      // el centro de la LOCALIDAD (que sí viene) como ubicación
+      // aproximada para todas sus calles — no es exacto por calle,
+      // pero es real y mucho mejor que nada.
+      const listaVialidades = respuestaJson.datos;
+      if (!listaVialidades || listaVialidades.length === 0) { localidadesSinVialidades++; continue; }
 
-      for (const f of geojson.features) {
-        if (!ejemploPropiedadesVialidad) ejemploPropiedadesVialidad = f.properties;
-        const nombre = primerValorQueExista(f.properties, CAMPOS_NOMBRE_CALLE);
-        if (!nombre) { sinNombre++; continue; }
-        const centro = centroDeGeometria(f.geometry);
-        if (!centro) { sinNombre++; continue; }
+      const latLocalidad = parseFloat(loc.properties.latitud);
+      const lngLocalidad = parseFloat(loc.properties.longitud);
+      if (isNaN(latLocalidad) || isNaN(lngLocalidad)) { localidadesSinVialidades++; continue; }
+
+      const nombresYaVistosEnEstaLocalidad = new Set();
+      for (const v of listaVialidades) {
+        if (!ejemploPropiedadesVialidad) ejemploPropiedadesVialidad = v;
+        const nombre = v.nomvial || v.NOMVIAL || v.nombre;
+        if (!nombre || nombresYaVistosEnEstaLocalidad.has(nombre)) { sinNombre++; continue; }
+        nombresYaVistosEnEstaLocalidad.add(nombre);
         try {
           await query(
             `INSERT INTO calles_estado (nombre, municipio_id, lat, lng, fuente) VALUES ($1,$2,$3,$4,'inegi')`,
-            [nombre, municipiosPorClave[claveMun] || null, centro.lat, centro.lng]
+            [nombre, municipiosPorClave[claveMun] || null, latLocalidad, lngLocalidad]
           );
           cargadas++;
         } catch (e) { errores++; }
