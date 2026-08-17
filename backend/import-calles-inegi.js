@@ -74,14 +74,30 @@ export async function importarCallesInegi() {
 
   let cargadas = 0, sinNombre = 0, errores = 0, localidadesSinVialidades = 0;
   let ejemploPropiedadesVialidad = null;
+  // 🆕 Diagnóstico de la PRIMERA petición de vialidades — sin importar
+  // si falla o no, se guarda qué url se probó, qué código regresó, y
+  // los primeros caracteres de la respuesta cruda. Así, si vuelve a
+  // dar 0, esta vez SÍ sabemos por qué en vez de adivinar otra vez.
+  let diagnosticoPrimeraPeticion = null;
 
   for (const loc of localidades) {
     const cveLoc = loc.properties[campoClaveDetectado];
     const claveMun = String(loc.properties.CVE_MUN || loc.properties.cve_agem || loc.properties.CVEAGEM || '');
+    const urlVialidades = `${BASE}/vialidades/${cveLoc}`;
     try {
-      const resp = await fetch(`${BASE}/vialidades/${cveLoc}`);
+      const resp = await fetch(urlVialidades);
+      const textoCrudo = await resp.text();
+
+      if (!diagnosticoPrimeraPeticion) {
+        diagnosticoPrimeraPeticion = {
+          cveLocUsada: cveLoc, campoClaveDetectado, url: urlVialidades,
+          statusHttp: resp.status, primerosCaracteresRespuesta: textoCrudo.slice(0, 400),
+        };
+      }
+
       if (!resp.ok) { localidadesSinVialidades++; continue; }
-      const geojson = await resp.json();
+      let geojson;
+      try { geojson = JSON.parse(textoCrudo); } catch (e) { localidadesSinVialidades++; continue; }
       if (!geojson.features || geojson.features.length === 0) { localidadesSinVialidades++; continue; }
 
       for (const f of geojson.features) {
@@ -98,7 +114,12 @@ export async function importarCallesInegi() {
           cargadas++;
         } catch (e) { errores++; }
       }
-    } catch (e) { localidadesSinVialidades++; }
+    } catch (e) {
+      if (!diagnosticoPrimeraPeticion) {
+        diagnosticoPrimeraPeticion = { cveLocUsada: cveLoc, campoClaveDetectado, url: urlVialidades, errorDeRed: e.message };
+      }
+      localidadesSinVialidades++;
+    }
   }
 
   return {
@@ -107,5 +128,6 @@ export async function importarCallesInegi() {
     localidadesSinVialidades,
     cargadas, sinNombre, errores,
     ejemploPropiedadesVialidad,
+    diagnosticoPrimeraPeticion,
   };
 }
