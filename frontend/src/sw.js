@@ -17,9 +17,15 @@ registerRoute(
   ({ url }) => url.pathname.startsWith('/api/geo/'),
   new CacheFirst({ cacheName: 'geo-cache', plugins: [new ExpirationPlugin({ maxEntries: 50, maxAgeSeconds: 60 * 60 * 24 })] })
 );
+// 🆕 LA CAUSA REAL DE "AGREGO ALGO Y NO SE VE" — antes esperaba solo
+// 5 segundos antes de rendirse y servir la caché vieja SIN avisar.
+// En una conexión de celular un poco lenta, eso pasaba seguido — la
+// persona agregaba un promovido, y el mapa mostraba la lista de
+// ANTES, calladamente. Se amplía a 15 segundos: sigue siendo rápido
+// en conexión normal, pero ya no abandona tan fácil hacia datos viejos.
 registerRoute(
   ({ url }) => url.pathname.startsWith('/api/'),
-  new NetworkFirst({ cacheName: 'api-cache', networkTimeoutSeconds: 5, plugins: [new ExpirationPlugin({ maxEntries: 100, maxAgeSeconds: 60 * 60 })] })
+  new NetworkFirst({ cacheName: 'api-cache', networkTimeoutSeconds: 15, plugins: [new ExpirationPlugin({ maxEntries: 100, maxAgeSeconds: 60 * 60 })] })
 );
 
 self.skipWaiting();
