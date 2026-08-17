@@ -81,8 +81,15 @@ export async function importarCallesInegi() {
   let diagnosticoPrimeraPeticion = null;
 
   for (const loc of localidades) {
-    const cveLoc = loc.properties[campoClaveDetectado];
-    const claveMun = String(loc.properties.CVE_MUN || loc.properties.cve_agem || loc.properties.CVEAGEM || '');
+    const cveLocCorta = loc.properties[campoClaveDetectado];
+    // 🆕 LA CORRECCIÓN REAL — el propio INEGI dijo en su mensaje de
+    // error qué necesitaba: la clave completa es AGEE + AGEM +
+    // Localidad, no solo el código corto de localidad. Se arma
+    // pegando estado (29) + municipio (con ceros a la izquierda) +
+    // localidad (con ceros a la izquierda).
+    const claveMunCorta = String(loc.properties.CVE_MUN || loc.properties.cve_agem || loc.properties.CVEAGEM || loc.properties.cve_mun || '').replace(/\D/g, '');
+    const claveMun = claveMunCorta; // se usa tal cual para buscar en tu tabla de municipios
+    const cveLoc = `${CVE_AGEE_TLAXCALA}${claveMunCorta.padStart(3, '0')}${String(cveLocCorta).padStart(4, '0')}`;
     const urlVialidades = `${BASE}/vialidades/${cveLoc}`;
     try {
       const resp = await fetch(urlVialidades);
@@ -90,8 +97,9 @@ export async function importarCallesInegi() {
 
       if (!diagnosticoPrimeraPeticion) {
         diagnosticoPrimeraPeticion = {
-          cveLocUsada: cveLoc, campoClaveDetectado, url: urlVialidades,
+          cveLocCorta, claveMunCorta, cveLocArmada: cveLoc, campoClaveDetectado, url: urlVialidades,
           statusHttp: resp.status, primerosCaracteresRespuesta: textoCrudo.slice(0, 400),
+          propiedadesCompletasDeLaLocalidad: loc.properties,
         };
       }
 
@@ -116,7 +124,7 @@ export async function importarCallesInegi() {
       }
     } catch (e) {
       if (!diagnosticoPrimeraPeticion) {
-        diagnosticoPrimeraPeticion = { cveLocUsada: cveLoc, campoClaveDetectado, url: urlVialidades, errorDeRed: e.message };
+        diagnosticoPrimeraPeticion = { cveLocArmada: cveLoc, campoClaveDetectado, url: urlVialidades, errorDeRed: e.message };
       }
       localidadesSinVialidades++;
     }
