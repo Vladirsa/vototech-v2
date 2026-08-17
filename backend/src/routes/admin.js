@@ -1,12 +1,15 @@
 import { Router } from 'express';
+import multer from 'multer';
 import crypto from 'crypto';
 import { query } from '../db/pool.js';
 import { requiereSuperAdmin } from '../middleware/superAdmin.js';
 import { generarToken } from '../middleware/auth.js';
 import { crearDemo } from '../../seed-demo.js';
-import { repararListaNominal } from '../../seed.js';
+import { repararListaNominal, cargarResultadosHistoricosGenerico } from '../../seed.js';
 import { importarCallesInegi } from '../../import-calles-inegi.js';
 import { listarRespaldos, generarLinkDescarga, ejecutarRestauracion } from '../lib/respaldoAutomatico.js';
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 const router = Router();
 router.use(requiereSuperAdmin); // TODO en este archivo requiere la clave secreta
@@ -166,6 +169,120 @@ router.post('/reparar-lista-nominal', async (req, res) => {
     console.error('Error reparando lista nominal:', e);
     res.status(500).json({ ok: false, error: 'No se pudo reparar: ' + e.message });
   }
+});
+
+/**
+ * 🆕 POST /api/admin/cargar-resultados-historicos
+ * Carga los resultados históricos de CUALQUIER tipo de elección y
+ * año — pensado para 2027 y adelante. Solo necesitas subir el
+ * archivo con el formato correcto a backend/datos-origen/ antes de
+ * tocar el botón.
+ */
+router.post('/cargar-resultados-historicos', async (req, res) => {
+  const { tipoEleccion, anio } = req.body;
+  if (!tipoEleccion || !anio) return res.status(400).json({ ok: false, error: 'Falta tipoEleccion o anio' });
+  try {
+    const resultado = await cargarResultadosHistoricosGenerico(tipoEleccion, anio);
+    res.json({ ok: true, ...resultado, mensaje: `✅ ${resultado.filas} filas cargadas desde ${resultado.archivo}` });
+  } catch (e) {
+    console.error('Error cargando resultados históricos:', e);
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+/**
+ * 🆕 GET /api/admin/resumen-datos/:estadoId
+ * Cuántas secciones, afiliados, y qué cobertura de resultados
+ * históricos ya tienes cargada — para la pantalla de "Carga de Datos
+ * por Estado" (así se ve de un vistazo qué falta, sin tener que ir a
+ * revisar la base directamente).
+ */
+router.get('/resumen-datos/:estadoId', async (req, res) => {
+  const estadoId = parseInt(req.params.estadoId);
+  const secciones = await query(`SELECT COUNT(*) as total FROM secciones WHERE estado_id=$1`, [estadoId]);
+  const afiliados = await query(
+    `SELECT COUNT(*) as total FROM usuarios u JOIN campanas c ON c.id=u.campana_id WHERE c.estado_id=$1 AND u.rol='voluntario'`,
+    [estadoId]
+  ).catch(() => ({ rows: [{ total: 0 }] }));
+  const porTipo = await query(
+    `SELECT rh.tipo_eleccion, rh.anio, COUNT(DISTINCT rh.seccion_id) as secciones_con_dato
+     FROM resultados_historicos rh
+     JOIN secciones s ON s.id = rh.seccion_id
+     WHERE s.estado_id=$1
+     GROUP BY rh.tipo_eleccion, rh.anio
+     ORDER BY rh.anio DESC, rh.tipo_eleccion`,
+    [estadoId]
+  );
+  res.json({
+    ok: true,
+    data: {
+      total_secciones: parseInt(secciones.rows[0].total),
+      total_afiliados: parseInt(afiliados.rows[0]?.total || 0),
+      resultados_por_tipo: porTipo.rows.map((r) => ({ ...r, secciones_con_dato: parseInt(r.secciones_con_dato) })),
+    },
+  });
+});
+
+/**
+ * 🆕 POST /api/admin/subir-resultados-historicos
+ * Sube un CSV con resultados electorales por sección (columnas:
+ * seccion,partido,votos — lista_nominal opcional) y los carga a
+ * resultados_historicos. Pensado para 2027: en vez de subir un
+ * archivo JS al repositorio, se sube el CSV directo desde esta
+ * pantalla, sin tocar GitHub ni código.
+ */
+router.post('/subir-resultados-historicos', upload.single('archivo'), async (req, res) => {
+  const { estado_id, tipo_eleccion, anio } = req.body;
+  if (!req.file) return res.status(400).json({ ok: false, error: 'No se recibió ningún archivo' });
+  if (!estado_id || !tipo_eleccion || !anio) return res.status(400).json({ ok: false, error: 'Falta estado_id, tipo_eleccion o anio' });
+
+  const texto = req.file.buffer.toString('utf-8');
+  const lineas = texto.split(/\r?\n/).filter((l) => l.trim());
+  const encabezado = lineas[0].toLowerCase().split(',').map((c) => c.trim());
+  const idxSeccion = encabezado.indexOf('seccion');
+  const idxPartido = encabezado.indexOf('partido');
+  const idxVotos = encabezado.indexOf('votos');
+  const idxListaNominal = encabezado.indexOf('lista_nominal');
+
+  if (idxSeccion === -1 || idxPartido === -1 || idxVotos === -1) {
+    return res.status(400).json({ ok: false, error: 'El CSV debe tener las columnas: seccion,partido,votos (lista_nominal es opcional)' });
+  }
+
+  let cargadas = 0, errores = 0, seccionesActualizadas = 0;
+  for (const linea of lineas.slice(1)) {
+    const cols = linea.split(',').map((c) => c.trim());
+    const numeroSeccion = parseInt(cols[idxSeccion]);
+    const partido = cols[idxPartido]?.toLowerCase();
+    const votos = parseInt(cols[idxVotos]);
+    if (isNaN(numeroSeccion) || !partido || isNaN(votos)) { errores++; continue; }
+
+    try {
+      const seccionRes = await query(`SELECT id FROM secciones WHERE estado_id=$1 AND numero=$2`, [estado_id, numeroSeccion]);
+      if (!seccionRes.rows[0]) { errores++; continue; }
+      const seccionId = seccionRes.rows[0].id;
+
+      await query(
+        `INSERT INTO resultados_historicos (seccion_id, tipo_eleccion, anio, partido, votos)
+         VALUES ($1,$2,$3,$4,$5)
+         ON CONFLICT (seccion_id, tipo_eleccion, anio, partido) DO UPDATE SET votos=EXCLUDED.votos`,
+        [seccionId, tipo_eleccion, parseInt(anio), partido, votos]
+      );
+      cargadas++;
+
+      if (idxListaNominal !== -1 && cols[idxListaNominal]) {
+        const ln = parseInt(cols[idxListaNominal]);
+        if (!isNaN(ln)) {
+          await query(`UPDATE secciones SET lista_nominal=$1 WHERE id=$2`, [ln, seccionId]);
+          seccionesActualizadas++;
+        }
+      }
+    } catch (e) { errores++; }
+  }
+
+  res.json({
+    ok: true,
+    mensaje: `✅ ${cargadas} filas cargadas, ${seccionesActualizadas} secciones con lista nominal actualizada, ${errores} filas con error.`,
+  });
 });
 
 /**
