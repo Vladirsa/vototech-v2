@@ -141,128 +141,6 @@ function FormularioCaptura({ onGuardado, bloqueada }) {
   );
 }
 
-/**
- * 🆕 Panel de casillas sugeridas — cuántas le tocan a cada sección
- * según la regla oficial del INE (1 por cada 750 electores o
- * fracción), comparado contra las que ya diste de alta. Con un botón
- * genera las que faltan, listas para asignarles representante.
- */
-function PanelCasillasSugeridas() {
-  const [datos, setDatos] = useState(null);
-  const [resumen, setResumen] = useState(null);
-  const [generando, setGenerando] = useState(null);
-  const [equipo, setEquipo] = useState([]);
-  const [casillasReales, setCasillasReales] = useState([]);
-  const [seccionExpandida, setSeccionExpandida] = useState(null);
-
-  const cargar = () => {
-    api.get('/dia-eleccion/casillas-sugeridas').then((r) => { setDatos(r.data.data); setResumen(r.data.resumen); });
-    api.get('/dia-eleccion/casillas').then((r) => setCasillasReales(r.data.data));
-  };
-  useEffect(() => {
-    cargar();
-    api.get('/estructura').then((r) => setEquipo(r.data.data)).catch(() => setEquipo([]));
-  }, []);
-
-  const generarCasillas = async (seccion) => {
-    setGenerando(seccion);
-    try {
-      const { data } = await api.post(`/dia-eleccion/casillas-sugeridas/${seccion}/generar`);
-      cargar();
-      setSeccionExpandida(seccion);
-    } catch (e) { alert(e.response?.data?.error || 'No se pudo generar'); }
-    setGenerando(null);
-  };
-
-  const asignarRepresentante = async (seccion, numeroCasilla, representanteId) => {
-    // 🆕 null expl\u00edcito para poder QUITAR al representante también,
-    // no solo asignarlo (antes, elegir "Sin representante" no
-    // guardaba nada porque mandaba undefined, que el backend ignora).
-    await api.post('/dia-eleccion/casillas', { seccion_numero: seccion, numero: numeroCasilla, representante_id: representanteId || null });
-    cargar();
-  };
-  const asignarSuplente = async (seccion, numeroCasilla, suplenteId) => {
-    await api.post('/dia-eleccion/casillas', { seccion_numero: seccion, numero: numeroCasilla, suplente_id: suplenteId || null });
-    cargar();
-  };
-
-  if (!datos) return <div className="text-center text-slate-500 text-xs py-6">⏳ Calculando casillas por sección...</div>;
-
-  return (
-    <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 space-y-3">
-      <div>
-        <h2 className="text-sm font-bold text-white">🗳️ Casillas por sección (según regla del INE)</h2>
-        <p className="text-[9px] text-slate-500 mt-0.5">1 casilla por cada 750 electores o fracción (Art. 253, 258 y 284 LGIPE) — así puedes ir asignando representantes antes de que el INE publique su listado oficial.</p>
-      </div>
-      {resumen && (
-        <div className="grid grid-cols-3 gap-2">
-          <div className="text-center bg-slate-800/50 rounded-lg p-2">
-            <div className="text-lg font-black text-white">{resumen.total_casillas_sugeridas}</div>
-            <div className="text-[9px] text-slate-500">Casillas que te tocan</div>
-          </div>
-          <div className="text-center bg-emerald-500/10 rounded-lg p-2">
-            <div className="text-lg font-black text-emerald-400">{resumen.total_casillas_registradas}</div>
-            <div className="text-[9px] text-slate-500">Ya registradas</div>
-          </div>
-          <div className={`text-center rounded-lg p-2 ${resumen.total_faltantes > 0 ? 'bg-red-500/10' : 'bg-emerald-500/10'}`}>
-            <div className={`text-lg font-black ${resumen.total_faltantes > 0 ? 'text-red-400' : 'text-emerald-400'}`}>{resumen.total_faltantes}</div>
-            <div className="text-[9px] text-slate-500">Faltan por dar de alta</div>
-          </div>
-        </div>
-      )}
-      <div className="space-y-1.5 max-h-96 overflow-y-auto">
-        {datos.map((s) => {
-          const casillasDeEstaSeccion = casillasReales.filter((c) => c.seccion_numero === s.seccion);
-          return (
-            <div key={s.seccion} className="bg-slate-800/40 rounded-lg overflow-hidden">
-              <div className="flex items-center justify-between px-3 py-2">
-                <button onClick={() => setSeccionExpandida(seccionExpandida === s.seccion ? null : s.seccion)} className="flex-1 text-left">
-                  <div className="text-xs font-bold text-white">Sección {String(s.seccion).padStart(3, '0')} <span className="text-slate-500 font-normal">· {s.municipio}</span></div>
-                  <div className="text-[9px] text-slate-500">{s.lista_nominal.toLocaleString()} electores · {s.casillas_sugeridas} casilla(s) necesaria(s)</div>
-                </button>
-                {s.faltantes > 0 ? (
-                  <button onClick={() => generarCasillas(s.seccion)} disabled={generando === s.seccion}
-                    className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-[10px] font-bold disabled:opacity-50 flex-shrink-0">
-                    {generando === s.seccion ? '⏳' : `+ Generar ${s.faltantes}`}
-                  </button>
-                ) : (
-                  <span className="text-[9px] text-emerald-400 font-bold flex-shrink-0">✅ Completo</span>
-                )}
-              </div>
-              {seccionExpandida === s.seccion && casillasDeEstaSeccion.length > 0 && (
-                <div className="px-3 pb-2 space-y-2 border-t border-slate-700/50 pt-2">
-                  {casillasDeEstaSeccion.map((c) => (
-                    <div key={c.id} className="bg-slate-900/40 rounded-lg p-2 space-y-1.5">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] text-slate-300 font-bold">Casilla {c.numero}</span>
-                        {c.personas_esperadas && <span className="text-[9px] text-slate-500">👥 ~{c.personas_esperadas.toLocaleString()} personas</span>}
-                        {c.confirmado_asistencia && <span className="text-[9px] text-emerald-400">✅ Confirmado</span>}
-                      </div>
-                      <select value={c.representante_id || ''} onChange={(e) => asignarRepresentante(s.seccion, c.numero, e.target.value)}
-                        className="w-full px-2 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-white text-[10px]">
-                        <option value="">👤 Sin representante asignado</option>
-                        {equipo.map((u) => <option key={u.id} value={u.id}>👤 {u.nombre}</option>)}
-                      </select>
-                      {/* 🆕 Suplente — igual de importante, para que la
-                          casilla no se quede sin cubrir si el
-                          representante titular no puede llegar. */}
-                      <select value={c.suplente_id || ''} onChange={(e) => asignarSuplente(s.seccion, c.numero, e.target.value)}
-                        className="w-full px-2 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-white text-[10px]">
-                        <option value="">🔁 Sin suplente asignado</option>
-                        {equipo.map((u) => <option key={u.id} value={u.id}>🔁 {u.nombre}</option>)}
-                      </select>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
 function PanelPrep({ prep }) {
   if (!prep) return null;
   return (
@@ -339,8 +217,8 @@ export default function DiaEleccion() {
   // regresa a Captura — nunca debe quedarse mostrando una pantalla
   // que ya no le toca ver.
   useEffect(() => {
-    if (vistaSimple && (tab === 'prep' || tab === 'conteo')) setTab('captura');
-  }, [vistaSimple, tab]);
+    if (!esAltoMando && (tab === 'prep' || tab === 'conteo')) setTab('captura');
+  }, [esAltoMando, tab]);
 
   useSocket({
     resultado_actualizado: () => cargarTodo(),
@@ -391,7 +269,13 @@ export default function DiaEleccion() {
         <div className="flex gap-2 flex-wrap">
           <button onClick={() => setTab('captura')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'captura' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📝 Captura</button>
           <button onClick={() => setTab('caceria')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'caceria' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🎯 Cacería ({caceria.length})</button>
-          {!vistaSimple && (
+          {/* 🆕 Prep y Avance en vivo — antes visibles para casi
+              cualquier rol con acceso a Día D (incluido un
+              representante de una sola casilla). Esos paneles
+              muestran quién está asignado en TODAS las casillas —
+              información sensible de estructura — así que ahora solo
+              se ven para Candidato/Jefe de Campaña/Coord. General. */}
+          {esAltoMando && (
             <>
               <button onClick={() => setTab('prep')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'prep' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>✅ Prep</button>
               <button onClick={() => setTab('conteo')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'conteo' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📊 Avance en vivo</button>
@@ -416,7 +300,7 @@ export default function DiaEleccion() {
           </div>
         )}
 
-        {tab === 'prep' && (
+        {tab === 'prep' && esAltoMando && (
           <div className="space-y-3">
             {esDemo && (
               <div className="bg-purple-500/10 border border-purple-500/30 rounded-xl p-4 space-y-2">
@@ -437,8 +321,7 @@ export default function DiaEleccion() {
               </div>
             )}
             <PanelPrep prep={prep} />
-            <PanelCasillasSugeridas />
-            <p className="text-[10px] text-slate-500">¿Necesitas moverla de lugar en el mapa? Usa el botón ➕ en el Mapa Electoral (tipo "Ubicación de casilla") para marcar su punto exacto.</p>
+            <p className="text-[10px] text-slate-500">🗳️ La gestión de casillas (representantes, suplentes, ubicación) se movió a <strong>Estructura</strong> — es información sensible del equipo, y ahí solo la ven Candidato, Jefe de Campaña y Coord. General.</p>
           </div>
         )}
 
@@ -465,7 +348,7 @@ export default function DiaEleccion() {
           </div>
         )}
 
-        {tab === 'conteo' && conteoRapido && (
+        {tab === 'conteo' && esAltoMando && conteoRapido && (
           <div className="space-y-3">
             {/* Medidor grande de avance — lo primero que se ve */}
             <div className="bg-gradient-to-br from-slate-900 to-indigo-950/40 border border-indigo-800/30 rounded-2xl p-5 text-center">

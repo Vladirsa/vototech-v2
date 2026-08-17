@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../lib/api';
+import { useAuth } from '../lib/authStore';
 // html2canvas se importa DINÁMICAMENTE dentro de exportarImagen() —
 // es una librería pesada que solo hace falta si alguien de verdad
 // toca "Exportar imagen", no en cada visita a Estructura.
@@ -808,6 +809,220 @@ function PanelDuplicados() {
   );
 }
 
+/**
+ * 🆕 Panel de Representantes de Casilla — vive en Estructura porque es
+ * información sensible del equipo (quién está asignado dónde), no en
+ * Día D donde cualquiera con acceso a captura podía verla.
+ *
+ * Combina 3 cosas en un solo lugar:
+ * 1. Cuántas casillas le tocan a cada sección (regla INE: 750 electores)
+ * 2. Asignar representante Y suplente — con alta rápida si la persona
+ *    no existe todavía en tu Estructura (se crea con su cargo solo)
+ * 3. Generar el nombramiento oficial con los datos que pide la LGIPE
+ *    (Art. 259 y 397): partido, nombre, propietario/suplente, distrito,
+ *    sección, casilla, domicilio, clave de elector.
+ */
+function PanelCasillas() {
+  const [datos, setDatos] = useState(null);
+  const [resumen, setResumen] = useState(null);
+  const [generando, setGenerando] = useState(null);
+  const [equipo, setEquipo] = useState([]);
+  const [casillasReales, setCasillasReales] = useState([]);
+  const [seccionExpandida, setSeccionExpandida] = useState(null);
+  const [altaRapidaPara, setAltaRapidaPara] = useState(null); // {seccion, numeroCasilla, tipo: 'representante'|'suplente'}
+  const [formAlta, setFormAlta] = useState({ nombre: '', email: '', password: '', telefono: '', clave_elector: '', domicilio: '' });
+  const [guardandoAlta, setGuardandoAlta] = useState(false);
+
+  const cargar = () => {
+    api.get('/dia-eleccion/casillas-sugeridas').then((r) => { setDatos(r.data.data); setResumen(r.data.resumen); });
+    api.get('/dia-eleccion/casillas').then((r) => setCasillasReales(r.data.data));
+  };
+  useEffect(() => {
+    cargar();
+    api.get('/estructura').then((r) => setEquipo(r.data.data)).catch(() => setEquipo([]));
+  }, []);
+
+  const generarCasillas = async (seccion) => {
+    setGenerando(seccion);
+    try {
+      await api.post(`/dia-eleccion/casillas-sugeridas/${seccion}/generar`);
+      cargar();
+      setSeccionExpandida(seccion);
+    } catch (e) { alert(e.response?.data?.error || 'No se pudo generar'); }
+    setGenerando(null);
+  };
+
+  const asignarRepresentante = async (seccion, numeroCasilla, representanteId) => {
+    if (representanteId === '__nuevo__') { setAltaRapidaPara({ seccion, numeroCasilla, tipo: 'representante' }); return; }
+    await api.post('/dia-eleccion/casillas', { seccion_numero: seccion, numero: numeroCasilla, representante_id: representanteId || null });
+    cargar();
+  };
+  const asignarSuplente = async (seccion, numeroCasilla, suplenteId) => {
+    if (suplenteId === '__nuevo__') { setAltaRapidaPara({ seccion, numeroCasilla, tipo: 'suplente' }); return; }
+    await api.post('/dia-eleccion/casillas', { seccion_numero: seccion, numero: numeroCasilla, suplente_id: suplenteId || null });
+    cargar();
+  };
+
+  // 🆕 Alta rápida — crea a la persona en Estructura (con su cargo
+  // automático, tal como pediste) Y de una vez la asigna a la casilla,
+  // sin tener que ir a otra pantalla y volver.
+  const guardarAltaRapida = async () => {
+    if (!formAlta.nombre || !formAlta.email || !formAlta.password) {
+      alert('Nombre, correo y contraseña son obligatorios para dar de alta a la persona.');
+      return;
+    }
+    setGuardandoAlta(true);
+    try {
+      const cargo = `Representante de Casilla — Sección ${altaRapidaPara.seccion}, Casilla ${altaRapidaPara.numeroCasilla}`;
+      const { data } = await api.post('/estructura', {
+        nombre: formAlta.nombre, email: formAlta.email, password: formAlta.password,
+        telefono: formAlta.telefono || undefined, rol: 'representante_casilla', puesto: cargo,
+      });
+      const nuevoUsuarioId = data.data.id;
+
+      const campo = altaRapidaPara.tipo === 'representante' ? 'representante_id' : 'suplente_id';
+      await api.post('/dia-eleccion/casillas', {
+        seccion_numero: altaRapidaPara.seccion, numero: altaRapidaPara.numeroCasilla,
+        [campo]: nuevoUsuarioId,
+      });
+      // Datos que pide la LGIPE para el nombramiento — se guardan en
+      // la propia casilla, junto con quién es el representante.
+      if (formAlta.clave_elector || formAlta.domicilio) {
+        await api.patch(`/dia-eleccion/casillas/${casillasReales.find((c) => c.seccion_numero === altaRapidaPara.seccion && c.numero === altaRapidaPara.numeroCasilla)?.id}/datos-nombramiento`, {
+          representante_clave_elector: formAlta.clave_elector || undefined,
+          representante_domicilio: formAlta.domicilio || undefined,
+        }).catch(() => {});
+      }
+
+      setAltaRapidaPara(null);
+      setFormAlta({ nombre: '', email: '', password: '', telefono: '', clave_elector: '', domicilio: '' });
+      cargar();
+      api.get('/estructura').then((r) => setEquipo(r.data.data));
+    } catch (e) {
+      alert(e.response?.data?.error || 'No se pudo dar de alta');
+    }
+    setGuardandoAlta(false);
+  };
+
+  const descargarNombramiento = (seccion, casilla) => {
+    window.open(`${api.defaults.baseURL}/dia-eleccion/casillas/${casilla.id}/nombramiento-pdf`, '_blank');
+  };
+
+  if (!datos) return <div className="text-center text-slate-500 text-xs py-6">⏳ Calculando casillas por sección...</div>;
+
+  return (
+    <div className="space-y-3">
+      <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 space-y-3">
+        <div>
+          <h2 className="text-sm font-bold text-white">🗳️ Representante de Casilla</h2>
+          <p className="text-[9px] text-slate-500 mt-0.5">1 casilla por cada 750 electores o fracción (Art. 253, 258 y 284 LGIPE). Cada representante necesita nombre, carácter de propietario/suplente, sección, casilla, domicilio y clave de elector (Art. 259 y Lineamientos de Registro de Representantes) — esos 2 últimos se piden aquí para poder generar su nombramiento.</p>
+        </div>
+        {resumen && (
+          <div className="grid grid-cols-3 gap-2">
+            <div className="text-center bg-slate-800/50 rounded-lg p-2">
+              <div className="text-lg font-black text-white">{resumen.total_casillas_sugeridas}</div>
+              <div className="text-[9px] text-slate-500">Casillas que te tocan</div>
+            </div>
+            <div className="text-center bg-emerald-500/10 rounded-lg p-2">
+              <div className="text-lg font-black text-emerald-400">{resumen.total_casillas_registradas}</div>
+              <div className="text-[9px] text-slate-500">Ya registradas</div>
+            </div>
+            <div className={`text-center rounded-lg p-2 ${resumen.total_faltantes > 0 ? 'bg-red-500/10' : 'bg-emerald-500/10'}`}>
+              <div className={`text-lg font-black ${resumen.total_faltantes > 0 ? 'text-red-400' : 'text-emerald-400'}`}>{resumen.total_faltantes}</div>
+              <div className="text-[9px] text-slate-500">Faltan por dar de alta</div>
+            </div>
+          </div>
+        )}
+        <div className="space-y-1.5 max-h-96 overflow-y-auto">
+          {datos.map((s) => {
+            const casillasDeEstaSeccion = casillasReales.filter((c) => c.seccion_numero === s.seccion);
+            return (
+              <div key={s.seccion} className="bg-slate-800/40 rounded-lg overflow-hidden">
+                <div className="flex items-center justify-between px-3 py-2">
+                  <button onClick={() => setSeccionExpandida(seccionExpandida === s.seccion ? null : s.seccion)} className="flex-1 text-left">
+                    <div className="text-xs font-bold text-white">Sección {String(s.seccion).padStart(3, '0')} <span className="text-slate-500 font-normal">· {s.municipio}</span></div>
+                    <div className="text-[9px] text-slate-500">{s.lista_nominal.toLocaleString()} electores · {s.casillas_sugeridas} casilla(s) necesaria(s)</div>
+                  </button>
+                  {s.faltantes > 0 ? (
+                    <button onClick={() => generarCasillas(s.seccion)} disabled={generando === s.seccion}
+                      className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-[10px] font-bold disabled:opacity-50 flex-shrink-0">
+                      {generando === s.seccion ? '⏳' : `+ Generar ${s.faltantes}`}
+                    </button>
+                  ) : (
+                    <span className="text-[9px] text-emerald-400 font-bold flex-shrink-0">✅ Completo</span>
+                  )}
+                </div>
+                {seccionExpandida === s.seccion && casillasDeEstaSeccion.length > 0 && (
+                  <div className="px-3 pb-2 space-y-2 border-t border-slate-700/50 pt-2">
+                    {casillasDeEstaSeccion.map((c) => (
+                      <div key={c.id} className="bg-slate-900/40 rounded-lg p-2 space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] text-slate-300 font-bold">Casilla {c.numero}</span>
+                          <div className="flex items-center gap-2">
+                            {c.personas_esperadas && <span className="text-[9px] text-slate-500">👥 ~{c.personas_esperadas.toLocaleString()}</span>}
+                            {c.representante_id && (
+                              <button onClick={() => descargarNombramiento(s.seccion, c)} className="text-[9px] text-indigo-400 font-bold">📄 Nombramiento</button>
+                            )}
+                          </div>
+                        </div>
+                        <select value={c.representante_id || ''} onChange={(e) => asignarRepresentante(s.seccion, c.numero, e.target.value)}
+                          className="w-full px-2 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-white text-[10px]">
+                          <option value="">👤 Sin representante asignado</option>
+                          <option value="__nuevo__">➕ Dar de alta a alguien nuevo...</option>
+                          {equipo.map((u) => <option key={u.id} value={u.id}>👤 {u.nombre}</option>)}
+                        </select>
+                        <select value={c.suplente_id || ''} onChange={(e) => asignarSuplente(s.seccion, c.numero, e.target.value)}
+                          className="w-full px-2 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-white text-[10px]">
+                          <option value="">🔁 Sin suplente asignado</option>
+                          <option value="__nuevo__">➕ Dar de alta a alguien nuevo...</option>
+                          {equipo.map((u) => <option key={u.id} value={u.id}>🔁 {u.nombre}</option>)}
+                        </select>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* 🆕 Modal de alta rápida */}
+      {altaRapidaPara && (
+        <div className="fixed inset-0 bg-black/70 flex items-end md:items-center justify-center z-50">
+          <div className="bg-slate-900 border border-slate-700 rounded-t-2xl md:rounded-2xl w-full max-w-md p-5 space-y-3 max-h-[90vh] overflow-y-auto">
+            <h2 className="text-lg font-black text-white">
+              ➕ Nuevo {altaRapidaPara.tipo === 'representante' ? 'Representante' : 'Suplente'} — Sección {altaRapidaPara.seccion}, Casilla {altaRapidaPara.numeroCasilla}
+            </h2>
+            <p className="text-[10px] text-slate-500">Se da de alta en tu Estructura (con el cargo ya puesto) y queda asignado a esta casilla en un solo paso.</p>
+            <input placeholder="Nombre completo" value={formAlta.nombre} onChange={(e) => setFormAlta({ ...formAlta, nombre: e.target.value })}
+              className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+            <input placeholder="Correo (para su acceso al sistema)" value={formAlta.email} onChange={(e) => setFormAlta({ ...formAlta, email: e.target.value })}
+              className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+            <input placeholder="Contraseña temporal (mín. 8 caracteres)" value={formAlta.password} onChange={(e) => setFormAlta({ ...formAlta, password: e.target.value })}
+              className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+            <input placeholder="Teléfono" value={formAlta.telefono} onChange={(e) => setFormAlta({ ...formAlta, telefono: e.target.value })}
+              className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+            <div className="bg-slate-800/40 border border-slate-700 rounded-lg p-3 space-y-2">
+              <div className="text-[10px] font-bold text-slate-400 uppercase">📋 Para el nombramiento oficial (LGIPE)</div>
+              <input placeholder="Clave de elector (de su credencial INE)" value={formAlta.clave_elector} onChange={(e) => setFormAlta({ ...formAlta, clave_elector: e.target.value })}
+                className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white text-xs" />
+              <input placeholder="Domicilio" value={formAlta.domicilio} onChange={(e) => setFormAlta({ ...formAlta, domicilio: e.target.value })}
+                className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white text-xs" />
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => setAltaRapidaPara(null)} className="flex-1 py-2.5 rounded-lg bg-slate-800 text-slate-300 text-sm font-bold">Cancelar</button>
+              <button onClick={guardarAltaRapida} disabled={guardandoAlta} className="flex-1 py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-bold disabled:opacity-50">
+                {guardandoAlta ? '⏳ Guardando...' : 'Dar de alta y asignar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Estructura() {
   const [miembros, setMiembros] = useState([]);
   const [salud, setSalud] = useState(null);
@@ -821,7 +1036,11 @@ export default function Estructura() {
   const [vacantes, setVacantes] = useState([]);
   const [alertasRama, setAlertasRama] = useState([]);
   const [ranking, setRanking] = useState([]);
-  const [representantesIne, setRepresentantesIne] = useState([]);
+  const { usuario } = useAuth();
+  // 🆕 Estos 2 paneles muestran quién está asignado en CADA casilla —
+  // información sensible de estructura. Solo Candidato, Jefe de
+  // Campaña y Coord. General deben verla.
+  const esAltoMando = ['candidato', 'jefe_campana', 'coord_general'].includes(usuario?.rol);
   const [gamificacion, setGamificacion] = useState([]);
   const [cobertura, setCobertura] = useState(null);
   const [seccionExpandida, setSeccionExpandida] = useState(null);
@@ -966,9 +1185,15 @@ export default function Estructura() {
             <button onClick={() => setVista('lista')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'lista' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📋 Lista</button>
             <button onClick={() => setVista('ranking')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'ranking' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🏆 Ranking</button>
             <button onClick={() => setVista('codigos')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'codigos' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🎟️ Códigos masivos</button>
-            <button onClick={() => setVista('representantes-ine')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'representantes-ine' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🪪 Representantes INE</button>
+            {esAltoMando && (
+              <>
+                <button onClick={() => setVista('representantes-ine')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'representantes-ine' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🗳️ Representante de Casilla</button>
+              </>
+            )}
             <button onClick={() => setVista('gamificacion')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'gamificacion' ? 'bg-amber-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🏆 Ranking del Equipo</button>
-            <button onClick={() => setVista('cobertura-casillas')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'cobertura-casillas' ? 'bg-red-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🗳️ Cobertura de Casillas</button>
+            {esAltoMando && (
+              <button onClick={() => setVista('cobertura-casillas')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'cobertura-casillas' ? 'bg-red-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🗳️ Cobertura de Casillas</button>
+            )}
             <button onClick={() => setVista('permisos')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'permisos' ? 'bg-purple-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🔐 Permisos por Rol</button>
             <button onClick={() => setVista('duplicados')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'duplicados' ? 'bg-orange-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🔁 Duplicados</button>
           </div>
@@ -1018,27 +1243,8 @@ export default function Estructura() {
               </tbody>
             </table>
           </div>
-        ) : vista === 'representantes-ine' ? (
-          <div className="space-y-2">
-            <p className="text-[11px] text-slate-500">Viven técnicamente en Activos (por su fecha de vigencia), pero aquí los ves en el contexto de tu estructura humana.</p>
-            {representantesIne.length === 0 ? (
-              <div className="text-center text-slate-500 text-sm py-10">Sin representantes INE registrados — agrégalos desde el botón ➕ en el Mapa (tipo "Representante INE")</div>
-            ) : representantesIne.map((r) => (
-              <div key={r.id} className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex items-center justify-between">
-                <div>
-                  <div className="text-sm font-bold text-white">🪪 {r.nombre_rep || 'Sin nombre'}</div>
-                  <div className="text-[10px] text-slate-500">
-                    {r.seccion_numero ? `Sección ${r.seccion_numero}` : 'Sin sección'}
-                    {r.telefono_rep && ` · ${r.telefono_rep}`}
-                    {r.fecha_vence && ` · Vigente hasta ${new Date(r.fecha_vence).toLocaleDateString('es-MX')}`}
-                  </div>
-                </div>
-                {r.telefono_rep && (
-                  <a href={`https://wa.me/52${r.telefono_rep.replace(/\D/g, '')}`} target="_blank" rel="noreferrer" className="text-[10px] font-bold text-emerald-400">📲 WhatsApp</a>
-                )}
-              </div>
-            ))}
-          </div>
+        ) : vista === 'representantes-ine' && esAltoMando ? (
+          <PanelCasillas />
         ) : vista === 'gamificacion' ? (
           <div className="space-y-2">
             <p className="text-[11px] text-slate-500">Puntos por actividad real: 10 por promovido capturado, 25 si se compromete, 5 por cada seguimiento a un persuadible, 40 si lo convences, 50 por reportar en Día D, 5 por reportar una incidencia.</p>
@@ -1068,7 +1274,7 @@ export default function Estructura() {
               </div>
             ))}
           </div>
-        ) : vista === 'cobertura-casillas' && cobertura ? (
+        ) : vista === 'cobertura-casillas' && esAltoMando && cobertura ? (
           <div className="space-y-3">
             <p className="text-[11px] text-slate-500">Estimado con la regla oficial del INE (máximo ~750 electores por casilla básica) — no es el listado exacto del INE, así que se puede corregir a mano si tu realidad es distinta.</p>
             <div className="grid grid-cols-2 gap-2">
