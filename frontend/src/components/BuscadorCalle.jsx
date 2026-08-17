@@ -18,7 +18,7 @@ import api from '../lib/api';
  * automáticamente, para que el domicilio quede geolocalizado (con
  * lat/lng reales) y no solo como texto suelto.
  */
-export default function BuscadorCalle({ valor, onSeleccion }) {
+export default function BuscadorCalle({ valor, onSeleccion, seccionNumero }) {
   const [texto, setTexto] = useState(valor || '');
   const [sugerencias, setSugerencias] = useState([]);
   const [buscando, setBuscando] = useState(false);
@@ -34,8 +34,10 @@ export default function BuscadorCalle({ valor, onSeleccion }) {
     setBuscando(true);
     try {
       // 🆕 Primero el catálogo local — rápido, tuyo, sin depender de
-      // ningún servicio externo.
-      const { data } = await api.get(`/calles/buscar?q=${encodeURIComponent(q)}`);
+      // ningún servicio externo. Si ya se eligió una sección, se manda
+      // para acotar la búsqueda a ese municipio primero.
+      const parametroSeccion = seccionNumero ? `&seccion=${seccionNumero}` : '';
+      const { data } = await api.get(`/calles/buscar?q=${encodeURIComponent(q)}${parametroSeccion}`);
       if (data.data.length > 0) {
         setSugerencias(data.data.map((c) => ({
           fuente: 'local',
