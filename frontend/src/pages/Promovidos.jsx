@@ -2,7 +2,6 @@ import { useEffect, useState, useRef } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import api, { descargarArchivo } from '../lib/api';
 import BuscadorCalle from '../components/BuscadorCalle';
-import SelectorUbicacionMapa from '../components/SelectorUbicacionMapa';
 import InsigniaPartido from '../components/InsigniaPartido';
 import Papa from 'papaparse';
 // XLSX (SheetJS) se importa DINÁMICAMENTE dentro de leerArchivo() —
@@ -178,10 +177,6 @@ export function ModalAgregar({ onCerrar, onGuardado, seccionInicial }) {
           seccionNumero={form.seccion_numero}
           onSeleccion={(datos) => setForm((f) => ({ ...f, calle: datos.calle, lat: datos.lat, lng: datos.lng }))}
         />
-        {/* 🆕 Mapa interactivo — antes era solo una vista previa fija
-            (dragging={false}), ahora se puede tocar para ajustar el
-            punto exacto, igual que en Activos. */}
-        <SelectorUbicacionMapa lat={form.lat} lng={form.lng} onCambio={(lat, lng) => setForm((f) => ({ ...f, lat, lng }))} />
 
         <select value={form.partido} onChange={(e) => actualizar('partido', e.target.value)}
           className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
