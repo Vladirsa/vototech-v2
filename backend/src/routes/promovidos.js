@@ -459,6 +459,12 @@ const esquemaEditar = z.object({
   partido: z.string().max(20).optional(),
   comprometido: z.boolean().optional(),
   temperatura: z.enum(['frio', 'tibio', 'caliente']).optional(),
+  // 🆕 Faltaban en la edición — sí existían al crear, pero no se
+  // podían corregir después.
+  genero: z.enum(['hombre', 'mujer', 'otro']).optional(),
+  rango_edad: z.enum(['18-29', '30-44', '45-59', '60+']).optional(),
+  lat: z.number().nullable().optional(),
+  lng: z.number().nullable().optional(),
 });
 
 /**
