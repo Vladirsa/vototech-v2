@@ -300,6 +300,12 @@ function ModalDetalle({ promovidoId, onCerrar, onActualizado }) {
     await api.patch(`/promovidos/${promovidoId}`, {
       nombre: form.nombre, telefono: form.telefono, partido: form.partido,
       comprometido: form.comprometido, temperatura: form.temperatura,
+      // 🆕 Antes el formulario de edición no dejaba tocar estos
+      // campos, aunque el backend siempre los aceptó — se corrige
+      // aquí, mandándolos igual que al crear un promovido nuevo.
+      curp: form.curp, seccion_numero: form.seccion_numero ? parseInt(form.seccion_numero) : undefined,
+      calle: form.calle, genero: form.genero || undefined, rango_edad: form.rango_edad || undefined,
+      lat: form.lat ?? undefined, lng: form.lng ?? undefined,
     });
     setEditando(false);
     cargar();
@@ -331,6 +337,8 @@ function ModalDetalle({ promovidoId, onCerrar, onActualizado }) {
               <div>📍 {detalle.seccion_numero ? `Sección ${detalle.seccion_numero}` : 'Sin sección'} {detalle.calle && `· ${detalle.calle}`}</div>
               <div>🏛️ {detalle.partido?.toUpperCase() || 'Sin partido declarado'} {detalle.comprometido && '· ✅ Comprometido'}</div>
               <div>🌡️ Temperatura: {detalle.temperatura}</div>
+              {detalle.curp && <div>🪪 CURP: {detalle.curp}</div>}
+              {(detalle.genero || detalle.rango_edad) && <div>👤 {detalle.genero || ''} {detalle.rango_edad ? `· ${detalle.rango_edad} años` : ''}</div>}
               <div className="text-slate-500">Registrado por {detalle.registrado_por_nombre} el {new Date(detalle.creado_en).toLocaleDateString('es-MX')}</div>
             </div>
 
@@ -361,6 +369,34 @@ function ModalDetalle({ promovidoId, onCerrar, onActualizado }) {
               className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
             <input value={form.telefono || ''} onChange={(e) => setForm({ ...form, telefono: e.target.value })} placeholder="Teléfono"
               className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+            {/* 🆕 Estos 4 campos no se podían editar antes — solo se
+                capturaban al crear al promovido y ya no se tocaban. */}
+            <input value={form.curp || ''} onChange={(e) => setForm({ ...form, curp: e.target.value.toUpperCase() })} placeholder="CURP"
+              className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+            <input value={form.seccion_numero || ''} type="number" onChange={(e) => setForm({ ...form, seccion_numero: e.target.value })} placeholder="Sección electoral"
+              className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+            <BuscadorCalle
+              valor={form.calle}
+              seccionNumero={form.seccion_numero}
+              onSeleccion={(datos) => setForm({ ...form, calle: datos.calle, lat: datos.lat, lng: datos.lng })}
+            />
+            <div className="grid grid-cols-2 gap-2">
+              <select value={form.genero || ''} onChange={(e) => setForm({ ...form, genero: e.target.value })}
+                className="px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
+                <option value="">Género</option>
+                <option value="hombre">Hombre</option>
+                <option value="mujer">Mujer</option>
+                <option value="otro">Otro</option>
+              </select>
+              <select value={form.rango_edad || ''} onChange={(e) => setForm({ ...form, rango_edad: e.target.value })}
+                className="px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
+                <option value="">Rango de edad</option>
+                <option value="18-29">18-29</option>
+                <option value="30-44">30-44</option>
+                <option value="45-59">45-59</option>
+                <option value="60+">60+</option>
+              </select>
+            </div>
             <select value={form.partido || ''} onChange={(e) => setForm({ ...form, partido: e.target.value })}
               className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
               <option value="">Sin partido</option>
