@@ -27,6 +27,9 @@ const esquemaRegistroCampana = z.object({
   fecha_eleccion: z.string().optional(),
   codigo_acceso: z.string().min(3, 'Se requiere un código de acceso válido'),
   acepta_terminos: z.literal(true, { errorMap: () => ({ message: 'Debes aceptar los Términos y Condiciones y el Aviso de Privacidad para continuar' }) }),
+  // 🆕 Firma electrónica del Contrato de Prestación de Servicios —
+  // el nombre se escribe a mano como acto de firma, no se autocompleta.
+  nombre_firma: z.string().min(3).max(200),
 });
 
 /**
@@ -68,11 +71,29 @@ router.post('/registrar-campana', async (req, res) => {
     // solo se deja la constancia.
     const campana = await query(
       `INSERT INTO campanas (nombre_candidato, partido, tipo_eleccion, estado_id, subdominio, territorio_tipo, territorio_id, fecha_eleccion, activa, estado_aprobacion, terminos_aceptados_en, terminos_version)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false, 'pendiente', now(), 'v1') RETURNING id, subdominio`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false, 'pendiente', now(), 'v2') RETURNING id, subdominio`,
       [datos.nombre_candidato, datos.partido || null, datos.tipo_eleccion, datos.estado_id, datos.subdominio,
        datos.territorio_tipo || null, datos.territorio_id || null, datos.fecha_eleccion || null]
     );
     const campanaId = campana.rows[0].id;
+
+    // 🆕 Firma electrónica simple del Contrato de Prestación de
+    // Servicios — captura nombre, IP, navegador, y genera un folio +
+    // huella (hash) únicos como evidencia. Conforme al Código de
+    // Comercio (Art. 89-114), esta firma tiene validez para este
+    // contrato en particular — no es la e.firma del SAT ni la
+    // sustituye.
+    const folio = `VT-${new Date().getFullYear()}-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
+    const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.socket.remoteAddress || 'desconocida';
+    const userAgent = req.headers['user-agent'] || 'desconocido';
+    const hashFirma = crypto.createHash('sha256')
+      .update(`${datos.nombre_firma}|${campanaId}|v2|${new Date().toISOString()}|${ip}`)
+      .digest('hex');
+    await query(
+      `INSERT INTO firmas_electronicas (campana_id, tipo_documento, version_documento, nombre_firmante, ip, user_agent, hash_firma, folio)
+       VALUES ($1,'contrato_prestacion_servicios','v2',$2,$3,$4,$5,$6)`,
+      [campanaId, datos.nombre_firma, ip, userAgent, hashFirma, folio]
+    );
 
     // Marcar el código como usado, ligado a esta campaña
     await query(
@@ -95,6 +116,7 @@ router.post('/registrar-campana', async (req, res) => {
       ok: true,
       pendiente: true,
       campana: { id: campanaId, subdominio: datos.subdominio },
+      folio_firma: folio,
       mensaje: 'Tu registro fue recibido correctamente. Un administrador de VotoTech revisará tu solicitud — te avisaremos cuando puedas entrar al sistema.',
     });
   } catch (e) {
@@ -559,6 +581,12 @@ router.get('/mi-contrato-pdf', requiereAuth, async (req, res) => {
   const c = campanaRes.rows[0];
   if (!c) return res.status(404).json({ ok: false, error: 'Campaña no encontrada' });
 
+  const firmaRes = await query(
+    `SELECT * FROM firmas_electronicas WHERE campana_id=$1 AND tipo_documento='contrato_prestacion_servicios' ORDER BY creado_en DESC LIMIT 1`,
+    [req.usuario.campana_id]
+  );
+  const firma = firmaRes.rows[0];
+
   const doc = new PDFDocument({ margin: 55 });
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', 'attachment; filename=contrato_vototech.pdf');
@@ -579,16 +607,17 @@ router.get('/mi-contrato-pdf', requiereAuth, async (req, res) => {
   parrafo('I. EL PRESTADOR declara ser una plataforma tecnológica de gestión de campañas electorales, con capacidad técnica para prestar el servicio objeto de este contrato.');
   parrafo(`II. EL CLIENTE declara ser candidato o representante legalmente facultado de la campaña "${c.nombre_candidato}", para el proceso de ${TIPO_ELECCION_LABEL[c.tipo_eleccion] || c.tipo_eleccion}${c.fecha_eleccion ? `, con fecha de jornada electoral ${new Date(c.fecha_eleccion).toLocaleDateString('es-MX')}` : ''}, y contar con capacidad legal para obligarse en los términos de este contrato.`);
   parrafo('III. Ambas partes declaran conocer y sujetarse a la Ley General de Instituciones y Procedimientos Electorales, la legislación electoral local aplicable, y la Ley Federal de Protección de Datos Personales en Posesión de los Particulares.');
+  parrafo('IV. EL CLIENTE declara contar con los medios electrónicos necesarios para suscribir este contrato mediante firma electrónica, y acepta expresamente su uso conforme a la Cláusula Décima Segunda.');
 
   titulo('CLÁUSULAS');
   titulo('PRIMERA. OBJETO.');
   parrafo('EL PRESTADOR otorga a EL CLIENTE una licencia de uso, no exclusiva e intransferible, de la plataforma VotoTech, conforme al plan contratado, para su uso exclusivo en la operación interna de la campaña señalada en las Declaraciones.');
 
-  titulo('SEGUNDA. VIGENCIA.');
-  parrafo('El presente contrato tendrá vigencia conforme al plan y periodo de suscripción contratado por EL CLIENTE, renovable por periodos iguales previo acuerdo de las partes.');
+  titulo('SEGUNDA. VIGENCIA Y RENOVACIÓN.');
+  parrafo('El presente contrato tendrá vigencia conforme al plan y periodo de suscripción contratado por EL CLIENTE. Al vencimiento, se renovará automáticamente por periodos iguales, salvo que EL CLIENTE notifique por escrito su intención de no renovar con al menos 15 días naturales de anticipación. EL PRESTADOR podrá ajustar la contraprestación para periodos de renovación, avisando con la misma anticipación.');
 
-  titulo('TERCERA. CONTRAPRESTACIÓN.');
-  parrafo('EL CLIENTE se obliga a cubrir la contraprestación correspondiente al plan contratado, en los términos, monto y modalidad de pago acordados por separado. La falta de pago oportuno faculta a EL PRESTADOR a suspender el acceso al servicio sin responsabilidad alguna.');
+  titulo('TERCERA. CONTRAPRESTACIÓN Y MORA.');
+  parrafo('EL CLIENTE se obliga a cubrir la contraprestación correspondiente al plan contratado. La falta de pago oportuno faculta a EL PRESTADOR a suspender el acceso al servicio sin responsabilidad alguna, sin liberar a EL CLIENTE de su obligación de pago. Los pagos no cubiertos a tiempo generarán un interés moratorio del 2% mensual sobre el saldo insoluto.');
 
   titulo('CUARTA. OBLIGACIONES DE EL CLIENTE.');
   parrafo('EL CLIENTE se obliga expresamente a:');
@@ -598,39 +627,63 @@ router.get('/mi-contrato-pdf', requiereAuth, async (req, res) => {
   bullet('Contar con su propio Aviso de Privacidad frente a los ciudadanos cuyos datos capture, y obtener el consentimiento correspondiente conforme a la LFPDPPP.');
   bullet('Cumplir con sus propias obligaciones de fiscalización, registro de gastos, y reporte ante el INE/OPLE.');
   bullet('Ser el único responsable del uso que su equipo de campaña dé a la plataforma.');
+  bullet('No realizar ingeniería inversa, copiar ni utilizar la metodología o funcionalidades de la plataforma para desarrollar un producto competidor.');
+  bullet('No divulgar a terceros ajenos a su campaña las credenciales de acceso ni la documentación técnica de la plataforma.');
+
+  titulo('QUINTA. INDEMNIZACIÓN.');
+  parrafo('EL CLIENTE se obliga a sacar en paz y a salvo a EL PRESTADOR, y a indemnizarlo por cualquier daño, sanción o reclamación de terceros que se origine del uso que EL CLIENTE o su equipo den a la plataforma en contravención a este contrato o a la ley.');
 
   doc.addPage();
   doc.fontSize(9.5).fillColor('#334155');
-  titulo('QUINTA. LIMITACIÓN DE RESPONSABILIDAD.');
+  titulo('SEXTA. LIMITACIÓN DE RESPONSABILIDAD.');
   parrafo('EL PRESTADOR no será responsable, en ningún caso, por:');
   bullet('El uso indebido, ilícito o contrario a la legislación electoral que EL CLIENTE o su equipo den a la plataforma.');
   bullet('Interrupciones del servicio derivadas de fallas de proveedores de infraestructura tecnológica ajenos a EL PRESTADOR.');
   bullet('Decisiones estratégicas o de campaña tomadas con base en la información, reportes o proyecciones estadísticas generadas por la plataforma, las cuales constituyen estimaciones y no garantías de resultado.');
   bullet('Pérdida, alteración o divulgación de información derivada de negligencia de EL CLIENTE en el resguardo de sus credenciales de acceso.');
   bullet('Sanciones, multas o procedimientos derivados de infracciones a la legislación electoral cometidas por EL CLIENTE en el uso de la plataforma.');
+  bullet('Daños indirectos, incidentales, especiales, punitivos o consecuentes de cualquier naturaleza.');
   parrafo('La responsabilidad total y máxima de EL PRESTADOR no excederá el monto efectivamente pagado por EL CLIENTE durante los tres meses previos al hecho que la origine.');
 
-  titulo('SEXTA. CAPACIDAD TÉCNICA Y DISPONIBILIDAD.');
+  titulo('SÉPTIMA. CAPACIDAD TÉCNICA Y DISPONIBILIDAD.');
   parrafo('EL PRESTADOR hará su mejor esfuerzo técnico para mantener el servicio disponible, sin garantizar disponibilidad ininterrumpida. EL CLIENTE reconoce que la plataforma opera bajo límites técnicos razonables de uso concurrente conforme al plan contratado.');
 
-  titulo('SÉPTIMA. PROTECCIÓN DE DATOS Y CONFIDENCIALIDAD.');
-  parrafo('EL PRESTADOR actuará como Encargado del tratamiento de los datos personales que EL CLIENTE capture en la plataforma, conforme a la LFPDPPP, siendo EL CLIENTE el Responsable de dichos datos frente a los titulares.');
+  titulo('OCTAVA. PROTECCIÓN DE DATOS Y CONFIDENCIALIDAD.');
+  parrafo('EL PRESTADOR actuará como Encargado del tratamiento de los datos personales que EL CLIENTE capture en la plataforma, conforme a la LFPDPPP, siendo EL CLIENTE el Responsable de dichos datos frente a los titulares. EL CLIENTE se obliga a no realizar manifestaciones públicas denigrantes o difamatorias respecto de EL PRESTADOR o la plataforma.');
 
-  titulo('OCTAVA. PROPIEDAD DE LA INFORMACIÓN.');
-  parrafo('EL CLIENTE conserva la propiedad de los datos que captura en la plataforma. EL PRESTADOR conserva la propiedad del software, código, diseño y marca VotoTech.');
+  titulo('NOVENA. PROPIEDAD DE LA INFORMACIÓN Y MEJORAS.');
+  parrafo('EL CLIENTE conserva la propiedad de los datos que captura en la plataforma. EL PRESTADOR conserva la propiedad del software, código, diseño y marca VotoTech. Cualquier sugerencia de EL CLIENTE podrá incorporarse libremente a la plataforma, sin regalía ni compensación.');
 
-  titulo('NOVENA. CASO FORTUITO O FUERZA MAYOR.');
+  titulo('DÉCIMA. CASO FORTUITO O FUERZA MAYOR.');
   parrafo('Ninguna de las partes será responsable por incumplimientos derivados de caso fortuito o fuerza mayor.');
 
-  titulo('DÉCIMA. TERMINACIÓN.');
-  parrafo('Este contrato podrá darse por terminado por cualquiera de las partes con aviso previo, o de forma inmediata por EL PRESTADOR en caso de incumplimiento grave de EL CLIENTE a las obligaciones de la Cláusula Cuarta.');
+  titulo('DÉCIMA PRIMERA. TERMINACIÓN.');
+  parrafo('EL PRESTADOR podrá dar por terminado este contrato de forma inmediata en caso de incumplimiento de EL CLIENTE, o por falta de pago. En caso de terminación anticipada por causa imputable a EL CLIENTE, o cancelación voluntaria antes de concluir el periodo contratado, no procederá devolución alguna.');
 
-  titulo('DÉCIMA PRIMERA. JURISDICCIÓN.');
+  titulo('DÉCIMA SEGUNDA. FIRMA ELECTRÓNICA.');
+  parrafo('Las partes reconocen que este contrato se suscribe mediante firma electrónica simple, conforme a los artículos 89 a 114 del Código de Comercio, con la misma validez que la firma autógrafa para este contrato en particular. Esta firma no sustituye la e.firma del SAT ni ningún instrumento que la ley exija de forma específica para otros actos.');
+
+  titulo('DÉCIMA TERCERA. JURISDICCIÓN.');
   parrafo('Para la interpretación y cumplimiento de este contrato, las partes se someten a las leyes federales de los Estados Unidos Mexicanos, renunciando a cualquier otro fuero que pudiera corresponderles.');
 
+  // 🆕 Evidencia real de la firma electrónica — antes solo se mostraba
+  // la fecha de aceptación de términos; ahora se muestra la evidencia
+  // completa (folio, huella, IP) que respalda la firma de este
+  // contrato en particular.
   doc.moveDown(1);
-  doc.fontSize(9).fillColor('#1e1b4b').font('Helvetica-Bold').text(`Términos y Condiciones y Aviso de Privacidad aceptados electrónicamente el: ${c.terminos_aceptados_en ? new Date(c.terminos_aceptados_en).toLocaleString('es-MX') : 'No registrado'}`);
-  doc.moveDown(1.5);
+  doc.rect(doc.x, doc.y, 485, firma ? 100 : 40).fillAndStroke('#f0fdf4', '#86efac');
+  doc.fillColor('#14532d').font('Helvetica-Bold').fontSize(10).text('  EVIDENCIA DE FIRMA ELECTRÓNICA', doc.x + 8, doc.y - (firma ? 96 : 36));
+  if (firma) {
+    doc.font('Helvetica').fontSize(8.5).fillColor('#166534');
+    doc.text(`  Firmado por: ${firma.nombre_firmante}`, doc.x + 8);
+    doc.text(`  Fecha y hora: ${new Date(firma.creado_en).toLocaleString('es-MX')}`, doc.x + 8);
+    doc.text(`  Folio: ${firma.folio}`, doc.x + 8);
+    doc.text(`  Huella digital (SHA-256): ${firma.hash_firma}`, doc.x + 8, doc.y, { width: 470 });
+    doc.text(`  Dirección IP registrada: ${firma.ip}`, doc.x + 8);
+  } else {
+    doc.font('Helvetica').fontSize(8.5).fillColor('#166534').text('  No se encontró un registro de firma electrónica para esta campaña.', doc.x + 8);
+  }
+  doc.moveDown(2);
   doc.fontSize(8).fillColor('#94a3b8').font('Helvetica').text('Este documento es un borrador generado automáticamente y no sustituye la revisión de un abogado. Para uso formal, se recomienda validación legal previa.', { align: 'center' });
 
   doc.end();
