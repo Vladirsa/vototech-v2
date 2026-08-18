@@ -29,6 +29,11 @@ export default function TerminosPublico() {
         </section>
 
         <section className="space-y-2">
+          <h2 className="text-sm font-bold text-white">3.1 Datos de la firma electrónica</h2>
+          <p className="text-xs leading-relaxed">Al registrar tu campaña, además del nombre que escribes para firmar el Contrato de Prestación de Servicios, el sistema registra automáticamente la fecha y hora exactas, tu dirección IP, el tipo de navegador/dispositivo desde el que firmas, y genera una huella digital (hash) única del contrato firmado. Estos datos se usan únicamente como evidencia de la firma electrónica (Art. 89-114 del Código de Comercio) y no se comparten con terceros salvo requerimiento de autoridad competente.</p>
+        </section>
+
+        <section className="space-y-2">
           <h2 className="text-sm font-bold text-white">4. Disponibilidad y naturaleza de la información</h2>
           <p className="text-xs leading-relaxed">El servicio no garantiza disponibilidad ininterrumpida — depende de proveedores externos de infraestructura. Las proyecciones y estadísticas del módulo de Reportes son estimaciones basadas en los datos capturados, no garantías de resultado ni asesoría profesional.</p>
         </section>

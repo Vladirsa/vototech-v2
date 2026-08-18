@@ -32,7 +32,7 @@ export default function RegistroCampana() {
   const [form, setForm] = useState({
     nombre_candidato: '', email: '', password: '', partido: 'morena',
     tipo_eleccion: '', estado_id: 29, subdominio: '', codigo_acceso: '',
-    territorio_tipo: '', territorio_id: '', acepta_terminos: false,
+    territorio_tipo: '', territorio_id: '', acepta_terminos: false, nombre_firma: '',
   });
   const [municipios, setMunicipios] = useState([]);
   const [error, setError] = useState('');
@@ -75,6 +75,13 @@ export default function RegistroCampana() {
           <div className="text-6xl mb-4">⏳</div>
           <h1 className="text-2xl font-black text-white mb-2">Registro recibido</h1>
           <p className="text-slate-400 text-sm mb-6">{exito.mensaje}</p>
+          {exito.folio_firma && (
+            <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-3 mb-6">
+              <p className="text-[10px] text-emerald-300 font-bold">✅ Contrato firmado electrónicamente</p>
+              <p className="text-[10px] text-slate-400 mt-1">Folio de firma: <span className="font-mono text-emerald-400">{exito.folio_firma}</span></p>
+              <p className="text-[9px] text-slate-500 mt-1">Guarda este folio — puedes descargar tu contrato completo con esta evidencia desde tu panel una vez que tu cuenta sea aprobada.</p>
+            </div>
+          )}
           <button
             onClick={() => navigate('/login')}
             className="px-6 py-3 rounded-xl bg-gradient-to-r from-amber-600 to-orange-600 text-white font-bold text-sm"
@@ -229,7 +236,8 @@ export default function RegistroCampana() {
                 <p className="text-[10px] text-slate-500 mt-1.5">Podrás conectar tu propio dominio después</p>
               </div>
 
-              {/* Aviso legal y aceptación explícita — obligatorio antes de crear la campaña */}
+              {/* 🆕 Firma electrónica real del Contrato de Prestación de
+                  Servicios — antes solo era un checkbox de "acepto". */}
               <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 space-y-2">
                 <p className="text-[10px] text-amber-300 leading-relaxed">
                   Este sistema está hecho con el fin de ayudar a la organización interna de tu campaña. La información capturada es utilizada con fines estadísticos y de organización territorial, conforme a los Términos y Condiciones y el Aviso de Privacidad.
@@ -238,15 +246,30 @@ export default function RegistroCampana() {
                   <input type="checkbox" checked={form.acepta_terminos} onChange={(e) => actualizar('acepta_terminos', e.target.checked)}
                     className="mt-0.5" />
                   <span>
-                    He leído y acepto los{' '}
+                    He leído y acepto el{' '}
+                    <a href="/contrato" target="_blank" rel="noreferrer" className="text-indigo-400 underline">Contrato de Prestación de Servicios</a>
+                    {' y los '}
                     <a href="/terminos" target="_blank" rel="noreferrer" className="text-indigo-400 underline">Términos y Condiciones y el Aviso de Privacidad</a>
                   </span>
                 </label>
+                {form.acepta_terminos && (
+                  <div className="pt-1 space-y-1.5 border-t border-amber-500/20">
+                    <label className="block text-[10px] font-semibold text-amber-300">
+                      Escribe tu nombre completo para firmar electrónicamente el contrato:
+                    </label>
+                    <input value={form.nombre_firma} onChange={(e) => actualizar('nombre_firma', e.target.value)}
+                      placeholder="Tu nombre completo, tal como lo escribirías al firmar"
+                      className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-amber-500/40 text-white text-sm" />
+                    <p className="text-[9px] text-slate-500">
+                      Al escribir tu nombre y continuar, generas una firma electrónica simple con validez para este contrato (Art. 89-114 Código de Comercio). Se registra fecha, hora e IP como evidencia — no es la e.firma del SAT.
+                    </p>
+                  </div>
+                )}
               </div>
 
               <div className="flex gap-2 pt-2">
                 <button onClick={() => setPaso(3)} className="flex-1 py-3 rounded-xl bg-slate-800 text-slate-300 font-bold text-sm">← Atrás</button>
-                <button onClick={enviar} disabled={cargando || form.subdominio.length < 3 || !form.acepta_terminos}
+                <button onClick={enviar} disabled={cargando || form.subdominio.length < 3 || !form.acepta_terminos || form.nombre_firma.trim().length < 3}
                   className="flex-[2] py-3 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-bold text-sm disabled:opacity-40">
                   {cargando ? '⏳ Creando...' : '🚀 Crear mi campaña'}
                 </button>
