@@ -319,6 +319,11 @@ router.get('/densidad-promovidos', async (req, res) => {
 router.get('/seccion/:numero', async (req, res) => {
   const campanaId = req.usuario.campana_id;
   const numero = parseInt(req.params.numero);
+  // 🆕 Ahora sí acepta el año que se le mande — antes SIEMPRE tomaba
+  // el más reciente disponible (MAX(anio)) sin importar qué año
+  // estuvieras viendo en el mapa. Si no se manda ninguno, sigue
+  // usando el más reciente por defecto (mismo comportamiento de antes).
+  const anioSolicitado = req.query.anio ? parseInt(req.query.anio) : null;
 
   try {
     const campanaRes = await query('SELECT partido, tipo_eleccion, fecha_eleccion FROM campanas WHERE id=$1', [campanaId]);
@@ -333,9 +338,12 @@ router.get('/seccion/:numero', async (req, res) => {
     if (!seccionRes.rows[0]) return res.status(404).json({ ok: false, error: 'Sección no encontrada' });
     const seccion = seccionRes.rows[0];
 
-    // Resultados históricos reales (año más reciente disponible)
-    const anioRes = await query('SELECT MAX(anio) as anio FROM resultados_historicos WHERE tipo_eleccion=$1', [campana.tipo_eleccion]);
-    const anio = anioRes.rows[0]?.anio;
+    // Resultados históricos reales (el año pedido, o el más reciente si no se especificó)
+    let anio = anioSolicitado;
+    if (!anio) {
+      const anioRes = await query('SELECT MAX(anio) as anio FROM resultados_historicos WHERE tipo_eleccion=$1', [campana.tipo_eleccion]);
+      anio = anioRes.rows[0]?.anio;
+    }
     let votos = {}, totalVotos = 0, ganador = null, casillasSeccion = 0;
     if (anio) {
       const historico = await query(
