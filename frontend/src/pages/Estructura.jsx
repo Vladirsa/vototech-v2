@@ -17,8 +17,14 @@ const SALUD_ESTILO = {
 
 const ROL_LABEL = {
   candidato: 'Candidato', jefe_campana: 'Nivel Dirección', coord_general: 'Nivel General',
+  // 🆕 Coordinador Regional — supervisa varios municipios agrupados,
+  // para campañas grandes (Gobernador, Dip. Federal).
+  coord_regional: 'Coordinador Regional',
   coord_distrital: 'Nivel Regional', coord_municipal: 'Nivel Municipal',
   coord_seccional: 'Nivel Territorial', promotor: 'Promotor',
+  // 🆕 Faltaba — se usa en varias partes del archivo pero nunca se
+  // había agregado aquí, así que su etiqueta salía en blanco.
+  representante_casilla: 'Representante de Casilla',
   encargado_juridico: 'Encargado Jurídico', encargado_finanzas: 'Encargado de Finanzas', voluntario: 'Voluntario',
 };
 
@@ -209,8 +215,14 @@ function ModalAyudaEstructura({ onCerrar }) {
 }
 
 function ModalAgregarMiembro({ miembros, onCerrar, onGuardado }) {
-  const [form, setForm] = useState({ nombre: '', email: '', password: '', telefono: '', rol: 'coord_seccional', puesto: '', parent_id: '', territorio_tipo: 'seccion', territorio_id: '', meta_diaria: '' });
+  const [form, setForm] = useState({ nombre: '', email: '', password: '', telefono: '', rol: 'coord_seccional', puesto: '', parent_id: '', territorio_tipo: 'seccion', territorio_id: '', region_id: '', meta_diaria: '' });
   const [sugerencia, setSugerencia] = useState(null);
+  // 🆕 Lista de regiones — solo se necesita si eligen el rol
+  // Coordinador Regional.
+  const [regiones, setRegiones] = useState([]);
+  useEffect(() => {
+    if (form.rol === 'coord_regional') api.get('/estructura/regiones').then((r) => setRegiones(r.data.data)).catch(() => setRegiones([]));
+  }, [form.rol]);
   useEffect(() => {
     if (!form.territorio_id) { setSugerencia(null); return; }
     api.get(`/estructura/sugerir-meta?territorio_tipo=${form.territorio_tipo}&territorio_id=${form.territorio_id}`)
@@ -225,6 +237,7 @@ function ModalAgregarMiembro({ miembros, onCerrar, onGuardado }) {
         parent_id: form.parent_id || undefined,
         territorio_tipo: form.territorio_id ? form.territorio_tipo : undefined,
         territorio_id: form.territorio_id ? parseInt(form.territorio_id) : undefined,
+        region_id: form.region_id || undefined,
         meta_diaria: form.meta_diaria ? parseInt(form.meta_diaria) : undefined,
       });
       onGuardado();
@@ -259,6 +272,20 @@ function ModalAgregarMiembro({ miembros, onCerrar, onGuardado }) {
             {PUESTOS_POR_ROL[form.rol]?.map((p) => <option key={p} value={p} />)}
           </datalist>
         </div>
+        {/* 🆕 Selector de región — solo para Coordinador Regional */}
+        {form.rol === 'coord_regional' && (
+          <div>
+            <label className="block text-[10px] text-slate-500 font-bold mb-1">Región a su cargo</label>
+            <select value={form.region_id} onChange={(e) => setForm({ ...form, region_id: e.target.value })}
+              className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
+              <option value="">Elige una región...</option>
+              {regiones.map((r) => <option key={r.id} value={r.id}>{r.nombre} ({r.municipios_ids.length} municipios)</option>)}
+            </select>
+            {regiones.length === 0 && (
+              <p className="text-[9px] text-amber-400 mt-1">No tienes regiones creadas todavía — ve a la pestaña "🌎 Regiones" para crear una primero.</p>
+            )}
+          </div>
+        )}
         {(form.rol === 'coord_seccional' || form.rol === 'coord_municipal' || form.rol === 'coord_distrital' || form.rol === 'coord_general') && (
           <div className="flex gap-2">
             <select value={form.territorio_tipo} onChange={(e) => setForm({ ...form, territorio_tipo: e.target.value })}
@@ -1057,6 +1084,118 @@ function PanelCasillas() {
   );
 }
 
+/**
+ * 🆕 Panel de Regiones — para campañas grandes (Gobernador, Dip.
+ * Federal) que necesitan agrupar los 60 municipios en bloques
+ * manejables, cada uno con su propio Coordinador Regional al mando,
+ * en vez de que 60 coordinadores municipales reporten todos directo
+ * al Jefe de Campaña.
+ */
+function PanelRegiones() {
+  const [regiones, setRegiones] = useState([]);
+  const [municipios, setMunicipios] = useState([]);
+  const [creando, setCreando] = useState(false);
+  const [formNueva, setFormNueva] = useState({ nombre: '', municipios_ids: [] });
+  const [guardando, setGuardando] = useState(false);
+
+  const cargar = () => api.get('/estructura/regiones').then((r) => setRegiones(r.data.data));
+  useEffect(() => {
+    cargar();
+    api.get('/geo/municipios/29').then((r) => setMunicipios(r.data.data.sort((a, b) => a.nombre.localeCompare(b.nombre))));
+  }, []);
+
+  // Municipios que ya están en OTRA región — para no dejar que se repitan por accidente
+  const municipiosYaAsignados = new Set(regiones.flatMap((r) => r.municipios_ids));
+
+  const alternarMunicipio = (claveIne) => {
+    setFormNueva((f) => ({
+      ...f,
+      municipios_ids: f.municipios_ids.includes(claveIne)
+        ? f.municipios_ids.filter((id) => id !== claveIne)
+        : [...f.municipios_ids, claveIne],
+    }));
+  };
+
+  const guardarRegion = async () => {
+    if (!formNueva.nombre || formNueva.municipios_ids.length === 0) return;
+    setGuardando(true);
+    try {
+      await api.post('/estructura/regiones', formNueva);
+      setFormNueva({ nombre: '', municipios_ids: [] });
+      setCreando(false);
+      cargar();
+    } catch (e) { alert(e.response?.data?.error || 'No se pudo crear'); }
+    setGuardando(false);
+  };
+
+  const borrarRegion = async (id) => {
+    if (!confirm('¿Borrar esta región?')) return;
+    try {
+      await api.delete(`/estructura/regiones/${id}`);
+      cargar();
+    } catch (e) { alert(e.response?.data?.error || 'No se pudo borrar'); }
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+        <h2 className="text-sm font-bold text-white">🌎 Regiones de campaña</h2>
+        <p className="text-[10px] text-slate-500 mt-0.5">Agrupa municipios en bloques manejables — útil para campañas grandes (Gobernador, Diputación Federal) donde 60 coordinadores municipales reportando directo al Jefe de Campaña es demasiado. Cada región puede tener su propio Coordinador Regional al mando.</p>
+      </div>
+
+      {regiones.map((r) => (
+        <div key={r.id} className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-sm font-bold text-white">{r.nombre}</div>
+              <div className="text-[10px] text-slate-500">
+                {r.municipios_ids.length} municipios
+                {r.coordinador_nombre ? ` · 👤 ${r.coordinador_nombre}` : ' · ⚠️ Sin coordinador asignado'}
+                {r.total_equipo > 0 && ` · ${r.total_equipo} en el equipo`}
+              </div>
+            </div>
+            <button onClick={() => borrarRegion(r.id)} className="text-red-500 text-xs">🗑️</button>
+          </div>
+          <div className="flex flex-wrap gap-1 mt-2">
+            {r.municipios_ids.map((claveIne) => {
+              const m = municipios.find((mu) => mu.clave_ine === claveIne);
+              return <span key={claveIne} className="text-[9px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full">{m?.nombre || claveIne}</span>;
+            })}
+          </div>
+        </div>
+      ))}
+
+      {!creando ? (
+        <button onClick={() => setCreando(true)} className="w-full py-2.5 rounded-xl bg-cyan-600 text-white text-sm font-bold">+ Nueva región</button>
+      ) : (
+        <div className="bg-slate-900/60 border border-cyan-500/30 rounded-xl p-4 space-y-2">
+          <input placeholder="Nombre de la región (ej: Zona Norte)" value={formNueva.nombre} onChange={(e) => setFormNueva({ ...formNueva, nombre: e.target.value })}
+            className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+          <div className="text-[10px] text-slate-500 font-bold uppercase mt-2">Elige los municipios de esta región</div>
+          <div className="grid grid-cols-2 gap-1 max-h-64 overflow-y-auto">
+            {municipios.map((m) => {
+              const yaEnOtra = municipiosYaAsignados.has(m.clave_ine);
+              return (
+                <label key={m.clave_ine} className={`flex items-center gap-1.5 text-[10px] px-2 py-1.5 rounded-lg ${yaEnOtra ? 'opacity-40' : 'cursor-pointer hover:bg-slate-800'}`}>
+                  <input type="checkbox" disabled={yaEnOtra} checked={formNueva.municipios_ids.includes(m.clave_ine)} onChange={() => alternarMunicipio(m.clave_ine)} />
+                  <span className="text-slate-300">{m.nombre}{yaEnOtra && ' (ya asignado)'}</span>
+                </label>
+              );
+            })}
+          </div>
+          <div className="flex gap-2 pt-2">
+            <button onClick={() => { setCreando(false); setFormNueva({ nombre: '', municipios_ids: [] }); }} className="flex-1 py-2 rounded-lg bg-slate-800 text-slate-300 text-xs font-bold">Cancelar</button>
+            <button onClick={guardarRegion} disabled={guardando || !formNueva.nombre || formNueva.municipios_ids.length === 0}
+              className="flex-1 py-2 rounded-lg bg-cyan-600 text-white text-xs font-bold disabled:opacity-40">
+              {guardando ? '⏳...' : `Crear con ${formNueva.municipios_ids.length} municipio(s)`}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Estructura() {
   const [miembros, setMiembros] = useState([]);
   const [salud, setSalud] = useState(null);
@@ -1228,6 +1367,9 @@ export default function Estructura() {
             {esAltoMando && (
               <button onClick={() => setVista('cobertura-casillas')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'cobertura-casillas' ? 'bg-red-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🗳️ Cobertura de Casillas</button>
             )}
+            {esAltoMando && (
+              <button onClick={() => setVista('regiones')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'regiones' ? 'bg-cyan-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🌎 Regiones</button>
+            )}
             <button onClick={() => setVista('permisos')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'permisos' ? 'bg-purple-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🔐 Permisos por Rol</button>
             <button onClick={() => setVista('duplicados')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'duplicados' ? 'bg-orange-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🔁 Duplicados</button>
           </div>
@@ -1356,6 +1498,8 @@ export default function Estructura() {
               ))}
             </div>
           </div>
+        ) : vista === 'regiones' && esAltoMando ? (
+          <PanelRegiones />
         ) : vista === 'permisos' ? (
           <PanelPermisosPorRol />
         ) : vista === 'duplicados' ? (
