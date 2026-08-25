@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import 'express-async-errors';
+import * as Sentry from '@sentry/node';
 import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
@@ -59,6 +60,22 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 4000;
+
+// 🆕 Sentry — captura errores reales de producción, con contexto
+// (qué ruta, qué usuario, qué pasó) en vez de enterarte por un
+// reporte tardío de un candidato. Si no hay SENTRY_DSN configurado
+// (por ejemplo, en desarrollo local), simplemente no hace nada — no
+// rompe el servidor por no tener la variable.
+if (process.env.SENTRY_DSN) {
+  Sentry.init({
+    dsn: process.env.SENTRY_DSN,
+    environment: process.env.NODE_ENV || 'production',
+    tracesSampleRate: 0.1, // 10% de las peticiones, para no gastar cuota de más
+  });
+  console.log('✅ Sentry activado');
+} else {
+  console.log('ℹ️ SENTRY_DSN no configurado — Sentry desactivado (normal en desarrollo local)');
+}
 
 app.use(helmet());
 
@@ -379,6 +396,13 @@ app.get('/blog/:slug', async (req, res) => {
 });
 
 app.use(express.static(path.join(__dirname, '../public-marketing')));
+
+// 🆕 Sentry captura el error ANTES de que tu manejador normal responda
+// al usuario — así queda registrado con contexto completo (ruta,
+// método, mensaje) sin cambiar la respuesta que ya recibía el cliente.
+if (process.env.SENTRY_DSN) {
+  Sentry.setupExpressErrorHandler(app);
+}
 
 app.use((err, req, res, next) => {
   console.error('Error no manejado:', err);
