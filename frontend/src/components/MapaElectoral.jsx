@@ -217,11 +217,17 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
     if (!seccionActiva) { setFichaTecnica(null); return; }
     setCargandoFicha(true);
     setFichaTecnica(null);
-    api.get(`/priorizacion/seccion/${seccionActiva}`)
+    // 🆕 LA CORRECCIÓN REAL — antes esta petición nunca mandaba el año
+    // seleccionado, y ni siquiera se repetía cuando cambiabas de año
+    // (faltaba "anio" en la lista de dependencias del efecto). Por
+    // eso la ficha se quedaba pegada siempre en el año más reciente,
+    // sin importar qué años eligieras arriba en el mapa.
+    const parametroAnio = anio ? `?anio=${anio}` : '';
+    api.get(`/priorizacion/seccion/${seccionActiva}${parametroAnio}`)
       .then(r => setFichaTecnica(r.data.data))
       .catch(() => setFichaTecnica(null))
       .finally(() => setCargandoFicha(false));
-  }, [seccionActiva]);
+  }, [seccionActiva, anio]);
   const [mostrarResumenMunicipio, setMostrarResumenMunicipio] = useState(false);
   const [resumenMunicipio, setResumenMunicipio] = useState(null);
   const [cargandoResumen, setCargandoResumen] = useState(false);
