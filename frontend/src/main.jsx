@@ -1,8 +1,21 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { registerSW } from 'virtual:pwa-register'
+import * as Sentry from '@sentry/react'
 import './index.css'
 import App from './App.jsx'
+
+// 🆕 Sentry del lado del navegador — captura errores que pasan en la
+// pantalla de la persona (que nunca llegan a tus logs de Render,
+// porque son errores de React/JS, no del servidor). Si no hay
+// VITE_SENTRY_DSN configurado, simplemente no hace nada.
+if (import.meta.env.VITE_SENTRY_DSN) {
+  Sentry.init({
+    dsn: import.meta.env.VITE_SENTRY_DSN,
+    environment: import.meta.env.MODE,
+    tracesSampleRate: 0.1,
+  });
+}
 
 /**
  * 🆕 LA CORRECCIÓN REAL DEL "SIGO VIENDO LA VERSIÓN VIEJA" — antes no
