@@ -12,6 +12,7 @@ import { useSuscripcionPush } from './lib/useSuscripcionPush';
 const RegistroCampana = lazy(() => import('./pages/RegistroCampana'));
 const RegistroInvitacion = lazy(() => import('./pages/RegistroInvitacion'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
+const CentroMando = lazy(() => import('./pages/CentroMando'));
 const Promovidos = lazy(() => import('./pages/Promovidos'));
 const Priorizacion = lazy(() => import('./pages/Priorizacion'));
 const Estructura = lazy(() => import('./pages/Estructura'));
@@ -75,6 +76,7 @@ export default function App() {
           <Route path="/registro-invitacion" element={<RegistroInvitacion />} />
           <Route path="/vt-admin-plataforma" element={<AdminPlataforma />} />
           <Route path="/dashboard" element={<RutaProtegida><Dashboard /></RutaProtegida>} />
+          <Route path="/centro-mando" element={<RutaProtegida><CentroMando /></RutaProtegida>} />
           <Route path="/promovidos" element={<RutaProtegida><Promovidos /></RutaProtegida>} />
           <Route path="/priorizacion" element={<RutaProtegida><Priorizacion /></RutaProtegida>} />
           <Route path="/estructura" element={<RutaProtegida><Estructura /></RutaProtegida>} />
