@@ -2,10 +2,11 @@ name: Verificación antes de desplegar
 
 # Corre en cada push y cada Pull Request — atrapa exactamente el tipo
 # de error que más veces se nos escapó durante el desarrollo: un
-# archivo con un error de sintaxis, o el frontend que deja de
-# compilar por un cambio a medias. Es deliberadamente simple (no hay
-# pruebas unitarias todavía) pero atrapa lo más común antes de que
-# llegue a producción.
+# archivo con un error de sintaxis, un import de un paquete que nunca
+# se agregó a package.json (el bug real que tumbó el backend con
+# Sentry), o el frontend que deja de compilar por un cambio a medias.
+# Es deliberadamente simple (no hay pruebas unitarias todavía) pero
+# atrapa lo más común antes de que llegue a producción.
 
 on:
   push:
@@ -15,7 +16,7 @@ on:
 
 jobs:
   backend:
-    name: Backend — sintaxis de todas las rutas
+    name: Backend — imports y sintaxis de todas las rutas
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -24,6 +25,8 @@ jobs:
           node-version: 22
       - name: Instalar dependencias
         run: cd backend && npm install
+      - name: Verificar que todos los imports estén en package.json
+        run: cd backend && node verificar-imports.js
       - name: Verificar sintaxis de cada archivo de rutas
         run: |
           cd backend
