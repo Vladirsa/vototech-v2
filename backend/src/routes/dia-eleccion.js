@@ -489,6 +489,13 @@ const esquemaResultado = z.object({
   nulos: z.number().int().default(0),
   lista_nominal: z.number().int().optional(),
   foto_acta_url: z.string().url().optional(),
+  // 🆕 Lo que el acta MISMA dice como total (apartado 6) — se compara
+  // contra la suma real de lo capturado. El ITE Tlaxcala encontró que
+  // esta es la inconsistencia más común y más grave en las actas
+  // reales (68.31% de las actas tuvieron algún error justo en esta
+  // relación aritmética) — con este campo, VotoTech detecta el mismo
+  // tipo de error al momento, no días después.
+  total_declarado_acta: z.number().int().optional(),
 });
 
 /**
@@ -507,6 +514,23 @@ router.post('/resultados', async (req, res) => {
     return res.status(400).json({ ok: false, error: parseado.error.errors[0].message });
   }
   const d = parseado.data;
+
+  // 🆕 VALIDACIÓN ARITMÉTICA — inspirada directo en el estudio real
+  // del ITE Tlaxcala sobre el llenado de actas (2024): las 2
+  // inconsistencias más comunes en actas reales son (1) que la suma
+  // de los votos no cuadre con el total que el acta declara, y (2)
+  // que el total de votos supere a la lista nominal (imposible). No
+  // bloquea el guardado — el acta física es la que legalmente manda —
+  // pero avisa al momento, para que el representante pueda revisar
+  // antes de que el dato quede mal capturado sin que nadie lo note.
+  const alertasAritmeticas = [];
+  const sumaVotos = Object.values(d.votos).reduce((s, v) => s + v, 0) + d.nulos;
+  if (d.total_declarado_acta != null && sumaVotos !== d.total_declarado_acta) {
+    alertasAritmeticas.push(`⚠️ La suma de los votos capturados (${sumaVotos}) no coincide con el total que anotaste del acta (${d.total_declarado_acta}) — revisa el apartado 6.`);
+  }
+  if (d.lista_nominal != null && sumaVotos > d.lista_nominal) {
+    alertasAritmeticas.push(`⚠️ El total de votos (${sumaVotos}) es MAYOR a la lista nominal (${d.lista_nominal}) — esto no es posible, revisa los números.`);
+  }
 
   try {
     const seccion = await query('SELECT id FROM secciones WHERE estado_id=$2 AND numero=$1', [d.seccion_numero, req.usuario.estado_id]);
@@ -535,7 +559,7 @@ router.post('/resultados', async (req, res) => {
       ip: req.ip,
     });
 
-    res.status(201).json({ ok: true, data: filaCompleta });
+    res.status(201).json({ ok: true, data: filaCompleta, alertas_aritmeticas: alertasAritmeticas.length > 0 ? alertasAritmeticas : undefined });
   } catch (e) {
     console.error('Error guardando resultado de casilla:', e);
     res.status(500).json({ ok: false, error: 'Error al guardar el resultado' });
