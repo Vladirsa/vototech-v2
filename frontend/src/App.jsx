@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import Login from './pages/Login';
 import RutaProtegida from './components/RutaProtegida';
 import AvisoOffline from './components/AvisoOffline';
@@ -45,6 +45,25 @@ function CargandoModulo() {
   return <div className="min-h-screen bg-slate-950 flex items-center justify-center text-slate-500 text-sm">⏳ Cargando...</div>;
 }
 
+/**
+ * 🆕 LA CORRECCIÓN REAL — antes, ErrorBoundary envolvía TODO el
+ * BrowserRouter, así que se montaba una sola vez en toda la vida de
+ * la app. Si tronaba en una pantalla, se quedaba "pegado" mostrando
+ * el error en TODAS las pantallas siguientes, aunque esas otras
+ * funcionaran perfecto — porque React Router solo cambia lo de
+ * adentro al navegar, sin volver a montar el ErrorBoundary.
+ *
+ * Con esto: el ErrorBoundary vive DENTRO del Router, y usa la ruta
+ * actual (pathname) como "key". Cada vez que cambias de página, la
+ * key cambia, y React trata eso como un componente nuevo — lo que
+ * lo obliga a reiniciar su estado desde cero. Así, un error en una
+ * pantalla ya no contamina a las demás.
+ */
+function ErrorBoundaryConReinicio({ children }) {
+  const location = useLocation();
+  return <ErrorBoundary key={location.pathname}>{children}</ErrorBoundary>;
+}
+
 export default function App() {
   useSuscripcionPush();
   // Si llegamos aquí es que la app cargó bien — se limpia la bandera
@@ -54,58 +73,58 @@ export default function App() {
   useEffect(() => { sessionStorage.removeItem('vototech_recarga_por_chunk'); }, []);
 
   return (
-    <ErrorBoundary>
     <BrowserRouter>
-      <Suspense fallback={<CargandoModulo />}>
-        <Routes>
-          <Route path="/votar/:id" element={<ConfirmarVoto />} />
-          <Route path="/encuesta/:id" element={<EncuestaPublica />} />
-          <Route path="/terminos" element={<TerminosPublico />} />
-          <Route path="/contrato" element={<ContratoPublico />} />
-          <Route path="/postura-legal" element={<PosturaLegal />} />
-          <Route path="/recuperar-password" element={<RecuperarPassword />} />
-          <Route
-            path="/mi-avance"
-            element={
-              <RutaProtegida>
-                <PromotorHome />
-              </RutaProtegida>
-            }
-          />
-          <Route path="/login" element={<Login />} />
-          <Route path="/registro" element={<RegistroCampana />} />
-          <Route path="/registro-invitacion" element={<RegistroInvitacion />} />
-          <Route path="/vt-admin-plataforma" element={<AdminPlataforma />} />
-          <Route path="/dashboard" element={<RutaProtegida><Dashboard /></RutaProtegida>} />
-          <Route path="/centro-mando" element={<RutaProtegida><CentroMando /></RutaProtegida>} />
-          <Route path="/auditoria" element={<RutaProtegida><Auditoria /></RutaProtegida>} />
-          <Route path="/promovidos" element={<RutaProtegida><Promovidos /></RutaProtegida>} />
-          <Route path="/priorizacion" element={<RutaProtegida><Priorizacion /></RutaProtegida>} />
-          <Route path="/estructura" element={<RutaProtegida><Estructura /></RutaProtegida>} />
-          <Route path="/agenda" element={<RutaProtegida><Agenda /></RutaProtegida>} />
-          <Route path="/logistica" element={<RutaProtegida><Logistica /></RutaProtegida>} />
-          <Route path="/dia-eleccion" element={<RutaProtegida><DiaEleccion /></RutaProtegida>} />
-          <Route path="/incidencias" element={<RutaProtegida><Incidencias /></RutaProtegida>} />
-          <Route path="/finanzas" element={<RutaProtegida><Administracion /></RutaProtegida>} />
-          {/* Por si alguien tiene guardado el link viejo de /activos */}
-          <Route path="/activos" element={<Navigate to="/finanzas" replace />} />
-          <Route path="/reportes" element={<RutaProtegida><Reportes /></RutaProtegida>} />
-          <Route path="/marketing" element={<RutaProtegida><Marketing /></RutaProtegida>} />
-          <Route path="/juridico" element={<RutaProtegida><Juridico /></RutaProtegida>} />
-          <Route path="/respaldos" element={<RutaProtegida><Respaldos /></RutaProtegida>} />
-          <Route
-            path="/mapa"
-            element={
-              <RutaProtegida>
-                <MapaConCampana />
-              </RutaProtegida>
-            }
-          />
-          <Route path="*" element={<Navigate to="/dashboard" replace />} />
-        </Routes>
-      </Suspense>
+      <ErrorBoundaryConReinicio>
+        <Suspense fallback={<CargandoModulo />}>
+          <Routes>
+            <Route path="/votar/:id" element={<ConfirmarVoto />} />
+            <Route path="/encuesta/:id" element={<EncuestaPublica />} />
+            <Route path="/terminos" element={<TerminosPublico />} />
+            <Route path="/contrato" element={<ContratoPublico />} />
+            <Route path="/postura-legal" element={<PosturaLegal />} />
+            <Route path="/recuperar-password" element={<RecuperarPassword />} />
+            <Route
+              path="/mi-avance"
+              element={
+                <RutaProtegida>
+                  <PromotorHome />
+                </RutaProtegida>
+              }
+            />
+            <Route path="/login" element={<Login />} />
+            <Route path="/registro" element={<RegistroCampana />} />
+            <Route path="/registro-invitacion" element={<RegistroInvitacion />} />
+            <Route path="/vt-admin-plataforma" element={<AdminPlataforma />} />
+            <Route path="/dashboard" element={<RutaProtegida><Dashboard /></RutaProtegida>} />
+            <Route path="/centro-mando" element={<RutaProtegida><CentroMando /></RutaProtegida>} />
+            <Route path="/auditoria" element={<RutaProtegida><Auditoria /></RutaProtegida>} />
+            <Route path="/promovidos" element={<RutaProtegida><Promovidos /></RutaProtegida>} />
+            <Route path="/priorizacion" element={<RutaProtegida><Priorizacion /></RutaProtegida>} />
+            <Route path="/estructura" element={<RutaProtegida><Estructura /></RutaProtegida>} />
+            <Route path="/agenda" element={<RutaProtegida><Agenda /></RutaProtegida>} />
+            <Route path="/logistica" element={<RutaProtegida><Logistica /></RutaProtegida>} />
+            <Route path="/dia-eleccion" element={<RutaProtegida><DiaEleccion /></RutaProtegida>} />
+            <Route path="/incidencias" element={<RutaProtegida><Incidencias /></RutaProtegida>} />
+            <Route path="/finanzas" element={<RutaProtegida><Administracion /></RutaProtegida>} />
+            {/* Por si alguien tiene guardado el link viejo de /activos */}
+            <Route path="/activos" element={<Navigate to="/finanzas" replace />} />
+            <Route path="/reportes" element={<RutaProtegida><Reportes /></RutaProtegida>} />
+            <Route path="/marketing" element={<RutaProtegida><Marketing /></RutaProtegida>} />
+            <Route path="/juridico" element={<RutaProtegida><Juridico /></RutaProtegida>} />
+            <Route path="/respaldos" element={<RutaProtegida><Respaldos /></RutaProtegida>} />
+            <Route
+              path="/mapa"
+              element={
+                <RutaProtegida>
+                  <MapaConCampana />
+                </RutaProtegida>
+              }
+            />
+            <Route path="*" element={<Navigate to="/dashboard" replace />} />
+          </Routes>
+        </Suspense>
+      </ErrorBoundaryConReinicio>
       <ErrorBoundarySilencioso><AvisoOffline /></ErrorBoundarySilencioso>
     </BrowserRouter>
-    </ErrorBoundary>
   );
 }
