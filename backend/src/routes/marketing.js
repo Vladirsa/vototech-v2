@@ -460,4 +460,73 @@ Reglas importantes:
   }
 });
 
+// ═══════════════════════════════════════════════════════════════
+// 🆕 MONITOREO DE REDES SOCIALES — reporte manual de tus propios
+// encargados de redes, no escucha automática. Sencillo a propósito:
+// alguien ve algo (mención negativa, nota falsa, tendencia) y lo
+// registra con evidencia, para que quede un historial consultable
+// en vez de perderse en conversaciones sueltas de WhatsApp.
+// ═══════════════════════════════════════════════════════════════
+
+router.get('/monitoreo-redes', async (req, res) => {
+  const filtroTipo = req.query.tipo ? 'AND tipo=$2' : '';
+  const params = req.query.tipo ? [req.usuario.campana_id, req.query.tipo] : [req.usuario.campana_id];
+  const resultado = await query(
+    `SELECT mr.*, u.nombre as creado_por_nombre FROM monitoreo_redes mr
+     LEFT JOIN usuarios u ON u.id = mr.creado_por
+     WHERE mr.campana_id=$1 ${filtroTipo} ORDER BY mr.creado_en DESC LIMIT 200`,
+    params
+  );
+  const resumen = await query(
+    `SELECT tipo, COUNT(*) as total FROM monitoreo_redes WHERE campana_id=$1 GROUP BY tipo`,
+    [req.usuario.campana_id]
+  );
+  res.json({ ok: true, data: resultado.rows, resumen: Object.fromEntries(resumen.rows.map((r) => [r.tipo, parseInt(r.total)])) });
+});
+
+const esquemaMonitoreo = z.object({
+  tipo: z.enum(['mencion_negativa', 'nota_falsa', 'tendencia', 'mencion_positiva', 'otro']).default('otro'),
+  plataforma: z.enum(['x', 'facebook', 'tiktok', 'instagram', 'whatsapp', 'otra']).default('otra'),
+  descripcion: z.string().min(3).max(2000),
+  url_post: z.string().max(500).optional(),
+  urgencia: z.enum(['baja', 'media', 'alta']).default('media'),
+});
+
+router.post('/monitoreo-redes', upload.single('captura'), async (req, res) => {
+  const parseado = esquemaMonitoreo.safeParse(req.body);
+  if (!parseado.success) return res.status(400).json({ ok: false, error: parseado.error.errors[0].message });
+  const d = parseado.data;
+
+  let capturaUrl = null;
+  if (req.file) {
+    const supabase = clienteSupabase();
+    if (supabase) {
+      const ruta = `${req.usuario.campana_id}/monitoreo-redes/${crypto.randomBytes(8).toString('hex')}.jpg`;
+      const { error } = await supabase.storage.from('documentos').upload(ruta, req.file.buffer, { contentType: req.file.mimetype });
+      if (!error) capturaUrl = supabase.storage.from('documentos').getPublicUrl(ruta).data.publicUrl;
+    }
+  }
+
+  const resultado = await query(
+    `INSERT INTO monitoreo_redes (campana_id, tipo, plataforma, descripcion, url_post, captura_url, urgencia, creado_por)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+    [req.usuario.campana_id, d.tipo, d.plataforma, d.descripcion, d.url_post || null, capturaUrl, d.urgencia, req.usuario.sub]
+  );
+  res.status(201).json({ ok: true, data: resultado.rows[0] });
+});
+
+router.patch('/monitoreo-redes/:id/atender', async (req, res) => {
+  const resultado = await query(
+    `UPDATE monitoreo_redes SET estado='atendida' WHERE id=$1 AND campana_id=$2 RETURNING *`,
+    [req.params.id, req.usuario.campana_id]
+  );
+  if (!resultado.rows[0]) return res.status(404).json({ ok: false, error: 'No encontrado' });
+  res.json({ ok: true, data: resultado.rows[0] });
+});
+
+router.delete('/monitoreo-redes/:id', async (req, res) => {
+  await query('DELETE FROM monitoreo_redes WHERE id=$1 AND campana_id=$2', [req.params.id, req.usuario.campana_id]);
+  res.json({ ok: true });
+});
+
 export default router;
