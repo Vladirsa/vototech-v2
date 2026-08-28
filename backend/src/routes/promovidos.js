@@ -173,6 +173,13 @@ const esquemaPromovido = z.object({
   temperatura: z.enum(['frio', 'tibio', 'caliente']).default('tibio'),
   lat: z.number().optional(),
   lng: z.number().optional(),
+  // 🆕 Verificación de campo — la ubicación GPS REAL del celular del
+  // promotor en el momento de guardar, distinta de "lat/lng" de
+  // arriba (que es la dirección del ciudadano promovido). Si ambas
+  // quedan muy lejos entre sí de forma repetida, sugiere que no se
+  // está haciendo el toque de puertas de verdad.
+  promotor_lat: z.number().optional(),
+  promotor_lng: z.number().optional(),
   encuesta: z.record(z.any()).optional(),
   situacion_grave: z.string().max(500).optional(),
   consentimiento: z.boolean(),
@@ -336,16 +343,31 @@ router.post('/', async (req, res) => {
       seccionId = s.rows[0]?.id || null;
     }
 
+    // 🆕 VERIFICACIÓN DE CAMPO — distancia real entre dónde estaba el
+    // celular del promotor al guardar, y la dirección que capturó.
+    // Fórmula de Haversine (distancia entre 2 puntos GPS en metros).
+    let distanciaMetros = null;
+    if (d.promotor_lat && d.promotor_lng && d.lat && d.lng) {
+      const R = 6371000; // radio de la Tierra en metros
+      const radianes = (g) => (g * Math.PI) / 180;
+      const dLat = radianes(d.lat - d.promotor_lat);
+      const dLng = radianes(d.lng - d.promotor_lng);
+      const a = Math.sin(dLat / 2) ** 2 + Math.cos(radianes(d.promotor_lat)) * Math.cos(radianes(d.lat)) * Math.sin(dLng / 2) ** 2;
+      distanciaMetros = Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+    }
+
     const resultado = await query(
       `INSERT INTO promovidos
         (campana_id, nombre, telefono, curp, seccion_id, calle, partido, comprometido,
-         temperatura, lat, lng, encuesta, situacion_grave, registrado_por, consentimiento, genero, rango_edad)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+         temperatura, lat, lng, encuesta, situacion_grave, registrado_por, consentimiento, genero, rango_edad,
+         promotor_lat, promotor_lng, distancia_verificacion_metros)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
        RETURNING *`,
       [req.usuario.campana_id, d.nombre, d.telefono || null, d.curp || null, seccionId,
        d.calle || null, d.partido || null, d.comprometido, d.temperatura,
        d.lat || null, d.lng || null, d.encuesta ? JSON.stringify(d.encuesta) : null,
-       d.situacion_grave || null, req.usuario.sub, d.consentimiento, d.genero || null, d.rango_edad || null]
+       d.situacion_grave || null, req.usuario.sub, d.consentimiento, d.genero || null, d.rango_edad || null,
+       d.promotor_lat || null, d.promotor_lng || null, distanciaMetros]
     );
 
     // 🆕 Si se dio una sección Y una ubicación exacta, se revisa que
@@ -598,6 +620,34 @@ router.patch('/:id/clasificacion', async (req, res) => {
   );
   if (!resultado.rows[0]) return res.status(404).json({ ok: false, error: 'No encontrado' });
   res.json({ ok: true, data: resultado.rows[0] });
+});
+
+/**
+ * 🆕 GET /api/promovidos/verificacion-campo
+ * Resumen por promotor de qué tan lejos capturan de la dirección
+ * que registran — para que un coordinador detecte patrones
+ * sospechosos (todo capturado desde el mismo punto = probable que
+ * no esté saliendo a tocar puertas). Solo altos mandos y
+ * coordinadores deberían ver esto.
+ */
+router.get('/verificacion-campo', async (req, res) => {
+  const resultado = await query(
+    `SELECT
+       u.id as promotor_id, u.nombre as promotor_nombre,
+       COUNT(p.id) as total_con_gps,
+       ROUND(AVG(p.distancia_verificacion_metros)) as distancia_promedio_metros,
+       COUNT(*) FILTER (WHERE p.distancia_verificacion_metros > 500) as capturas_lejanas,
+       -- Si casi todos sus puntos de celular caen muy cerca entre sí,
+       -- probablemente nunca se movió de un solo lugar.
+       ROUND(STDDEV(p.promotor_lat)::numeric * 111000) as variacion_ubicacion_metros
+     FROM promovidos p
+     JOIN usuarios u ON u.id = p.registrado_por
+     WHERE p.campana_id = $1 AND p.promotor_lat IS NOT NULL
+     GROUP BY u.id, u.nombre
+     ORDER BY capturas_lejanas DESC NULLS LAST`,
+    [req.usuario.campana_id]
+  );
+  res.json({ ok: true, data: resultado.rows });
 });
 
 export default router;
