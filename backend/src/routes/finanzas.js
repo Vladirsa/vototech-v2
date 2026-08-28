@@ -212,14 +212,36 @@ router.delete('/ingresos/:id', async (req, res) => {
   if (!['candidato', 'jefe_campana', 'encargado_finanzas'].includes(req.usuario.rol)) {
     return res.status(403).json({ ok: false, error: 'No tienes permiso para borrar ingresos' });
   }
+  // 🆕 Se guarda el registro ANTES de borrarlo — así la bitácora
+  // conserva el detalle de qué se borró, no solo que "algo" se borró.
+  const previo = await query('SELECT * FROM ingresos_campana WHERE id=$1 AND campana_id=$2', [req.params.id, req.usuario.campana_id]);
   await query('DELETE FROM ingresos_campana WHERE id=$1 AND campana_id=$2', [req.params.id, req.usuario.campana_id]);
+
+  if (previo.rows[0]) {
+    registrarAuditoria({
+      campanaId: req.usuario.campana_id, usuarioId: req.usuario.sub, usuarioNombre: req.usuario.nombre,
+      accion: 'borrar', tabla: 'ingresos_campana', registroId: req.params.id,
+      detalle: { tipo_ingreso: previo.rows[0].tipo_ingreso, monto: previo.rows[0].monto, aportante: previo.rows[0].aportante_nombre },
+      ip: req.ip,
+    });
+  }
   res.json({ ok: true });
 });
 
 router.put('/tope', async (req, res) => {
   const tope = parseFloat(req.body.tope);
   if (isNaN(tope) || tope <= 0) return res.status(400).json({ ok: false, error: 'Tope inválido' });
+  const anterior = await query('SELECT tope_gasto_ople FROM campanas WHERE id=$1', [req.usuario.campana_id]);
   await query('UPDATE campanas SET tope_gasto_ople=$1 WHERE id=$2', [tope, req.usuario.campana_id]);
+
+  // 🆕 Cambiar el tope de gasto es sensible — puede ocultar que ya se
+  // rebasó, así que queda registrado quién lo cambió y de cuánto a cuánto.
+  registrarAuditoria({
+    campanaId: req.usuario.campana_id, usuarioId: req.usuario.sub, usuarioNombre: req.usuario.nombre,
+    accion: 'editar', tabla: 'campanas', registroId: req.usuario.campana_id,
+    detalle: { campo: 'tope_gasto_ople', valor_anterior: anterior.rows[0]?.tope_gasto_ople, valor_nuevo: tope },
+    ip: req.ip,
+  });
   res.json({ ok: true });
 });
 
