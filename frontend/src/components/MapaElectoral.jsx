@@ -475,6 +475,11 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
     html: `<div style="font-size:18px;filter:drop-shadow(0 1px 3px rgba(0,0,0,.7))">🧍</div>`,
     iconSize: [20, 20],
   });
+  // 🆕 CORRECCIÓN — esta línea se había borrado por accidente al
+  // agregar la capa de promotores en un mensaje anterior. Sin ella,
+  // el botón "➕" del mapa (para agregar puntos) tronaba la pantalla
+  // completa, porque usaba una variable que ya no existía.
+  const [menuAgregarAbierto, setMenuAgregarAbierto] = useState(false);
   const [tipoColocando, setTipoColocando] = useState(null);
   const [puntoNuevo, setPuntoNuevo] = useState(null);
   const [posicionConfirmada, setPosicionConfirmada] = useState(false);
