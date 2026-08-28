@@ -90,7 +90,7 @@ export default function CentroMando() {
           <div className="text-4xl">{datos.municipios_riesgo > 0 ? '⚠️' : '✅'}</div>
           <div>
             <div className={`text-xl font-black ${datos.municipios_riesgo > 0 ? 'text-red-400' : 'text-emerald-400'}`}>
-              {datos.municipios_riesgo} de {datos.total_municipios} municipios en riesgo
+              {datos.municipios_riesgo} de {datos.total_municipios} {datos.unidad_riesgo === 'secciones' ? 'secciones' : 'municipios'} en riesgo
             </div>
             <div className="text-xs text-slate-500">Donde el histórico dice que otro partido va ganando</div>
           </div>

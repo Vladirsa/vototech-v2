@@ -210,7 +210,7 @@ export default function Dashboard() {
               </div>
               <div className={`bg-slate-900/60 border rounded-2xl p-5 ${ejecutivo.municipios_riesgo > 0 ? 'border-red-800/40' : 'border-emerald-800/30'}`}>
                 <div className={`text-3xl font-black ${ejecutivo.municipios_riesgo > 0 ? 'text-red-400' : 'text-emerald-400'}`}>{ejecutivo.municipios_riesgo}</div>
-                <div className="text-xs text-slate-400 mt-1">🟢 Municipios en riesgo</div>
+                <div className="text-xs text-slate-400 mt-1">🟢 {ejecutivo.unidad_riesgo === 'secciones' ? 'Secciones' : 'Municipios'} en riesgo</div>
                 <div className="text-[10px] text-slate-600 mt-1">de {ejecutivo.total_municipios} en tu territorio</div>
               </div>
               <div className="bg-slate-900/60 border border-purple-800/30 rounded-2xl p-5">
