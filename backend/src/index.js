@@ -54,6 +54,7 @@ import logisticaRoutes from './routes/logistica.js';
 import callesRoutes from './routes/calles.js';
 import seccionesRoutes from './routes/secciones.js';
 import documentosPersonaRoutes from './routes/documentos-persona.js';
+import auditoriaRoutes from './routes/auditoria.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -160,6 +161,7 @@ app.use('/api/logistica', requiereAuth, requiereModulo('logistica'), logisticaRo
 app.use('/api/calles', callesRoutes);
 app.use('/api/secciones', seccionesRoutes);
 app.use('/api/documentos-persona', documentosPersonaRoutes);
+app.use('/api/auditoria', auditoriaRoutes);
 
 app.get('/api/salud', (req, res) => {
   res.json({ ok: true, servicio: 'VotoTech Backend', hora: new Date().toISOString() });
