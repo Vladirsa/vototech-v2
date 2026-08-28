@@ -33,6 +33,13 @@ function puedeAprobarAgenda(usuario) {
 }
 
 router.get('/', async (req, res) => {
+  // 🆕 Igual que en Activos/Incidencias — conteo ligero para el
+  // checkbox del mapa.
+  if (req.query.contar) {
+    const resultado = await query('SELECT COUNT(*) as total FROM agenda WHERE campana_id=$1', [req.usuario.campana_id]);
+    return res.json({ ok: true, total: parseInt(resultado.rows[0].total) });
+  }
+
   const resultado = await query(
     `SELECT a.*, s.numero as seccion_numero, u.nombre as creado_por_nombre,
             p.nombre as propuesto_por_nombre, ap.nombre as aprobado_por_nombre,

@@ -9,6 +9,16 @@ const router = Router();
 router.use(requiereAuth);
 
 router.get('/', async (req, res) => {
+  // 🆕 Igual que en Activos — conteo ligero para el checkbox del
+  // mapa, sin traer todas las incidencias completas de entrada.
+  if (req.query.contar) {
+    const resultado = await query(
+      `SELECT COUNT(*) as total FROM incidencias WHERE campana_id=$1 AND estado='activa'`,
+      [req.usuario.campana_id]
+    );
+    return res.json({ ok: true, total: parseInt(resultado.rows[0].total) });
+  }
+
   const { tipo, estado, urgencia } = req.query;
   let sql = `
     SELECT i.*, s.numero as seccion_numero, u.nombre as reportado_por_nombre

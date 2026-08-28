@@ -429,6 +429,13 @@ router.get('/casillas/:id/nombramiento-pdf', async (req, res) => {
  * sección repartida entre sus casillas) y el nombre del suplente.
  */
 router.get('/casillas', async (req, res) => {
+  // 🆕 Igual que en Activos/Incidencias/Agenda — conteo ligero para
+  // el checkbox del mapa.
+  if (req.query.contar) {
+    const resultado = await query('SELECT COUNT(*) as total FROM casillas WHERE campana_id=$1 AND lat IS NOT NULL', [req.usuario.campana_id]);
+    return res.json({ ok: true, total: parseInt(resultado.rows[0].total) });
+  }
+
   const resultado = await query(
     `SELECT c.*, s.numero as seccion_numero, s.lista_nominal as seccion_lista_nominal,
             u.nombre as representante_nombre, u.telefono as representante_telefono,

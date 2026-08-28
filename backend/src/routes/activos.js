@@ -19,6 +19,16 @@ function clienteSupabase() {
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
 
 router.get('/', async (req, res) => {
+  // 🆕 El mapa antes pedía TODOS los activos completos con foto,
+  // ubicación, historial, etc. — solo para mostrar un número junto a
+  // un checkbox que la mayoría nunca activa. Con ?contar=1 responde
+  // en una fracción del tiempo, y solo se pide la versión completa
+  // cuando de verdad se enciende esa capa.
+  if (req.query.contar) {
+    const resultado = await query('SELECT COUNT(*) as total FROM activos WHERE campana_id=$1', [req.usuario.campana_id]);
+    return res.json({ ok: true, total: parseInt(resultado.rows[0].total) });
+  }
+
   const campanaRes = await query('SELECT fecha_inicio_campana_oficial FROM campanas WHERE id=$1', [req.usuario.campana_id]);
   const fechaOficial = campanaRes.rows[0]?.fecha_inicio_campana_oficial;
 
