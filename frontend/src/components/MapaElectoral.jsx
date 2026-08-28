@@ -459,7 +459,22 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
     html: `<div style="font-size:18px;filter:drop-shadow(0 1px 3px rgba(0,0,0,.7))">${ICONO_EVENTO[tipo] || '📅'}</div>`,
     iconSize: [22, 22],
   });
-  const [menuAgregarAbierto, setMenuAgregarAbierto] = useState(false);
+  // 🆕 Capa "Promotores en campo" — la última ubicación GPS conocida
+  // de cada promotor (reusa el dato de verificación de campo, ya
+  // capturado al guardar un promovido — no pide nada nuevo). Es un
+  // dato ligero de por sí (máximo 1 fila por promotor), así que se
+  // carga directo, sin el patrón de "conteo primero" de las capas
+  // pesadas de arriba.
+  const [promotoresUbicacion, setPromotoresUbicacion] = useState([]);
+  const [capaPromotores, setCapaPromotores] = useState(false);
+  useEffect(() => {
+    api.get('/promovidos/ubicaciones-promotores').then(r => setPromotoresUbicacion(r.data.data)).catch(() => setPromotoresUbicacion([]));
+  }, []);
+  const iconoPromotor = () => new L.DivIcon({
+    className: '',
+    html: `<div style="font-size:18px;filter:drop-shadow(0 1px 3px rgba(0,0,0,.7))">🧍</div>`,
+    iconSize: [20, 20],
+  });
   const [tipoColocando, setTipoColocando] = useState(null);
   const [puntoNuevo, setPuntoNuevo] = useState(null);
   const [posicionConfirmada, setPosicionConfirmada] = useState(false);
@@ -876,6 +891,18 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
                 {e.descripcion && <span style={{ color: '#888' }}>{e.descripcion}<br /></span>}
                 <span style={{ fontSize: 10, color: e.realizado ? '#10b981' : '#f59e0b', fontWeight: 'bold' }}>
                   {e.realizado ? '✅ Ya realizado' : '⏳ Pendiente'}
+                </span>
+              </div>
+            </Popup>
+          </Marker>
+        ))}
+        {capaPromotores && promotoresUbicacion.map((p) => (
+          <Marker key={p.promotor_id} position={[p.lat, p.lng]} icon={iconoPromotor()}>
+            <Popup>
+              <div style={{ fontSize: 12, minWidth: 160 }}>
+                <strong>🧍 {p.promotor_nombre}</strong><br />
+                <span style={{ fontSize: 10, color: '#888' }}>
+                  Última captura: {new Date(p.ultima_captura).toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' })}
                 </span>
               </div>
             </Popup>
@@ -1300,6 +1327,10 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
             📅 Agenda con ubicación ({capaAgenda ? eventosAgenda.length : conteoAgenda})
           </label>
           <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+            <input type="checkbox" checked={capaPromotores} onChange={e => setCapaPromotores(e.target.checked)} />
+            🧍 Promotores en campo ({promotoresUbicacion.length})
+          </label>
+          <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
             <input type="checkbox" checked={capaIncidencias} onChange={e => setCapaIncidencias(e.target.checked)} />
             🚨 Incidencias activas ({capaIncidencias ? incidencias.length : conteoIncidencias})
           </label>
@@ -1671,6 +1702,7 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
                   <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={capaCalor} onChange={e => setCapaCalor(e.target.checked)} /> 🔥 Mapa de calor</label>
                   <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={capaActivos} onChange={e => setCapaActivos(e.target.checked)} /> 📺 Activos ({capaActivos ? activos.length : conteoActivos})</label>
                   <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={capaAgenda} onChange={e => setCapaAgenda(e.target.checked)} /> 📅 Agenda ({capaAgenda ? eventosAgenda.length : conteoAgenda})</label>
+                  <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={capaPromotores} onChange={e => setCapaPromotores(e.target.checked)} /> 🧍 Promotores en campo ({promotoresUbicacion.length})</label>
                   <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={capaIncidencias} onChange={e => setCapaIncidencias(e.target.checked)} /> 🚨 Incidencias ({capaIncidencias ? incidencias.length : conteoIncidencias})</label>
                   <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={capaCaceria} onChange={e => setCapaCaceria(e.target.checked)} /> 🎯 Cacería (Día D)</label>
                   <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={capaConfirmados} onChange={e => setCapaConfirmados(e.target.checked)} /> ✅ Ya votaron (Día D)</label>
