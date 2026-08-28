@@ -241,21 +241,29 @@ router.get('/ejecutivo', async (req, res) => {
   const comprometidosRes = await query(`SELECT COUNT(*) as total FROM promovidos WHERE campana_id=$1 AND comprometido=true`, [campanaId]);
   const votoEstimado = parseInt(comprometidosRes.rows[0].total);
 
-  // ── 3. MUNICIPIOS EN RIESGO — donde el histórico dice que vas perdiendo ──
+  // ── 3. TERRITORIO EN RIESGO — donde el histórico dice que vas
+  // perdiendo. 🆕 LA CORRECCIÓN REAL: si la campaña es de un solo
+  // municipio, agrupar por MUNICIPIO siempre da "1 de 1" — un dato
+  // inútil, porque solo hay un municipio en juego. En ese caso se
+  // agrupa por SECCIÓN en su lugar (igual que ya se hacía abajo, en
+  // "comparativo_territorio" — aquí solo faltaba aplicar la misma
+  // regla). Para distrito/estatal, sigue siendo por municipio.
+  const agruparPorSeccion = campana.territorio_tipo === 'municipio';
   const anioRes = await query('SELECT MAX(anio) as anio FROM resultados_historicos WHERE tipo_eleccion=$1', [campana.tipo_eleccion]);
   const anio = anioRes.rows[0]?.anio;
   let municipiosRiesgo = 0, totalMunicipios = 0;
   if (anio) {
     const filtroTerritorioCorrido3 = filtroTerritorio.replace('$1', '$3');
-    const porMunicipio = await query(
-      `SELECT m.nombre, r.partido, SUM(r.votos) as votos
+    const columnaAgrupacion = agruparPorSeccion ? 's.numero' : 'm.nombre';
+    const porUnidad = await query(
+      `SELECT ${columnaAgrupacion} as nombre, r.partido, SUM(r.votos) as votos
        FROM resultados_historicos r JOIN secciones s ON s.id=r.seccion_id JOIN municipios m ON m.id=s.municipio_id
        WHERE r.tipo_eleccion=$1 AND r.anio=$2 AND s.estado_id=${req.usuario.estado_id} ${filtroTerritorioCorrido3}
-       GROUP BY m.nombre, r.partido`,
+       GROUP BY ${columnaAgrupacion}, r.partido`,
       [campana.tipo_eleccion, anio, ...paramsTerr]
     );
     const agrupado = {};
-    porMunicipio.rows.forEach((r) => {
+    porUnidad.rows.forEach((r) => {
       if (!agrupado[r.nombre]) agrupado[r.nombre] = {};
       agrupado[r.nombre][r.partido] = parseInt(r.votos);
     });
@@ -346,6 +354,9 @@ router.get('/ejecutivo', async (req, res) => {
       meta_votos: campana.meta_votos,
       municipios_riesgo: municipiosRiesgo,
       total_municipios: totalMunicipios,
+      // 🆕 Le dice al frontend qué palabra usar en la leyenda —
+      // "municipios" o "secciones" — según cómo se agrupó arriba.
+      unidad_riesgo: agruparPorSeccion ? 'secciones' : 'municipios',
       estructura_activa_pct: estructuraActivaPct,
       promotores_activos: promotoresActivos,
       total_promotores: totalPromotores,
