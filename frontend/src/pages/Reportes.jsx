@@ -9,6 +9,46 @@ const PARTIDOS_COLOR = {
   rsp: '#7c3aed', fxm: '#0891b2', panalt: '#64748b',
 };
 
+/** 🆕 Resumen ejecutivo con IA — junta varias señales (avance, ritmo, estructura, finanzas) en una sola narrativa. */
+function PanelResumenEjecutivoIA() {
+  const [cargando, setCargando] = useState(false);
+  const [resumen, setResumen] = useState('');
+  const [error, setError] = useState('');
+  const [generadoEn, setGeneradoEn] = useState(null);
+
+  const generar = async () => {
+    setCargando(true);
+    setError('');
+    try {
+      const { data } = await api.get('/reportes/resumen-ejecutivo-ia');
+      setResumen(data.data.resumen);
+      setGeneradoEn(new Date());
+    } catch (e) { setError(e.response?.data?.error || 'No se pudo generar el resumen'); }
+    setCargando(false);
+  };
+
+  const copiar = () => { navigator.clipboard.writeText(resumen); alert('Copiado ✅'); };
+
+  return (
+    <div className="space-y-3">
+      <div className="bg-purple-500/10 border border-purple-500/30 rounded-xl p-3 text-[11px] text-purple-300">
+        🤖 Junta tu avance, ritmo, estructura, y finanzas en una sola narrativa clara — usando SOLO los números reales de tu campaña, sin inventar nada.
+      </div>
+      <button onClick={generar} disabled={cargando} className="w-full py-3 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 text-white text-sm font-bold disabled:opacity-40">
+        {cargando ? '⏳ Analizando tu campaña...' : resumen ? '🔄 Generar de nuevo' : '✨ Generar resumen ejecutivo'}
+      </button>
+      {error && <div className="bg-red-500/10 text-red-400 text-xs rounded-lg px-3 py-2">{error}</div>}
+      {resumen && (
+        <div className="bg-slate-900/60 border border-purple-500/30 rounded-xl p-4 space-y-3">
+          {generadoEn && <p className="text-[9px] text-slate-500">Generado {generadoEn.toLocaleString('es-MX')}</p>}
+          <p className="text-sm text-slate-200 whitespace-pre-wrap leading-relaxed">{resumen}</p>
+          <button onClick={copiar} className="w-full py-2 rounded-lg bg-slate-700 text-slate-300 text-xs font-bold">📋 Copiar</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Reportes() {
   const [tab, setTab] = useState('diario');
   const [subTabActividad, setSubTabActividad] = useState('resumen');
@@ -93,6 +133,7 @@ export default function Reportes() {
           <button onClick={() => setTab('probabilidad')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'probabilidad' ? 'bg-purple-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🎲 Estadística y Probabilidad</button>
           <button onClick={() => setTab('actividad')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'actividad' ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🎯 Actividad de Campo</button>
           <button onClick={() => setTab('encuestas')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'encuestas' ? 'bg-pink-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📋 Encuestas</button>
+          <button onClick={() => setTab('resumen-ia')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'resumen-ia' ? 'bg-purple-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🤖 Resumen con IA</button>
         </div>
 
         {tab === 'probabilidad' && probabilidad && (
@@ -756,6 +797,8 @@ export default function Reportes() {
             </div>
           </div>
         )}
+
+        {tab === 'resumen-ia' && <PanelResumenEjecutivoIA />}
       </div>
     </div>
   );

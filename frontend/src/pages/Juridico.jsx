@@ -102,6 +102,63 @@ function VistaSemanaCalendario({ plazos, tipoPlazo }) {
   );
 }
 
+const TIPO_DOCUMENTO_LABEL = {
+  queja_formal: { ic: '📄', label: 'Queja formal' },
+  recurso_formal: { ic: '⚖️', label: 'Recurso' },
+  notificacion_incidencia: { ic: '📢', label: 'Notificación' },
+  argumentario_legal: { ic: '💬', label: 'Argumentario' },
+};
+
+/** 🆕 Redacción de documentos jurídicos con IA — mismo patrón que Marketing, siempre borrador para revisión de abogado. */
+function PanelRedaccionJuridicaIA() {
+  const [tipoDocumento, setTipoDocumento] = useState('queja_formal');
+  const [hechos, setHechos] = useState('');
+  const [generando, setGenerando] = useState(false);
+  const [resultado, setResultado] = useState('');
+  const [error, setError] = useState('');
+
+  const generar = async () => {
+    if (hechos.trim().length < 10) return;
+    setGenerando(true);
+    setError('');
+    setResultado('');
+    try {
+      const { data } = await api.post('/juridico/redactar-ia', { tipo_documento: tipoDocumento, hechos });
+      setResultado(data.data.contenido);
+    } catch (e) { setError(e.response?.data?.error || 'No se pudo generar el borrador'); }
+    setGenerando(false);
+  };
+
+  const copiar = () => { navigator.clipboard.writeText(resultado); alert('Copiado ✅'); };
+
+  return (
+    <div className="space-y-3">
+      <div className="bg-purple-500/10 border border-purple-500/30 rounded-xl p-3 text-[11px] text-purple-300">
+        🤖 Todo lo que genera la IA aquí es un <strong>borrador</strong> — un abogado debe revisarlo antes de presentarse ante cualquier autoridad. Nunca inventa artículos de ley, hechos, ni cifras.
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        {Object.entries(TIPO_DOCUMENTO_LABEL).map(([k, v]) => (
+          <button key={k} onClick={() => setTipoDocumento(k)} className={`py-2.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 ${tipoDocumento === k ? 'bg-purple-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
+            {v.ic} {v.label}
+          </button>
+        ))}
+      </div>
+      <textarea placeholder="Describe los hechos con el mayor detalle posible: qué pasó, cuándo, dónde, quién estuvo involucrado..." value={hechos} onChange={(e) => setHechos(e.target.value)}
+        className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm min-h-28" />
+      <button onClick={generar} disabled={hechos.trim().length < 10 || generando} className="w-full py-3 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 text-white text-sm font-bold disabled:opacity-40">
+        {generando ? '⏳ Generando...' : `✨ Generar ${TIPO_DOCUMENTO_LABEL[tipoDocumento].label}`}
+      </button>
+      {error && <div className="bg-red-500/10 text-red-400 text-xs rounded-lg px-3 py-2">{error}</div>}
+      {resultado && (
+        <div className="bg-slate-900/60 border border-purple-500/30 rounded-xl p-4 space-y-3">
+          <p className="text-sm text-slate-200 whitespace-pre-wrap">{resultado}</p>
+          <button onClick={copiar} className="w-full py-2 rounded-lg bg-slate-700 text-slate-300 text-xs font-bold">📋 Copiar</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Juridico() {
   const [tab, setTab] = useState('resumen');
   const [resumen, setResumen] = useState(null);
@@ -188,6 +245,7 @@ export default function Juridico() {
           <button onClick={() => setTab('quejas')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'quejas' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📄 Quejas y Recursos</button>
           <button onClick={() => setTab('auditoria')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'auditoria' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🔍 Auditoría</button>
           <button onClick={() => setTab('documentos')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'documentos' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📁 Documentos</button>
+          <button onClick={() => setTab('redactar-ia')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'redactar-ia' ? 'bg-purple-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🤖 Redactar con IA</button>
         </div>
 
         {/* Fecha oficial de inicio de campaña — base de la alerta legal en Activos */}
@@ -402,6 +460,8 @@ export default function Juridico() {
             })}
           </div>
         )}
+
+        {tab === 'redactar-ia' && <PanelRedaccionJuridicaIA />}
       </div>
     </div>
   );
