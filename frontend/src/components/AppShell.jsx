@@ -11,6 +11,7 @@ const MODULOS = [
   { ruta: '/mi-avance', ic: '🗳️', label: 'Mi Avance', clave: 'mi-avance' },
   { ruta: '/dashboard', ic: '⚡', label: 'Dashboard', clave: 'dashboard' },
   { ruta: '/centro-mando', ic: '🎯', label: 'Centro de Mando', clave: 'centro-mando' },
+  { ruta: '/auditoria', ic: '📋', label: 'Auditoría', clave: 'auditoria' },
   { ruta: '/mapa', ic: '🗺️', label: 'Mapa', clave: 'mapa' },
   { ruta: '/promovidos', ic: '🤝', label: 'Promovidos', clave: 'promovidos' },
   { ruta: '/reportes', ic: '📊', label: 'Reportes', clave: 'reportes' },
@@ -40,8 +41,8 @@ const MODULOS_POR_ROL = {
   // sí ve el Centro de Mando, a diferencia de un coordinador de un
   // solo municipio/distrito.
   coord_regional: TODOS.filter((c) => !['finanzas', 'juridico', 'respaldos'].includes(c)),
-  coord_distrital: TODOS.filter((c) => !['finanzas', 'juridico', 'respaldos', 'centro-mando'].includes(c)),
-  coord_municipal: TODOS.filter((c) => !['finanzas', 'juridico', 'respaldos', 'centro-mando'].includes(c)),
+  coord_distrital: TODOS.filter((c) => !['finanzas', 'juridico', 'respaldos', 'centro-mando', 'auditoria'].includes(c)),
+  coord_municipal: TODOS.filter((c) => !['finanzas', 'juridico', 'respaldos', 'centro-mando', 'auditoria'].includes(c)),
   coord_seccional: ['dashboard', 'mapa', 'promovidos', 'estructura', 'dia-eleccion', 'incidencias', 'logistica'],
   promotor: ['mi-avance', 'dia-eleccion', 'incidencias'],
   // Encargado de Jurídico: su área, más lo que necesita para sustentar
