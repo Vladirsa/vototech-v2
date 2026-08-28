@@ -1013,6 +1013,14 @@ function PanelCasillas() {
                     <span className="text-[9px] text-emerald-400 font-bold flex-shrink-0">✅ Completo</span>
                   )}
                 </div>
+                {/* 🆕 Aviso de riesgo de llenado — basado en datos reales
+                    del estudio del ITE Tlaxcala 2024 sobre esta misma
+                    zona (distrito local), no una suposición genérica. */}
+                {casillasDeEstaSeccion[0]?.riesgo_llenado_nivel && (casillasDeEstaSeccion[0].riesgo_llenado_nivel === 'alto' || casillasDeEstaSeccion[0].riesgo_llenado_nivel === 'muy_alto') && (
+                  <div className={`mx-3 mb-2 px-2.5 py-1.5 rounded-lg text-[9px] ${casillasDeEstaSeccion[0].riesgo_llenado_nivel === 'muy_alto' ? 'bg-red-500/10 text-red-300' : 'bg-amber-500/10 text-amber-300'}`}>
+                    {casillasDeEstaSeccion[0].riesgo_llenado_nivel === 'muy_alto' ? '🔴' : '🟠'} Este distrito tuvo solo {casillasDeEstaSeccion[0].riesgo_llenado_pct}% de actas bien llenadas en 2024 (estudio ITE) — refuerza la capacitación aquí.
+                  </div>
+                )}
                 {seccionExpandida === s.seccion && casillasDeEstaSeccion.length > 0 && (
                   <div className="px-3 pb-2 space-y-2 border-t border-slate-700/50 pt-2">
                     {casillasDeEstaSeccion.map((c) => (
