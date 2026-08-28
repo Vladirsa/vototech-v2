@@ -51,11 +51,11 @@ export default function RecuperarPassword() {
     <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
       <div className="w-full max-w-sm">
         <div className="text-center mb-6">
-          <div className="text-3xl mb-2">📱</div>
+          <div className="text-3xl mb-2">📧</div>
           <h1 className="text-lg font-black text-white">Recuperar contraseña</h1>
           <p className="text-xs text-slate-500 mt-1">
-            {paso === 1 && 'Te mandamos un código por WhatsApp al teléfono que ya tienes registrado'}
-            {paso === 2 && 'Escribe el código de 6 dígitos que te llegó'}
+            {paso === 1 && 'Te mandamos un código por correo electrónico'}
+            {paso === 2 && 'Escribe el código de 6 dígitos que te llegó — revisa spam si no lo ves'}
             {paso === 3 && 'Elige tu contraseña nueva'}
           </p>
         </div>
@@ -71,7 +71,7 @@ export default function RecuperarPassword() {
               className="w-full px-4 py-2.5 rounded-xl bg-slate-800/80 border border-slate-700 text-white text-sm focus:outline-none focus:border-indigo-500" />
             <button type="submit" disabled={cargando || !subdominio || !email}
               className="w-full py-3 rounded-xl bg-indigo-600 text-white font-bold text-sm disabled:opacity-40">
-              {cargando ? 'Enviando...' : 'Mandar código por WhatsApp'}
+              {cargando ? 'Enviando...' : 'Mandar código por correo'}
             </button>
           </form>
         )}
