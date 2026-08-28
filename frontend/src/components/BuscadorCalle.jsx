@@ -29,9 +29,29 @@ export default function BuscadorCalle({ valor, onSeleccion, seccionNumero }) {
   // yo" de "esto lo cambiaron de afuera", y no se dispara una
   // búsqueda en bucle cada vez que el usuario elige una opción.
   const ultimoValorPropio = useRef(valor || '');
+  // 🆕 Para mostrar un aviso breve de "ubicación confirmada sola" —
+  // solo cosmético, se apaga solo después de unos segundos.
+  const [avisoAutomatico, setAvisoAutomatico] = useState(false);
 
-  const buscarDirecciones = async (q) => {
+  const buscarDirecciones = async (q, esAutomatico = false) => {
     setBuscando(true);
+    // 🆕 LA CORRECCIÓN REAL — antes, cuando la credencial llenaba el
+    // domicilio, la lista de sugerencias se abría igual que si el
+    // usuario estuviera escribiendo, y se quedaba flotando ENCIMA de
+    // los campos de abajo (sección, partido, etc.) hasta que alguien
+    // tocaba una opción — parecía que esos campos "desaparecían".
+    // Ahora, cuando la búsqueda viene automática (esAutomatico=true),
+    // se elige sola la mejor coincidencia y nunca se abre la lista.
+    const aplicarAutomatico = (sugerenciasEncontradas) => {
+      const mejor = sugerenciasEncontradas[0];
+      ultimoValorPropio.current = mejor.calle;
+      setTexto(mejor.calle);
+      setMostrar(false);
+      onSeleccion({ calle: mejor.calle, direccion_completa: mejor.direccion_completa, lat: mejor.lat, lng: mejor.lng });
+      setAvisoAutomatico(true);
+      setTimeout(() => setAvisoAutomatico(false), 4000);
+    };
+
     try {
       // 🆕 Primero el catálogo local — rápido, tuyo, sin depender de
       // ningún servicio externo. Si ya se eligió una sección, se manda
@@ -39,14 +59,15 @@ export default function BuscadorCalle({ valor, onSeleccion, seccionNumero }) {
       const parametroSeccion = seccionNumero ? `&seccion=${seccionNumero}` : '';
       const { data } = await api.get(`/calles/buscar?q=${encodeURIComponent(q)}${parametroSeccion}`);
       if (data.data.length > 0) {
-        setSugerencias(data.data.map((c) => ({
+        const mapeadas = data.data.map((c) => ({
           fuente: 'local',
           texto_mostrar: `${c.nombre}${c.municipio ? `, ${c.municipio}` : ''}`,
           calle: c.nombre,
           direccion_completa: `${c.nombre}${c.municipio ? `, ${c.municipio}, Tlaxcala` : ', Tlaxcala'}`,
           lat: c.lat, lng: c.lng,
-        })));
-        setMostrar(true);
+        }));
+        setSugerencias(mapeadas);
+        if (esAutomatico) { aplicarAutomatico(mapeadas); } else { setMostrar(true); }
         setBuscando(false);
         return;
       }
@@ -58,26 +79,27 @@ export default function BuscadorCalle({ valor, onSeleccion, seccionNumero }) {
       const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=6&countrycodes=mx&viewbox=${cajaTlaxcala}&bounded=1`;
       const resp = await fetch(url, { headers: { 'Accept-Language': 'es' } });
       const data = await resp.json();
-      setSugerencias(data.map((s) => ({
+      const mapeadas = data.map((s) => ({
         fuente: 'nominatim',
         texto_mostrar: s.display_name,
         calle: s.display_name.split(',')[0],
         direccion_completa: s.display_name,
         lat: parseFloat(s.lat), lng: parseFloat(s.lon),
-      })));
-      setMostrar(data.length > 0);
+      }));
+      setSugerencias(mapeadas);
+      if (esAutomatico && mapeadas.length > 0) { aplicarAutomatico(mapeadas); } else { setMostrar(mapeadas.length > 0); }
     } catch (e) { setSugerencias([]); }
     setBuscando(false);
   };
 
   // 🆕 Cuando `valor` cambia desde AFUERA (ej. la credencial llenó el
-  // domicilio), se refleja en el campo Y se busca automático — el
-  // usuario solo tiene que tocar la sugerencia correcta para
-  // confirmar, en vez de tener que borrar y volver a escribir todo.
+  // domicilio), se refleja en el campo Y se busca automático — ahora
+  // elige sola la mejor coincidencia (ver aplicarAutomatico arriba),
+  // en vez de dejar la lista abierta esperando un clic.
   useEffect(() => {
     if (valor && valor !== ultimoValorPropio.current) {
       setTexto(valor);
-      if (valor.trim().length >= 3) buscarDirecciones(valor);
+      if (valor.trim().length >= 3) buscarDirecciones(valor, true);
     }
   }, [valor]);
 
@@ -122,6 +144,9 @@ export default function BuscadorCalle({ valor, onSeleccion, seccionNumero }) {
             </button>
           ))}
         </div>
+      )}
+      {avisoAutomatico && (
+        <p className="text-[10px] text-emerald-400 mt-1">✅ Ubicación confirmada automáticamente desde la credencial — revisa que sea correcta.</p>
       )}
     </div>
   );
