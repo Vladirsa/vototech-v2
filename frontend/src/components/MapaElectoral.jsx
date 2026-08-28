@@ -302,6 +302,7 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
     }).catch(() => setSeccionesCubiertas(new Set()));
   }, [mostrarCobertura]);
   const [activos, setActivos] = useState([]);
+  const [conteoActivos, setConteoActivos] = useState(0);
   const [capaActivos, setCapaActivos] = useState(false);
   useEffect(() => {
     // 🆕 Ya no se cargan activos tipo "ine_representante" en esta capa
@@ -310,8 +311,17 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
     // duplicado. Los que ya existían de antes simplemente no se
     // muestran más aquí (los datos siguen intactos en tu base, por
     // si algún día se necesitan).
-    api.get('/activos').then(r => setActivos(r.data.data.filter(a => a.lat && a.lng && a.tipo !== 'ine_representante'))).catch(() => setActivos([]));
+    api.get('/activos?contar=1').then(r => setConteoActivos(r.data.total)).catch(() => {});
   }, []);
+  // 🆕 LA CORRECCIÓN REAL — antes se pedían TODOS los activos
+  // completos (con foto, ubicación, historial) nada más para mostrar
+  // un número junto al checkbox, aunque casi nadie prende esta capa.
+  // Ahora arriba solo se pide el conteo (rápido), y aquí se cargan
+  // los datos completos SOLO la primera vez que de verdad se activa.
+  useEffect(() => {
+    if (!capaActivos || activos.length > 0) return;
+    api.get('/activos').then(r => setActivos(r.data.data.filter(a => a.lat && a.lng && a.tipo !== 'ine_representante'))).catch(() => setActivos([]));
+  }, [capaActivos]);
   const ICONO_ACTIVO = { espectacular: '📺', barda: '🧱', manta: '🎏', utilitario: '👕' };
   const iconoActivo = (tipo) => new L.DivIcon({
     className: '',
@@ -320,14 +330,20 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
   });
   const [incidencias, setIncidencias] = useState([]);
   const [capaIncidencias, setCapaIncidencias] = useState(false);
+  const [conteoIncidencias, setConteoIncidencias] = useState(0);
   useEffect(() => {
-    api.get('/incidencias').then(r => setIncidencias(r.data.data.filter(i => i.lat && i.lng && i.estado === 'activa'))).catch(() => setIncidencias([]));
+    api.get('/incidencias?contar=1').then(r => setConteoIncidencias(r.data.total)).catch(() => {});
   }, []);
+  useEffect(() => {
+    if (!capaIncidencias || incidencias.length > 0) return;
+    api.get('/incidencias').then(r => setIncidencias(r.data.data.filter(i => i.lat && i.lng && i.estado === 'activa'))).catch(() => setIncidencias([]));
+  }, [capaIncidencias]);
   const ICONO_URGENCIA = { urgente: '#dc2626', alta: '#f97316', media: '#eab308', baja: '#64748b' };
   const iconoIncidencia = (urgencia) => new L.DivIcon({
     className: '',
     html: `<div style="width:16px;height:16px;background:${ICONO_URGENCIA[urgencia]};border:2px solid white;border-radius:50% 50% 50% 0;transform:rotate(-45deg);box-shadow:0 1px 4px rgba(0,0,0,.6)"></div>`,
     iconSize: [16, 16],
+
   });
   const [caceria, setCaceria] = useState([]);
   const [capaCaceria, setCapaCaceria] = useState(false);
@@ -368,6 +384,7 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
     iconSize: [12, 12],
   });
   const [casillas, setCasillas] = useState([]);
+  const [conteoCasillas, setConteoCasillas] = useState(0);
   const [capaCasillas, setCapaCasillas] = useState(false);
   const [encuestasDisponibles, setEncuestasDisponibles] = useState([]);
   const [encuestaSeleccionada, setEncuestaSeleccionada] = useState('');
@@ -388,9 +405,15 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
     className: '', html: `<div style="font-size:16px;filter:drop-shadow(0 1px 2px rgba(0,0,0,.7))">📋</div>`, iconSize: [18, 18],
   });
   useEffect(() => {
-    api.get('/dia-eleccion/casillas').then(r => setCasillas(r.data.data.filter(c => c.lat && c.lng))).catch(() => setCasillas([]));
+    api.get('/dia-eleccion/casillas?contar=1').then(r => setConteoCasillas(r.data.total)).catch(() => {});
   }, []);
   const cargarCasillas = () => api.get('/dia-eleccion/casillas').then(r => setCasillas(r.data.data.filter(c => c.lat && c.lng))).catch(() => setCasillas([]));
+  // 🆕 Mismo patrón — datos completos solo la primera vez que se
+  // activa la capa, no desde que abres el mapa.
+  useEffect(() => {
+    if (!capaCasillas || casillas.length > 0) return;
+    cargarCasillas();
+  }, [capaCasillas]);
   // 🆕 Al arrastrar el pin de una casilla, se guarda su nueva
   // ubicación real — endpoint dedicado, así nunca arriesga borrar al
   // representante/suplente ya asignados por moverla de lugar.
@@ -420,10 +443,16 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
     }).catch(() => setSeccionesActivas7d(new Set()));
   }, [capaPulso]);
   const [eventosAgenda, setEventosAgenda] = useState([]);
+  const [conteoAgenda, setConteoAgenda] = useState(0);
   const [capaAgenda, setCapaAgenda] = useState(false);
   useEffect(() => {
-    api.get('/agenda').then(r => setEventosAgenda(r.data.data.filter(e => e.lat && e.lng))).catch(() => setEventosAgenda([]));
+    api.get('/agenda?contar=1').then(r => setConteoAgenda(r.data.total)).catch(() => {});
   }, []);
+  // 🆕 Mismo patrón — datos completos solo cuando se activa la capa.
+  useEffect(() => {
+    if (!capaAgenda || eventosAgenda.length > 0) return;
+    api.get('/agenda').then(r => setEventosAgenda(r.data.data.filter(e => e.lat && e.lng))).catch(() => setEventosAgenda([]));
+  }, [capaAgenda]);
   const ICONO_EVENTO = { evento: '🎪', reunion: '👥', recorrido: '🚶', entrevista: '🎤' };
   const iconoEvento = (tipo) => new L.DivIcon({
     className: '',
@@ -1264,15 +1293,15 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
           </label>
           <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
             <input type="checkbox" checked={capaActivos} onChange={e => setCapaActivos(e.target.checked)} />
-            📺 Activos ({activos.length}: bardas, espectaculares...)
+            📺 Activos ({capaActivos ? activos.length : conteoActivos}: bardas, espectaculares...)
           </label>
           <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
             <input type="checkbox" checked={capaAgenda} onChange={e => setCapaAgenda(e.target.checked)} />
-            📅 Agenda con ubicación ({eventosAgenda.length})
+            📅 Agenda con ubicación ({capaAgenda ? eventosAgenda.length : conteoAgenda})
           </label>
           <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
             <input type="checkbox" checked={capaIncidencias} onChange={e => setCapaIncidencias(e.target.checked)} />
-            🚨 Incidencias activas ({incidencias.length})
+            🚨 Incidencias activas ({capaIncidencias ? incidencias.length : conteoIncidencias})
           </label>
           <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
             <input type="checkbox" checked={capaCaceria} onChange={e => setCapaCaceria(e.target.checked)} />
@@ -1284,7 +1313,7 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
           </label>
           <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
             <input type="checkbox" checked={capaCasillas} onChange={e => setCapaCasillas(e.target.checked)} />
-            🗳️ Ubicación de casillas ({casillas.length})
+            🗳️ Ubicación de casillas ({capaCasillas ? casillas.length : conteoCasillas})
           </label>
           <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
             <input type="checkbox" checked={capaEncuestas} onChange={e => setCapaEncuestas(e.target.checked)} />
@@ -1640,12 +1669,12 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
                   <span className="text-xs font-bold text-white block mb-1">📍 Capas visibles</span>
                   <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={capaPromovidos} onChange={e => setCapaPromovidos(e.target.checked)} /> 🤝 Con ubicación en el mapa ({promovidosFiltrados.length})</label>
                   <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={capaCalor} onChange={e => setCapaCalor(e.target.checked)} /> 🔥 Mapa de calor</label>
-                  <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={capaActivos} onChange={e => setCapaActivos(e.target.checked)} /> 📺 Activos ({activos.length})</label>
-                  <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={capaAgenda} onChange={e => setCapaAgenda(e.target.checked)} /> 📅 Agenda ({eventosAgenda.length})</label>
-                  <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={capaIncidencias} onChange={e => setCapaIncidencias(e.target.checked)} /> 🚨 Incidencias ({incidencias.length})</label>
+                  <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={capaActivos} onChange={e => setCapaActivos(e.target.checked)} /> 📺 Activos ({capaActivos ? activos.length : conteoActivos})</label>
+                  <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={capaAgenda} onChange={e => setCapaAgenda(e.target.checked)} /> 📅 Agenda ({capaAgenda ? eventosAgenda.length : conteoAgenda})</label>
+                  <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={capaIncidencias} onChange={e => setCapaIncidencias(e.target.checked)} /> 🚨 Incidencias ({capaIncidencias ? incidencias.length : conteoIncidencias})</label>
                   <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={capaCaceria} onChange={e => setCapaCaceria(e.target.checked)} /> 🎯 Cacería (Día D)</label>
                   <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={capaConfirmados} onChange={e => setCapaConfirmados(e.target.checked)} /> ✅ Ya votaron (Día D)</label>
-                  <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={capaCasillas} onChange={e => setCapaCasillas(e.target.checked)} /> 🗳️ Ubicación de casillas</label>
+                  <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={capaCasillas} onChange={e => setCapaCasillas(e.target.checked)} /> 🗳️ Ubicación de casillas ({capaCasillas ? casillas.length : conteoCasillas})</label>
                   <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={capaCaminatas} onChange={e => setCapaCaminatas(e.target.checked)} /> 🚶 Caminatas trazadas ({caminatas.length})</label>
                   <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={capaPulso} onChange={e => setCapaPulso(e.target.checked)} /> 💓 Pulso de actividad</label>
                   <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={mostrarCobertura} onChange={e => setMostrarCobertura(e.target.checked)} /> 🗂️ Cobertura de estructura</label>
