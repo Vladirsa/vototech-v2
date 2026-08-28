@@ -650,4 +650,25 @@ router.get('/verificacion-campo', async (req, res) => {
   res.json({ ok: true, data: resultado.rows });
 });
 
+/**
+ * 🆕 GET /api/promovidos/ubicaciones-promotores
+ * Para la capa del mapa "Promotores en campo" — la ÚLTIMA ubicación
+ * GPS conocida de cada promotor (de la que ya se captura al guardar
+ * un promovido, reusando ese mismo dato en vez de pedir uno nuevo).
+ * Solo trae promotores que sí tienen al menos una captura con GPS.
+ */
+router.get('/ubicaciones-promotores', async (req, res) => {
+  const resultado = await query(
+    `SELECT DISTINCT ON (p.registrado_por)
+       p.registrado_por as promotor_id, u.nombre as promotor_nombre,
+       p.promotor_lat as lat, p.promotor_lng as lng, p.creado_en as ultima_captura
+     FROM promovidos p
+     JOIN usuarios u ON u.id = p.registrado_por
+     WHERE p.campana_id = $1 AND p.promotor_lat IS NOT NULL AND p.promotor_lng IS NOT NULL
+     ORDER BY p.registrado_por, p.creado_en DESC`,
+    [req.usuario.campana_id]
+  );
+  res.json({ ok: true, data: resultado.rows });
+});
+
 export default router;
