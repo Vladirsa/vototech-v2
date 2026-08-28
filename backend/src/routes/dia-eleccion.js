@@ -437,13 +437,19 @@ router.get('/casillas', async (req, res) => {
   }
 
   const resultado = await query(
-    `SELECT c.*, s.numero as seccion_numero, s.lista_nominal as seccion_lista_nominal,
+    `SELECT c.*, s.numero as seccion_numero, s.lista_nominal as seccion_lista_nominal, s.distrito_local,
             u.nombre as representante_nombre, u.telefono as representante_telefono,
             u2.nombre as suplente_nombre, u2.telefono as suplente_telefono,
-            (SELECT COUNT(*) FROM casillas c2 WHERE c2.campana_id=c.campana_id AND c2.seccion_id=c.seccion_id) as total_casillas_seccion
+            (SELECT COUNT(*) FROM casillas c2 WHERE c2.campana_id=c.campana_id AND c2.seccion_id=c.seccion_id) as total_casillas_seccion,
+            -- 🆕 Riesgo real de llenado del acta, según el estudio del
+            -- ITE Tlaxcala 2024 sobre esta misma casilla/distrito —
+            -- para reforzar capacitación donde de verdad hace falta,
+            -- no solo "en general".
+            r.porcentaje_consistente as riesgo_llenado_pct, r.nivel_riesgo as riesgo_llenado_nivel
      FROM casillas c JOIN secciones s ON s.id=c.seccion_id
      LEFT JOIN usuarios u ON u.id = c.representante_id
      LEFT JOIN usuarios u2 ON u2.id = c.suplente_id
+     LEFT JOIN riesgo_llenado_distrito r ON r.distrito_local = s.distrito_local
      WHERE c.campana_id=$1`,
     [req.usuario.campana_id]
   );
