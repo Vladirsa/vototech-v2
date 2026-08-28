@@ -1,11 +1,14 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import PDFDocument from 'pdfkit';
+import Anthropic from '@anthropic-ai/sdk';
 import { query } from '../db/pool.js';
 import { requiereAuth } from '../middleware/auth.js';
 
 const router = Router();
 router.use(requiereAuth);
+
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 // Reutilizamos la tabla contactos + promovidos para calcular reportes de
 // campo reales (contactados, comprometidos) en vez de una tabla aparte
@@ -1102,6 +1105,83 @@ router.get('/pdf/encuestas', async (req, res) => {
   porMunicipio.rows.forEach((m) => lineaPDF(doc, m.municipio, m.total));
 
   doc.end();
+});
+
+// ═══════════════════════════════════════════════════════════════
+// 🆕 RESUMEN EJECUTIVO CON IA — junta varias señales que hoy viven
+// separadas (avance vs. meta, secciones ganadas/perdidas, ritmo,
+// gasto) en UNA sola narrativa en español simple. Las interpretaciones
+// individuales de cada endpoint (probabilidad, camino al triunfo,
+// etc.) ya existen por separado — esto es la síntesis que amarra
+// todas esas señales juntas, algo que ningún endpoint hacía solo.
+// ═══════════════════════════════════════════════════════════════
+router.get('/resumen-ejecutivo-ia', async (req, res) => {
+  const campanaId = req.usuario.campana_id;
+  const campanaRes = await query('SELECT nombre_candidato, partido, tipo_eleccion, meta_votos, fecha_eleccion, tope_gasto_ople FROM campanas WHERE id=$1', [campanaId]);
+  const campana = campanaRes.rows[0];
+
+  // Mismos datos "crudos" que ya calcula /dashboard/resumen — se
+  // vuelven a pedir aquí en vez de importar ese módulo, para no
+  // acoplar 2 rutas que hoy son independientes entre sí.
+  const promosRes = await query(`SELECT clasificacion, comprometido, creado_en FROM promovidos WHERE campana_id=$1`, [campanaId]);
+  const totalPromovidos = promosRes.rows.length;
+  const comprometidos = promosRes.rows.filter((p) => p.comprometido).length;
+  const promosUltimos14 = promosRes.rows.filter((p) => p.creado_en > new Date(Date.now() - 14 * 86400000)).length;
+  const ritmoDiario = +(promosUltimos14 / 14).toFixed(1);
+
+  const metaVotos = campana.meta_votos;
+  const diasRestantes = campana.fecha_eleccion ? Math.max(0, Math.ceil((new Date(campana.fecha_eleccion) - new Date()) / 86400000)) : null;
+
+  const gastoRes = await query(`SELECT COALESCE(SUM(monto),0) as total FROM gastos_campana WHERE campana_id=$1`, [campanaId]);
+  const gastoTotal = parseFloat(gastoRes.rows[0].total);
+  const tope = campana.tope_gasto_ople ? parseFloat(campana.tope_gasto_ople) : null;
+
+  const incidenciasRes = await query(`SELECT COUNT(*) as total FROM incidencias WHERE campana_id=$1 AND estado='activa'`, [campanaId]);
+  const incidenciasActivas = parseInt(incidenciasRes.rows[0].total);
+
+  const estructuraRes = await query(`SELECT COUNT(*) as total FROM usuarios WHERE campana_id=$1 AND rol='promotor' AND activo != false`, [campanaId]);
+  const totalPromotores = parseInt(estructuraRes.rows[0].total);
+
+  const datosParaIA = {
+    candidato: campana.nombre_candidato, tipo_eleccion: campana.tipo_eleccion,
+    total_promovidos: totalPromovidos, comprometidos, meta_votos: metaVotos,
+    ritmo_diario_actual: ritmoDiario, dias_restantes: diasRestantes,
+    total_promotores: totalPromotores,
+    gasto_total: gastoTotal, tope_gasto: tope,
+    porcentaje_gasto_usado: tope ? +((gastoTotal / tope) * 100).toFixed(1) : null,
+    incidencias_activas: incidenciasActivas,
+  };
+
+  try {
+    const respuesta = await anthropic.messages.create({
+      model: 'claude-sonnet-5',
+      max_tokens: 800,
+      messages: [{
+        role: 'user',
+        content: `Eres analista de campaña política en México. Con estos datos REALES de la campaña, escribe un resumen ejecutivo de 3-4 párrafos cortos, en español claro (no técnico), dirigido al candidato — como si se lo explicaras en persona.
+
+Datos:
+${JSON.stringify(datosParaIA, null, 2)}
+
+Estructura sugerida:
+1. Un párrafo de "cómo vamos" en general (avance hacia la meta, ritmo).
+2. Un párrafo sobre el equipo/estructura (¿alcanza el número de promotores para el ritmo necesario?).
+3. Un párrafo de finanzas si hay tope configurado, o de riesgos (incidencias activas) si las hay.
+4. Un párrafo final con 1-2 recomendaciones concretas y accionables.
+
+Reglas OBLIGATORIAS:
+- Usa ÚNICAMENTE los números que te di arriba — nunca inventes una cifra, porcentaje, o dato que no esté en el JSON.
+- Si algún dato viene como null (por ejemplo, sin meta_votos configurada), dilo abiertamente ("no tienes una meta de votos configurada todavía") en vez de omitirlo o inventarlo.
+- Sé directo y honesto, no autocomplaciente — si el ritmo no alcanza para la meta, dilo con claridad.
+- No repitas los números en formato de lista — intégralos naturalmente en la narrativa.`,
+      }],
+    });
+    const texto = respuesta.content[0]?.text || '';
+    res.json({ ok: true, data: { resumen: texto, datos_usados: datosParaIA } });
+  } catch (e) {
+    console.error('Error generando resumen ejecutivo con IA:', e);
+    res.status(500).json({ ok: false, error: 'No se pudo generar el resumen. Intenta de nuevo.' });
+  }
 });
 
 export default router;

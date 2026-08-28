@@ -1,10 +1,13 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import Anthropic from '@anthropic-ai/sdk';
 import { query } from '../db/pool.js';
 import { requiereAuth } from '../middleware/auth.js';
 
 const router = Router();
 router.use(requiereAuth);
+
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 router.get('/calendario', async (req, res) => {
   const resultado = await query('SELECT * FROM calendario_electoral WHERE campana_id=$1 ORDER BY fecha', [req.usuario.campana_id]);
@@ -137,6 +140,62 @@ router.get('/auditoria', async (req, res) => {
     params
   );
   res.json({ ok: true, data: resultado.rows });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// 🆕 REDACCIÓN CON IA — mismo patrón que Marketing (generar-contenido-ia)
+// ═══════════════════════════════════════════════════════════════
+
+const TIPO_DOCUMENTO_JURIDICO = {
+  queja_formal: { instruccion: 'Redacta un borrador de escrito de QUEJA formal ante la autoridad electoral, con estructura de oficio: encabezado, hechos narrados en orden cronológico y con numeración, fundamento de derecho genérico (sin inventar artículos específicos que no te den), y petitorio claro.' },
+  recurso_formal: { instruccion: 'Redacta un borrador de RECURSO de impugnación, con estructura de oficio: encabezado, acto que se impugna, agravios numerados, y petitorio.' },
+  notificacion_incidencia: { instruccion: 'Redacta una notificación formal y breve dirigida a la autoridad electoral, reportando la incidencia descrita, en tono serio y objetivo, sin acusaciones que no estén sustentadas en los hechos narrados.' },
+  argumentario_legal: { instruccion: 'Redacta un argumentario de 4-6 puntos con la postura legal de la campaña sobre este tema, cada uno con una explicación breve en lenguaje claro (no solo para abogados) que el candidato pueda usar si le preguntan al respecto.' },
+};
+
+const esquemaRedactarIA = z.object({
+  tipo_documento: z.enum(Object.keys(TIPO_DOCUMENTO_JURIDICO)),
+  hechos: z.string().min(10).max(3000),
+  queja_id: z.string().uuid().optional(), // si viene de una queja ya registrada, para dar contexto adicional
+});
+
+router.post('/redactar-ia', async (req, res) => {
+  const parseado = esquemaRedactarIA.safeParse(req.body);
+  if (!parseado.success) return res.status(400).json({ ok: false, error: parseado.error.errors[0].message });
+  const d = parseado.data;
+  const config = TIPO_DOCUMENTO_JURIDICO[d.tipo_documento];
+
+  const campanaRes = await query('SELECT nombre_candidato, partido, tipo_eleccion FROM campanas WHERE id=$1', [req.usuario.campana_id]);
+  const campana = campanaRes.rows[0];
+
+  try {
+    const respuesta = await anthropic.messages.create({
+      model: 'claude-sonnet-5',
+      max_tokens: 1500,
+      messages: [{
+        role: 'user',
+        content: `Eres asistente de redacción jurídica para una campaña electoral en México (Tlaxcala). ${config.instruccion}
+
+Candidato/campaña: ${campana?.nombre_candidato || '[NOMBRE DEL CANDIDATO]'} (${campana?.tipo_eleccion || 'campaña local'})
+
+Hechos/tema proporcionado por el usuario:
+${d.hechos}
+
+Reglas OBLIGATORIAS:
+- Este es un BORRADOR de apoyo — SIEMPRE debe revisarlo un abogado antes de presentarse ante cualquier autoridad. Escribe el documento asumiendo que se le van a hacer ajustes.
+- NUNCA cites un artículo, fracción o número de ley específico que no te haya dado el usuario — si necesitas referenciar fundamento legal, usa lenguaje genérico como "conforme a la normatividad electoral aplicable" en vez de inventar un número de artículo.
+- NUNCA inventes hechos, fechas, nombres, o cifras que no estén en lo que te proporcionó el usuario.
+- No acuses de un delito específico (como "compra de votos" o "coacción") a menos que el usuario ya haya usado esas palabras exactas al describir los hechos.
+- Usa español formal de documento legal mexicano, pero sin exagerar el legalismo hasta volverse ilegible.
+- Dejar marcado con [CORCHETES] cualquier dato que falte y que el usuario deba completar (número de expediente, fecha exacta, nombre de funcionario, etc.).`,
+      }],
+    });
+    const texto = respuesta.content[0]?.text || '';
+    res.json({ ok: true, data: { contenido: texto } });
+  } catch (e) {
+    console.error('Error redactando documento jurídico con IA:', e);
+    res.status(500).json({ ok: false, error: 'No se pudo generar el borrador. Intenta de nuevo.' });
+  }
 });
 
 export default router;
