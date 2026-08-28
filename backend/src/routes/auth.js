@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
-import twilio from 'twilio';
+import { Resend } from 'resend';
 import { z } from 'zod';
 import PDFDocument from 'pdfkit';
 import jwt from 'jsonwebtoken';
@@ -318,39 +318,43 @@ router.post('/2fa/desactivar', requiereAuth, async (req, res) => {
 });
 
 /**
- * Envía un WhatsApp usando el Twilio de LA PLATAFORMA (no el de cada
- * campaña — ese es para marketing de cada candidato, y muchas
- * campañas ni siquiera lo tienen configurado). Este es un número
- * propio de VotoTech, dedicado a mensajes de sistema como este.
+ * 🆕 Envía un correo usando Resend — reemplaza el envío por WhatsApp
+ * (que dependía de Twilio y de que la persona tuviera teléfono
+ * registrado). El correo siempre existe, así que esto simplifica el
+ * flujo además de quitar la dependencia de Twilio para esto.
  */
-async function enviarWhatsAppPlataforma(telefono, texto) {
-  const sid = process.env.TWILIO_PLATAFORMA_SID;
-  const token = process.env.TWILIO_PLATAFORMA_TOKEN;
-  const desde = process.env.TWILIO_PLATAFORMA_WHATSAPP_FROM; // formato: whatsapp:+14155238886
-  if (!sid || !token || !desde) {
-    throw new Error('WHATSAPP_PLATAFORMA_NO_CONFIGURADO');
-  }
-  const cliente = twilio(sid, token);
-  const telefonoLimpio = telefono.replace(/\D/g, '');
-  await cliente.messages.create({
-    from: desde,
-    to: `whatsapp:+52${telefonoLimpio}`,
-    body: texto,
+const resend = new Resend(process.env.RESEND_API_KEY);
+async function enviarCorreoRecuperacion(email, nombre, codigo) {
+  if (!process.env.RESEND_API_KEY) throw new Error('RESEND_NO_CONFIGURADO');
+  await resend.emails.send({
+    from: process.env.RESEND_FROM || 'VotoTech <onboarding@resend.dev>',
+    to: email,
+    subject: '🗳️ Tu código para recuperar tu contraseña — VotoTech',
+    html: `
+      <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
+        <h2 style="color: #1e3a5f;">🗳️ VotoTech</h2>
+        <p>Hola ${nombre},</p>
+        <p>Tu código para recuperar tu contraseña es:</p>
+        <div style="background: #f1f5f9; border-radius: 12px; padding: 20px; text-align: center; margin: 20px 0;">
+          <span style="font-size: 32px; font-weight: bold; letter-spacing: 8px; color: #1e3a5f;">${codigo}</span>
+        </div>
+        <p style="color: #64748b; font-size: 13px;">Válido por 10 minutos. Si tú no pediste esto, ignora este correo — tu contraseña no cambiará.</p>
+      </div>
+    `,
   });
 }
 
 /**
  * POST /api/auth/olvide-password
- * Paso 1: pide el código de 6 dígitos, lo manda por WhatsApp al
- * teléfono YA registrado de la persona (no se puede cambiar el
- * teléfono desde aquí — eso evitaría el punto de seguridad completo).
+ * Paso 1: pide el código de 6 dígitos, lo manda por CORREO a la
+ * cuenta ya registrada de la persona.
  */
 router.post('/olvide-password', async (req, res) => {
   const { subdominio, email } = req.body;
   if (!subdominio || !email) return res.status(400).json({ ok: false, error: 'Faltan datos' });
 
   const resultado = await query(
-    `SELECT u.id, u.telefono, u.nombre FROM usuarios u JOIN campanas c ON c.id=u.campana_id
+    `SELECT u.id, u.email, u.nombre FROM usuarios u JOIN campanas c ON c.id=u.campana_id
      WHERE c.subdominio=$1 AND u.email=$2 AND u.activo != false`,
     [subdominio, email]
   );
@@ -358,8 +362,8 @@ router.post('/olvide-password', async (req, res) => {
 
   // Mismo mensaje exista o no la cuenta — no se le da a nadie pistas
   // de qué correos sí están registrados en el sistema.
-  const mensajeGenerico = { ok: true, mensaje: 'Si el correo existe y tiene un teléfono registrado, te llegará un código por WhatsApp en un momento.' };
-  if (!usuario || !usuario.telefono) return res.json(mensajeGenerico);
+  const mensajeGenerico = { ok: true, mensaje: 'Si el correo existe, te llegará un código en un momento — revisa también spam.' };
+  if (!usuario) return res.json(mensajeGenerico);
 
   const codigo = String(Math.floor(100000 + Math.random() * 900000)); // 6 dígitos
   if (process.env.MOSTRAR_CODIGO_EN_LOG === 'true') console.log('🔑 CÓDIGO DE PRUEBA (solo con MOSTRAR_CODIGO_EN_LOG=true):', codigo);
@@ -370,12 +374,12 @@ router.post('/olvide-password', async (req, res) => {
   );
 
   try {
-    await enviarWhatsAppPlataforma(usuario.telefono, `🗳️ VotoTech\n\nHola ${usuario.nombre}, tu código para recuperar tu contraseña es:\n\n*${codigo}*\n\nValido por 10 minutos. Si tú no pediste esto, ignora el mensaje.`);
+    await enviarCorreoRecuperacion(usuario.email, usuario.nombre, codigo);
   } catch (e) {
-    if (e.message === 'WHATSAPP_PLATAFORMA_NO_CONFIGURADO') {
-      console.error('⚠️ Recuperación de contraseña sin configurar: faltan TWILIO_PLATAFORMA_SID/TOKEN/WHATSAPP_FROM en el servidor');
+    if (e.message === 'RESEND_NO_CONFIGURADO') {
+      console.error('⚠️ Recuperación de contraseña sin configurar: falta RESEND_API_KEY en el servidor');
     } else {
-      console.error('Error enviando WhatsApp de recuperación:', e.message);
+      console.error('Error enviando correo de recuperación:', e.message);
     }
     // No se le dice a la persona que falló el envío — mismo mensaje
     // genérico, para no filtrar si el correo existe o no.
