@@ -352,6 +352,21 @@ function ModalDetalleMiembro({ miembro, miembros, onCerrar, onActualizado }) {
     await api.patch(`/documentos-persona/${miembro.id}/${tipo}`, { entregado });
     api.get(`/documentos-persona/${miembro.id}`).then((r) => setChecklistDocs(r.data.data));
   };
+  // 🆕 Subir el archivo real (foto/PDF) de un documento — antes solo
+  // existía la casilla de "entregado", sin ningún lugar para guardar
+  // el archivo físico (ej. el nombramiento ya firmado).
+  const [subiendoDoc, setSubiendoDoc] = useState(null);
+  const subirDocumento = async (tipo, archivo) => {
+    if (!archivo) return;
+    setSubiendoDoc(tipo);
+    const formData = new FormData();
+    formData.append('archivo', archivo);
+    try {
+      await api.post(`/documentos-persona/${miembro.id}/${tipo}/subir`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+      api.get(`/documentos-persona/${miembro.id}`).then((r) => setChecklistDocs(r.data.data));
+    } catch (e) { alert(e.response?.data?.error || 'No se pudo subir el archivo'); }
+    setSubiendoDoc(null);
+  };
   const [form, setForm] = useState({ nombre: miembro.nombre, telefono: miembro.telefono || '', rol: miembro.rol, puesto: miembro.puesto || '', parent_id: miembro.parent_id || '', meta_diaria: miembro.meta_diaria || '', territorio_tipo: miembro.territorio_tipo || 'seccion', territorio_id: miembro.territorio_id || '' });
   const hijosDirectos = miembros.filter((m) => m.parent_id === miembro.id);
   useEffect(() => {
@@ -428,11 +443,26 @@ function ModalDetalleMiembro({ miembro, miembros, onCerrar, onActualizado }) {
                   </span>
                 </div>
                 {checklistDocs.checklist.map((doc) => (
-                  <label key={doc.tipo} className="flex items-start gap-2 text-[11px] text-slate-300 cursor-pointer">
-                    <input type="checkbox" checked={doc.entregado} onChange={(e) => marcarDocumento(doc.tipo, e.target.checked)}
-                      className="mt-0.5" />
-                    <span className={doc.entregado ? 'line-through text-slate-500' : ''}>{doc.label}</span>
-                  </label>
+                  <div key={doc.tipo} className="space-y-1">
+                    <label className="flex items-start gap-2 text-[11px] text-slate-300 cursor-pointer">
+                      <input type="checkbox" checked={doc.entregado} onChange={(e) => marcarDocumento(doc.tipo, e.target.checked)}
+                        className="mt-0.5" />
+                      <span className={doc.entregado ? 'line-through text-slate-500' : ''}>{doc.label}</span>
+                    </label>
+                    {/* 🆕 Subir/ver el archivo real de este documento —
+                        antes no existía ningún lugar para esto, solo
+                        el checkbox de "entregado". */}
+                    <div className="ml-5 flex items-center gap-2">
+                      {doc.archivo_url && (
+                        <a href={doc.archivo_url} target="_blank" rel="noreferrer" className="text-[9px] text-indigo-400 font-bold">📎 Ver archivo</a>
+                      )}
+                      <label className="text-[9px] text-slate-500 cursor-pointer hover:text-slate-300">
+                        {subiendoDoc === doc.tipo ? '⏳ Subiendo...' : (doc.archivo_url ? '🔄 Reemplazar archivo' : '📤 Subir archivo')}
+                        <input type="file" accept="image/*,.pdf" className="hidden" disabled={subiendoDoc === doc.tipo}
+                          onChange={(e) => subirDocumento(doc.tipo, e.target.files[0])} />
+                      </label>
+                    </div>
+                  </div>
                 ))}
               </div>
             )}
@@ -887,7 +917,12 @@ function PanelCasillas() {
   const [datos, setDatos] = useState(null);
   const [resumen, setResumen] = useState(null);
   const [generando, setGenerando] = useState(null);
-  const [equipo, setEquipo] = useState([]);
+  // 🆕 Ya no se usa /estructura (TODA la estructura) para llenar el
+  // selector — antes salían promotores, coordinadores, hasta
+  // encargados de finanzas mezclados con representantes de casilla.
+  const [representantes, setRepresentantes] = useState([]);
+  const [buscarRep, setBuscarRep] = useState('');
+  const [soloDisponibles, setSoloDisponibles] = useState(false);
   const [casillasReales, setCasillasReales] = useState([]);
   const [seccionExpandida, setSeccionExpandida] = useState(null);
   const [altaRapidaPara, setAltaRapidaPara] = useState(null); // {seccion, numeroCasilla, tipo: 'representante'|'suplente'}
@@ -898,10 +933,14 @@ function PanelCasillas() {
     api.get('/dia-eleccion/casillas-sugeridas').then((r) => { setDatos(r.data.data); setResumen(r.data.resumen); });
     api.get('/dia-eleccion/casillas').then((r) => setCasillasReales(r.data.data));
   };
-  useEffect(() => {
-    cargar();
-    api.get('/estructura').then((r) => setEquipo(r.data.data)).catch(() => setEquipo([]));
-  }, []);
+  const cargarRepresentantes = () => {
+    const params = new URLSearchParams();
+    if (buscarRep) params.set('buscar', buscarRep);
+    if (soloDisponibles) params.set('disponibles', 'true');
+    api.get(`/estructura/representantes-casilla?${params}`).then((r) => setRepresentantes(r.data.data)).catch(() => setRepresentantes([]));
+  };
+  useEffect(() => { cargar(); }, []);
+  useEffect(cargarRepresentantes, [buscarRep, soloDisponibles]);
 
   const generarCasillas = async (seccion) => {
     setGenerando(seccion);
@@ -958,7 +997,7 @@ function PanelCasillas() {
       setAltaRapidaPara(null);
       setFormAlta({ nombre: '', email: '', password: '', telefono: '', clave_elector: '', domicilio: '' });
       cargar();
-      api.get('/estructura').then((r) => setEquipo(r.data.data));
+      cargarRepresentantes();
     } catch (e) {
       alert(e.response?.data?.error || 'No se pudo dar de alta');
     }
@@ -994,6 +1033,17 @@ function PanelCasillas() {
             </div>
           </div>
         )}
+        {/* 🆕 Búsqueda y filtro de representantes — se usa en los 2
+            selectores de abajo (representante y suplente), para no
+            tener que buscar entre TODA la estructura de campaña. */}
+        <div className="flex gap-2 items-center bg-slate-800/40 rounded-lg p-2.5">
+          <input placeholder="🔍 Buscar representante por nombre..." value={buscarRep} onChange={(e) => setBuscarRep(e.target.value)}
+            className="flex-1 px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-white text-[11px]" />
+          <label className="flex items-center gap-1.5 text-[10px] text-slate-400 whitespace-nowrap">
+            <input type="checkbox" checked={soloDisponibles} onChange={(e) => setSoloDisponibles(e.target.checked)} />
+            Solo disponibles
+          </label>
+        </div>
         <div className="space-y-1.5 max-h-96 overflow-y-auto">
           {datos.map((s) => {
             const casillasDeEstaSeccion = casillasReales.filter((c) => c.seccion_numero === s.seccion);
@@ -1038,13 +1088,21 @@ function PanelCasillas() {
                           className="w-full px-2 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-white text-[10px]">
                           <option value="">👤 Sin representante asignado</option>
                           <option value="__nuevo__">➕ Dar de alta a alguien nuevo...</option>
-                          {equipo.map((u) => <option key={u.id} value={u.id}>👤 {u.nombre}</option>)}
+                          {representantes.map((u) => (
+                            <option key={u.id} value={u.id}>
+                              👤 {u.nombre}{u.casilla_id && u.casilla_id !== c.id ? ` (ya en secc. ${u.seccion_numero}, casilla ${u.casilla_numero})` : ''}
+                            </option>
+                          ))}
                         </select>
                         <select value={c.suplente_id || ''} onChange={(e) => asignarSuplente(s.seccion, c.numero, e.target.value)}
                           className="w-full px-2 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-white text-[10px]">
                           <option value="">🔁 Sin suplente asignado</option>
                           <option value="__nuevo__">➕ Dar de alta a alguien nuevo...</option>
-                          {equipo.map((u) => <option key={u.id} value={u.id}>🔁 {u.nombre}</option>)}
+                          {representantes.map((u) => (
+                            <option key={u.id} value={u.id}>
+                              🔁 {u.nombre}{u.casilla_id && u.casilla_id !== c.id ? ` (ya en secc. ${u.seccion_numero}, casilla ${u.casilla_numero})` : ''}
+                            </option>
+                          ))}
                         </select>
                       </div>
                     ))}
@@ -1099,37 +1157,62 @@ function PanelCasillas() {
  * en vez de que 60 coordinadores municipales reporten todos directo
  * al Jefe de Campaña.
  */
+/**
+ * 🆕 Panel de Regiones — RECONSTRUIDO. Antes siempre agrupaba por
+ * municipios, aunque la campaña fuera de un solo municipio
+ * (Ayuntamiento) — ahí no tiene sentido "agrupar municipios" porque
+ * solo hay uno. Ahora se adapta solo: campañas de un municipio
+ * agrupan por SECCIÓN, campañas más grandes (Diputación, Gobernador)
+ * siguen agrupando por municipio — lo decide el backend según el
+ * territorio real de la campaña, no algo que el usuario deba elegir.
+ */
 function PanelRegiones() {
   const [regiones, setRegiones] = useState([]);
-  const [municipios, setMunicipios] = useState([]);
+  const [unidades, setUnidades] = useState([]); // municipios O secciones, según unidad_tipo
+  const [unidadTipo, setUnidadTipo] = useState('municipio');
   const [creando, setCreando] = useState(false);
-  const [formNueva, setFormNueva] = useState({ nombre: '', municipios_ids: [] });
+  const [formNueva, setFormNueva] = useState({ nombre: '', unidades_ids: [] });
   const [guardando, setGuardando] = useState(false);
+  const [buscarUnidad, setBuscarUnidad] = useState('');
 
-  const cargar = () => api.get('/estructura/regiones').then((r) => setRegiones(r.data.data));
-  useEffect(() => {
-    cargar();
-    api.get('/geo/municipios/29').then((r) => setMunicipios(r.data.data.sort((a, b) => a.nombre.localeCompare(b.nombre))));
-  }, []);
+  const cargar = () => {
+    api.get('/estructura/regiones').then((r) => {
+      setRegiones(r.data.data);
+      setUnidadTipo(r.data.unidad_tipo);
+      // Solo se piden las unidades correctas UNA vez que sabemos cuál
+      // tipo toca — evita pedir los 60 municipios cuando en realidad
+      // se necesitan las secciones (o al revés).
+      if (r.data.unidad_tipo === 'seccion') {
+        api.get('/geo/secciones/29').then((geo) => {
+          setUnidades(geo.data.data.features.map((f) => ({ id: f.properties.seccion, nombre: `Sección ${String(f.properties.seccion).padStart(3, '0')}` })).sort((a, b) => a.id - b.id));
+        });
+      } else {
+        api.get('/geo/municipios/29').then((r2) => {
+          setUnidades(r2.data.data.map((m) => ({ id: m.clave_ine, nombre: m.nombre })).sort((a, b) => a.nombre.localeCompare(b.nombre)));
+        });
+      }
+    });
+  };
+  useEffect(cargar, []);
 
-  // Municipios que ya están en OTRA región — para no dejar que se repitan por accidente
-  const municipiosYaAsignados = new Set(regiones.flatMap((r) => r.municipios_ids));
+  const unidadesYaAsignadas = new Set(regiones.flatMap((r) => r.municipios_ids));
+  const unidadesFiltradas = unidades.filter((u) => !buscarUnidad || u.nombre.toLowerCase().includes(buscarUnidad.toLowerCase()));
+  const etiquetaUnidad = unidadTipo === 'seccion' ? 'sección' : 'municipio';
+  const etiquetaUnidadPlural = unidadTipo === 'seccion' ? 'secciones' : 'municipios';
 
-  const alternarMunicipio = (claveIne) => {
+  const alternarUnidad = (id) => {
     setFormNueva((f) => ({
       ...f,
-      municipios_ids: f.municipios_ids.includes(claveIne)
-        ? f.municipios_ids.filter((id) => id !== claveIne)
-        : [...f.municipios_ids, claveIne],
+      unidades_ids: f.unidades_ids.includes(id) ? f.unidades_ids.filter((x) => x !== id) : [...f.unidades_ids, id],
     }));
   };
 
   const guardarRegion = async () => {
-    if (!formNueva.nombre || formNueva.municipios_ids.length === 0) return;
+    if (!formNueva.nombre || formNueva.unidades_ids.length === 0) return;
     setGuardando(true);
     try {
       await api.post('/estructura/regiones', formNueva);
-      setFormNueva({ nombre: '', municipios_ids: [] });
+      setFormNueva({ nombre: '', unidades_ids: [] });
       setCreando(false);
       cargar();
     } catch (e) { alert(e.response?.data?.error || 'No se pudo crear'); }
@@ -1148,7 +1231,12 @@ function PanelRegiones() {
     <div className="space-y-3">
       <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
         <h2 className="text-sm font-bold text-white">🌎 Regiones de campaña</h2>
-        <p className="text-[10px] text-slate-500 mt-0.5">Agrupa municipios en bloques manejables — útil para campañas grandes (Gobernador, Diputación Federal) donde 60 coordinadores municipales reportando directo al Jefe de Campaña es demasiado. Cada región puede tener su propio Coordinador Regional al mando.</p>
+        <p className="text-[10px] text-slate-500 mt-0.5">
+          {unidadTipo === 'seccion'
+            ? 'Tu campaña es de un solo municipio, así que aquí agrupas SECCIONES en bloques manejables — útil si tienes muchos promotores y necesitas una capa intermedia de coordinación.'
+            : 'Agrupa municipios en bloques manejables — útil para campañas grandes (Gobernador, Diputación Federal) donde muchos coordinadores municipales reportando directo al Jefe de Campaña es demasiado.'}
+          {' '}Cada región puede tener su propio Coordinador Regional al mando.
+        </p>
       </div>
 
       {regiones.map((r) => (
@@ -1157,7 +1245,7 @@ function PanelRegiones() {
             <div>
               <div className="text-sm font-bold text-white">{r.nombre}</div>
               <div className="text-[10px] text-slate-500">
-                {r.municipios_ids.length} municipios
+                {r.municipios_ids.length} {etiquetaUnidadPlural}
                 {r.coordinador_nombre ? ` · 👤 ${r.coordinador_nombre}` : ' · ⚠️ Sin coordinador asignado'}
                 {r.total_equipo > 0 && ` · ${r.total_equipo} en el equipo`}
               </div>
@@ -1165,9 +1253,9 @@ function PanelRegiones() {
             <button onClick={() => borrarRegion(r.id)} className="text-red-500 text-xs">🗑️</button>
           </div>
           <div className="flex flex-wrap gap-1 mt-2">
-            {r.municipios_ids.map((claveIne) => {
-              const m = municipios.find((mu) => mu.clave_ine === claveIne);
-              return <span key={claveIne} className="text-[9px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full">{m?.nombre || claveIne}</span>;
+            {r.municipios_ids.map((id) => {
+              const u = unidades.find((x) => x.id === id);
+              return <span key={id} className="text-[9px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full">{u?.nombre || id}</span>;
             })}
           </div>
         </div>
@@ -1179,23 +1267,27 @@ function PanelRegiones() {
         <div className="bg-slate-900/60 border border-cyan-500/30 rounded-xl p-4 space-y-2">
           <input placeholder="Nombre de la región (ej: Zona Norte)" value={formNueva.nombre} onChange={(e) => setFormNueva({ ...formNueva, nombre: e.target.value })}
             className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
-          <div className="text-[10px] text-slate-500 font-bold uppercase mt-2">Elige los municipios de esta región</div>
-          <div className="grid grid-cols-2 gap-1 max-h-64 overflow-y-auto">
-            {municipios.map((m) => {
-              const yaEnOtra = municipiosYaAsignados.has(m.clave_ine);
+          <div className="text-[10px] text-slate-500 font-bold uppercase mt-2">Elige las {etiquetaUnidadPlural} de esta región</div>
+          {unidadTipo === 'seccion' && (
+            <input placeholder="🔍 Buscar sección..." value={buscarUnidad} onChange={(e) => setBuscarUnidad(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs" />
+          )}
+          <div className="grid grid-cols-3 gap-1 max-h-64 overflow-y-auto">
+            {unidadesFiltradas.map((u) => {
+              const yaEnOtra = unidadesYaAsignadas.has(u.id);
               return (
-                <label key={m.clave_ine} className={`flex items-center gap-1.5 text-[10px] px-2 py-1.5 rounded-lg ${yaEnOtra ? 'opacity-40' : 'cursor-pointer hover:bg-slate-800'}`}>
-                  <input type="checkbox" disabled={yaEnOtra} checked={formNueva.municipios_ids.includes(m.clave_ine)} onChange={() => alternarMunicipio(m.clave_ine)} />
-                  <span className="text-slate-300">{m.nombre}{yaEnOtra && ' (ya asignado)'}</span>
+                <label key={u.id} className={`flex items-center gap-1.5 text-[10px] px-2 py-1.5 rounded-lg ${yaEnOtra ? 'opacity-40' : 'cursor-pointer hover:bg-slate-800'}`}>
+                  <input type="checkbox" disabled={yaEnOtra} checked={formNueva.unidades_ids.includes(u.id)} onChange={() => alternarUnidad(u.id)} />
+                  <span className="text-slate-300">{u.nombre}{yaEnOtra && ' ✓'}</span>
                 </label>
               );
             })}
           </div>
           <div className="flex gap-2 pt-2">
-            <button onClick={() => { setCreando(false); setFormNueva({ nombre: '', municipios_ids: [] }); }} className="flex-1 py-2 rounded-lg bg-slate-800 text-slate-300 text-xs font-bold">Cancelar</button>
-            <button onClick={guardarRegion} disabled={guardando || !formNueva.nombre || formNueva.municipios_ids.length === 0}
+            <button onClick={() => { setCreando(false); setFormNueva({ nombre: '', unidades_ids: [] }); }} className="flex-1 py-2 rounded-lg bg-slate-800 text-slate-300 text-xs font-bold">Cancelar</button>
+            <button onClick={guardarRegion} disabled={guardando || !formNueva.nombre || formNueva.unidades_ids.length === 0}
               className="flex-1 py-2 rounded-lg bg-cyan-600 text-white text-xs font-bold disabled:opacity-40">
-              {guardando ? '⏳...' : `Crear con ${formNueva.municipios_ids.length} municipio(s)`}
+              {guardando ? '⏳...' : `Crear con ${formNueva.unidades_ids.length} ${etiquetaUnidad}(es)`}
             </button>
           </div>
         </div>
