@@ -1009,7 +1009,8 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
             el mapa base es claro, oscuro o satelital. */}
         {capaCaminatas && caminatas.map((c) => (
           <Polyline key={`${c.id}-contorno`} positions={coordenadasParaPolyline(c.ruta_geojson)}
-            pathOptions={{ color: '#000000', weight: 9, opacity: 0.45, lineCap: 'round', lineJoin: 'round' }} />
+            pathOptions={{ color: '#000000', weight: 9, opacity: 0.45, lineCap: 'round', lineJoin: 'round' }}
+            eventHandlers={{ click: () => setCaminataActiva(c) }} />
         ))}
         {capaCaminatas && caminatas.map((c) => (
           <Polyline key={c.id} positions={coordenadasParaPolyline(c.ruta_geojson)}
