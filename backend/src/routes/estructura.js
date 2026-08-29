@@ -717,4 +717,101 @@ router.get('/duplicados', async (req, res) => {
   res.json({ ok: true, data: resultado.rows });
 });
 
+// ═══════════════════════════════════════════════════════════════
+// 🌎 REGIONES — para organizar el territorio en bloques manejables.
+// 🆕 RECONSTRUIDO — la versión anterior nunca llegó a subirse al
+// servidor (por eso "no se podía crear" ninguna). Esta vez además
+// se corrige el diseño: una campaña de UN SOLO municipio (Ayuntamiento,
+// Presidencia de Comunidad) agrupa por SECCIÓN, porque agrupar por
+// "municipios" no tiene sentido cuando solo hay 1. Una campaña más
+// grande (Diputación, Gobernador) sigue agrupando por municipio.
+// ═══════════════════════════════════════════════════════════════
+
+async function obtenerUnidadTipo(campanaId) {
+  const campana = await query('SELECT territorio_tipo FROM campanas WHERE id=$1', [campanaId]);
+  // Con un solo municipio en juego, la única subdivisión que tiene
+  // sentido es por sección — con más de un municipio en juego
+  // (distrito, todo el estado), agrupar por municipio sí es útil.
+  return campana.rows[0]?.territorio_tipo === 'municipio' ? 'seccion' : 'municipio';
+}
+
+router.get('/regiones', async (req, res) => {
+  const unidadTipo = await obtenerUnidadTipo(req.usuario.campana_id);
+  const resultado = await query(
+    `SELECT r.*, u.nombre as coordinador_nombre,
+       (SELECT COUNT(*) FROM usuarios u2 WHERE u2.region_id = r.id) as total_equipo
+     FROM regiones_campana r
+     LEFT JOIN usuarios u ON u.region_id = r.id AND u.rol = 'coord_regional'
+     WHERE r.campana_id = $1 ORDER BY r.nombre`,
+    [req.usuario.campana_id]
+  );
+  res.json({ ok: true, data: resultado.rows, unidad_tipo: unidadTipo });
+});
+
+const esquemaRegion = z.object({
+  nombre: z.string().min(2).max(100),
+  unidades_ids: z.array(z.number().int()).min(1, 'Selecciona al menos una unidad'),
+});
+
+router.post('/regiones', async (req, res) => {
+  const parseado = esquemaRegion.safeParse(req.body);
+  if (!parseado.success) return res.status(400).json({ ok: false, error: parseado.error.errors[0].message });
+  const d = parseado.data;
+  const unidadTipo = await obtenerUnidadTipo(req.usuario.campana_id);
+  const resultado = await query(
+    `INSERT INTO regiones_campana (campana_id, nombre, municipios_ids, unidad_tipo, creado_por) VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+    [req.usuario.campana_id, d.nombre, d.unidades_ids, unidadTipo, req.usuario.sub]
+  );
+  res.status(201).json({ ok: true, data: resultado.rows[0] });
+});
+
+router.patch('/regiones/:id', async (req, res) => {
+  const parseado = esquemaRegion.partial().safeParse(req.body);
+  if (!parseado.success) return res.status(400).json({ ok: false, error: parseado.error.errors[0].message });
+  const d = parseado.data;
+  const campos = [];
+  const valores = [];
+  let i = 1;
+  if (d.nombre !== undefined) { campos.push(`nombre=$${i++}`); valores.push(d.nombre); }
+  if (d.unidades_ids !== undefined) { campos.push(`municipios_ids=$${i++}`); valores.push(d.unidades_ids); }
+  if (campos.length === 0) return res.status(400).json({ ok: false, error: 'Nada que actualizar' });
+  valores.push(req.params.id, req.usuario.campana_id);
+  const resultado = await query(`UPDATE regiones_campana SET ${campos.join(', ')} WHERE id=$${i} AND campana_id=$${i + 1} RETURNING *`, valores);
+  if (!resultado.rows[0]) return res.status(404).json({ ok: false, error: 'No encontrada' });
+  res.json({ ok: true, data: resultado.rows[0] });
+});
+
+router.delete('/regiones/:id', async (req, res) => {
+  const conGente = await query('SELECT COUNT(*) as total FROM usuarios WHERE region_id=$1', [req.params.id]);
+  if (parseInt(conGente.rows[0].total) > 0) {
+    return res.status(400).json({ ok: false, error: 'Esta región todavía tiene personas asignadas — reasígnalas antes de borrarla.' });
+  }
+  await query('DELETE FROM regiones_campana WHERE id=$1 AND campana_id=$2', [req.params.id, req.usuario.campana_id]);
+  res.json({ ok: true });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// 🗳️ REPRESENTANTES DE CASILLA — lista filtrable, para el selector
+// de asignación. 🆕 Antes el selector mostraba TODA la estructura
+// (coordinadores, promotores, voluntarios...) — ahora solo trae
+// gente con rol representante_casilla, con su disponibilidad
+// (si ya está asignado a una casilla o no) para buscar más fácil.
+// ═══════════════════════════════════════════════════════════════
+router.get('/representantes-casilla', async (req, res) => {
+  const { buscar, disponibles } = req.query;
+  let sql = `
+    SELECT u.id, u.nombre, u.telefono, u.email,
+      c.id as casilla_id, c.numero as casilla_numero, s.numero as seccion_numero
+    FROM usuarios u
+    LEFT JOIN casillas c ON c.representante_id = u.id AND c.campana_id = u.campana_id
+    LEFT JOIN secciones s ON s.id = c.seccion_id
+    WHERE u.campana_id = $1 AND u.rol = 'representante_casilla' AND u.activo != false`;
+  const params = [req.usuario.campana_id];
+  if (buscar) { params.push(`%${buscar}%`); sql += ` AND u.nombre ILIKE $${params.length}`; }
+  if (disponibles === 'true') sql += ` AND c.id IS NULL`;
+  sql += ' ORDER BY u.nombre';
+  const resultado = await query(sql, params);
+  res.json({ ok: true, data: resultado.rows });
+});
+
 export default router;
