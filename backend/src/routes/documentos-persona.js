@@ -1,9 +1,17 @@
 import { Router } from 'express';
+import multer from 'multer';
+import crypto from 'crypto';
+import { createClient } from '@supabase/supabase-js';
 import { query } from '../db/pool.js';
 import { requiereAuth } from '../middleware/auth.js';
 
 const router = Router();
 router.use(requiereAuth);
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 8 * 1024 * 1024 } });
+const clienteSupabase = () => {
+  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_KEY) return null;
+  return createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
+};
 
 /**
  * 🆕 Catálogo de documentos por rol — investigado directo con fuentes
@@ -58,6 +66,38 @@ router.get('/:usuarioId', async (req, res) => {
       faltantes: checklist.filter((d) => !d.entregado).length,
     },
   });
+});
+
+/**
+ * 🆕 POST /api/documentos-persona/:usuarioId/:tipoDocumento/subir
+ * Sube el archivo real (foto o PDF escaneado) de un documento del
+ * checklist — antes solo se podía marcar la casilla de "entregado",
+ * sin ningún lugar para guardar el archivo físico. Al subir, se
+ * marca "entregado" automáticamente.
+ */
+router.post('/:usuarioId/:tipoDocumento/subir', upload.single('archivo'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ ok: false, error: 'No se recibió ningún archivo' });
+  const usuarioRes = await query('SELECT id FROM usuarios WHERE id=$1 AND campana_id=$2', [req.params.usuarioId, req.usuario.campana_id]);
+  if (!usuarioRes.rows[0]) return res.status(404).json({ ok: false, error: 'Persona no encontrada' });
+
+  const supabase = clienteSupabase();
+  if (!supabase) return res.status(500).json({ ok: false, error: 'Almacenamiento no configurado en el servidor' });
+
+  const extension = req.file.originalname.split('.').pop() || 'jpg';
+  const ruta = `${req.usuario.campana_id}/documentos-persona/${req.params.usuarioId}/${req.params.tipoDocumento}-${crypto.randomBytes(6).toString('hex')}.${extension}`;
+  const { error } = await supabase.storage.from('documentos').upload(ruta, req.file.buffer, { contentType: req.file.mimetype });
+  if (error) return res.status(500).json({ ok: false, error: 'No se pudo subir el archivo' });
+  const archivoUrl = supabase.storage.from('documentos').getPublicUrl(ruta).data.publicUrl;
+
+  const resultado = await query(
+    `INSERT INTO documentos_persona (usuario_id, campana_id, tipo_documento, entregado, archivo_url, actualizado_por)
+     VALUES ($1,$2,$3,true,$4,$5)
+     ON CONFLICT (usuario_id, tipo_documento)
+     DO UPDATE SET entregado=true, archivo_url=$4, actualizado_por=$5, actualizado_en=now()
+     RETURNING *`,
+    [req.params.usuarioId, req.usuario.campana_id, req.params.tipoDocumento, archivoUrl, req.usuario.sub]
+  );
+  res.json({ ok: true, data: resultado.rows[0] });
 });
 
 /**
