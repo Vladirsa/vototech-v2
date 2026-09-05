@@ -20,7 +20,9 @@
 import { query } from './src/db/pool.js';
 
 const BASE = 'https://gaia.inegi.org.mx/wscatgeo/v2';
-const CVE_AGEE_TLAXCALA = '29';
+// 🆕 LA CORRECCIÓN REAL — antes esto vivía fijo como "29" (Tlaxcala).
+// Ahora se recibe como parámetro de la función, así que sirve para
+// cualquiera de los 32 estados de México.
 
 const CAMPOS_CVE_LOCALIDAD = ['cvegeoLoc', 'CVEGEO', 'cve_loc', 'clave', 'CVE_LOC', 'cvegeo'];
 const CAMPOS_NOMBRE_CALLE = ['NOMVIAL', 'NOMBRE', 'nombre', 'name', 'NOM_VIAL'];
@@ -32,8 +34,8 @@ function primerValorQueExista(objeto, listaCampos) {
   return null;
 }
 
-async function obtenerLocalidadesDeTlaxcala() {
-  const url = `${BASE}/geo/localidades/pol/${CVE_AGEE_TLAXCALA}`;
+async function obtenerLocalidadesDeEstado(claveAgee) {
+  const url = `${BASE}/geo/localidades/pol/${claveAgee}`;
   const resp = await fetch(url);
   if (!resp.ok) throw new Error(`No se pudo obtener la lista de localidades (${resp.status}) — url: ${url}`);
   const geojson = await resp.json();
@@ -55,8 +57,12 @@ function centroDeGeometria(geometry) {
   return { lat: sumaLat / coords.length, lng: sumaLng / coords.length };
 }
 
-export async function importarCallesInegi() {
-  const localidades = await obtenerLocalidadesDeTlaxcala();
+export async function importarCallesInegi(estadoId = 29) {
+  // El INEGI necesita el código AGEE con 2 dígitos (Tlaxcala=29,
+  // Hidalgo=13, CDMX=09...) — con padStart nunca falla por un cero
+  // faltante, sin importar qué estado se pida.
+  const claveAgee = String(estadoId).padStart(2, '0');
+  const localidades = await obtenerLocalidadesDeEstado(claveAgee);
 
   const primeraLocalidad = localidades[0].properties;
   const campoClaveDetectado = CAMPOS_CVE_LOCALIDAD.find((c) => primeraLocalidad[c] != null);
@@ -68,7 +74,7 @@ export async function importarCallesInegi() {
     };
   }
 
-  const municipiosRes = await query(`SELECT id, clave_ine FROM municipios WHERE estado_id=29`);
+  const municipiosRes = await query(`SELECT id, clave_ine FROM municipios WHERE estado_id=$1`, [estadoId]);
   const municipiosPorClave = {};
   // 🆕 LA CORRECCIÓN REAL — clave_ine en tu base es un número (1, 2,
   // 3...), pero el INEGI manda el código con ceros a la izquierda
@@ -97,7 +103,7 @@ export async function importarCallesInegi() {
     // localidad (con ceros a la izquierda).
     const claveMunCorta = String(loc.properties.CVE_MUN || loc.properties.cve_agem || loc.properties.CVEAGEM || loc.properties.cve_mun || '').replace(/\D/g, '');
     const claveMun = claveMunCorta; // se usa tal cual para buscar en tu tabla de municipios
-    const cveLoc = `${CVE_AGEE_TLAXCALA}${claveMunCorta.padStart(3, '0')}${String(cveLocCorta).padStart(4, '0')}`;
+    const cveLoc = `${claveAgee}${claveMunCorta.padStart(3, '0')}${String(cveLocCorta).padStart(4, '0')}`;
     const urlVialidades = `${BASE}/vialidades/${cveLoc}`;
     try {
       const resp = await fetch(urlVialidades);
