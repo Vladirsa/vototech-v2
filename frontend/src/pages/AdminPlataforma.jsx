@@ -110,8 +110,16 @@ export default function AdminPlataforma() {
   const [creandoDemo, setCreandoDemo] = useState(false);
   const [mensajeDemo, setMensajeDemo] = useState('');
   const [tipoEleccionDemo, setTipoEleccionDemo] = useState('ayuntamiento');
+  const [estadoDemo, setEstadoDemo] = useState(29);
   const [municipioDemo, setMunicipioDemo] = useState(3);
   const [distritoDemo, setDistritoDemo] = useState(1);
+
+  // 🆕 Antes los municipios de la demo SIEMPRE eran los de Tlaxcala
+  // (cargados una sola vez al entrar al panel) — ahora se vuelven a
+  // pedir cada que cambias de estado en el selector de la demo.
+  useEffect(() => {
+    axios.get(`${API_URL}/admin/municipios?estado_id=${estadoDemo}`, { headers }).then((r) => setMunicipios(r.data.data)).catch(() => {});
+  }, [estadoDemo]);
 
   const esDistrito = tipoEleccionDemo === 'dip_local' || tipoEleccionDemo === 'dip_federal';
   const esEstatal = tipoEleccionDemo === 'gobernador' || tipoEleccionDemo === 'senador';
@@ -123,6 +131,7 @@ export default function AdminPlataforma() {
       const nombreMun = municipios.find((m) => m.clave_ine === parseInt(municipioDemo))?.nombre || '';
       const { data } = await axios.post(`${API_URL}/admin/crear-demo`, {
         tipoEleccion: tipoEleccionDemo,
+        estadoId: estadoDemo,
         municipioClaveIne: esDistrito || esEstatal ? undefined : municipioDemo,
         nombreMunicipio: nombreMun,
         distritoNumero: esDistrito ? distritoDemo : undefined,
@@ -804,6 +813,12 @@ export default function AdminPlataforma() {
           <p className="text-[10px] text-slate-400">Personaliza la demo según a quién vayas a presentar — su municipio, su tipo de elección.</p>
 
           <div className="grid grid-cols-2 gap-2">
+            {/* 🆕 Selector de estado — antes la demo siempre se creaba
+                en Tlaxcala sin poder elegir otro. */}
+            <select value={estadoDemo} onChange={(e) => setEstadoDemo(parseInt(e.target.value))}
+              className="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs col-span-2">
+              {estadosDisponibles.map((e) => <option key={e.id} value={e.id}>{e.nombre}</option>)}
+            </select>
             <select value={tipoEleccionDemo} onChange={(e) => setTipoEleccionDemo(e.target.value)}
               className="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs">
               {TIPOS_ELECCION.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
