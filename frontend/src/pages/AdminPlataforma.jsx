@@ -196,6 +196,11 @@ export default function AdminPlataforma() {
   const [cargandoAgregados, setCargandoAgregados] = useState(false);
   const [mensajeAgregados, setMensajeAgregados] = useState('');
   const [estadoCarga, setEstadoCarga] = useState(29);
+  // 🆕 Estados nuevos para las herramientas de "Importar Estado Nuevo"
+  const [estadoNuevoId, setEstadoNuevoId] = useState('');
+  const [archivoCatalogoEstado, setArchivoCatalogoEstado] = useState(null);
+  const [archivoGeojsonEstado, setArchivoGeojsonEstado] = useState(null);
+  const [cargandoAccion, setCargandoAccion] = useState(false);
   const [tipoEleccionCarga, setTipoEleccionCarga] = useState('senador');
   const [anioCarga, setAnioCarga] = useState(2024);
   const [archivoResultados, setArchivoResultados] = useState(null);
@@ -520,6 +525,88 @@ export default function AdminPlataforma() {
         </div>
         {mensajeAgregados && <div className="text-xs text-slate-300 bg-slate-900/50 rounded-lg p-2">{mensajeAgregados}</div>}
 
+        {/* 🆕 MIGRACIÓN DE UNA SOLA VEZ — geometría de Tlaxcala del
+            archivo fijo hacia la base de datos. Corre esto UNA vez,
+            antes de usar las herramientas de estado nuevo de abajo. */}
+        <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 space-y-2">
+          <h3 className="text-sm font-bold text-amber-300">⚠️ Paso único — migrar geometría de Tlaxcala</h3>
+          <p className="text-[10px] text-amber-200/80">Antes de cargar cualquier estado nuevo, corre esto UNA sola vez — mueve la geometría de Tlaxcala del archivo fijo hacia la base de datos. Es seguro correrlo más de una vez por accidente, no duplica nada.</p>
+          <button onClick={async () => {
+            setCargandoAccion(true);
+            try {
+              const { data } = await axios.post(`${API_URL}/admin/migrar-geometria-secciones`, {}, { headers });
+              setMensajeAgregados(data.mensaje);
+            } catch (e) { setMensajeAgregados('❌ ' + (e.response?.data?.error || 'Error al migrar')); }
+            setCargandoAccion(false);
+          }} disabled={cargandoAccion} className="px-4 py-2 rounded-lg bg-amber-600 text-white text-xs font-bold disabled:opacity-40">
+            {cargandoAccion ? '⏳ Migrando...' : 'Migrar geometría de Tlaxcala'}
+          </button>
+        </div>
+
+        {/* 🆕 IMPORTAR ESTADO NUEVO — el catálogo base (municipios +
+            secciones) que faltaba. Sin esto, ningún estado fuera de
+            Tlaxcala puede funcionar — todo lo demás depende de que
+            las secciones ya existan. */}
+        <div className="bg-slate-900/60 border border-cyan-500/30 rounded-xl p-4 space-y-3">
+          <div>
+            <h3 className="text-sm font-bold text-white mb-1">🆕 Importar Estado Nuevo (catálogo base)</h3>
+            <p className="text-[10px] text-slate-500">Carga los municipios y secciones de un estado que todavía no existe en el sistema — el primer paso obligatorio antes de resultados históricos, casillas, o cualquier otra cosa.</p>
+          </div>
+          <div className="flex gap-2">
+            <input type="number" placeholder="ID del estado (INE): Hidalgo=13, Edo. Méx=15, CDMX=9" value={estadoNuevoId}
+              onChange={(e) => setEstadoNuevoId(e.target.value)}
+              className="flex-1 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs" />
+          </div>
+          <label className="block">
+            <input type="file" accept=".csv" className="hidden" id="input-catalogo-estado"
+              onChange={(e) => setArchivoCatalogoEstado(e.target.files[0])} />
+            <span className="block text-center py-2 rounded-lg bg-slate-800 text-slate-300 text-xs font-bold cursor-pointer" onClick={() => document.getElementById('input-catalogo-estado').click()}>
+              {archivoCatalogoEstado ? `📎 ${archivoCatalogoEstado.name}` : '📄 Elegir CSV: seccion,municipio_clave_ine,municipio_nombre,distrito_local,distrito_federal,lista_nominal'}
+            </span>
+          </label>
+          <button onClick={async () => {
+            if (!estadoNuevoId || !archivoCatalogoEstado) return;
+            setCargandoAccion(true);
+            const fd = new FormData();
+            fd.append('estado_id', estadoNuevoId);
+            fd.append('catalogo', archivoCatalogoEstado);
+            try {
+              const { data } = await axios.post(`${API_URL}/admin/importar-estado-nuevo`, fd, { headers: { ...headers, 'Content-Type': 'multipart/form-data' } });
+              setMensajeAgregados(data.mensaje);
+            } catch (e) { setMensajeAgregados('❌ ' + (e.response?.data?.error || 'Error al importar')); }
+            setCargandoAccion(false);
+          }} disabled={cargandoAccion || !estadoNuevoId || !archivoCatalogoEstado}
+            className="w-full py-2.5 rounded-lg bg-cyan-600 text-white text-xs font-bold disabled:opacity-40">
+            {cargandoAccion ? '⏳ Importando...' : 'Importar catálogo'}
+          </button>
+
+          <div className="border-t border-slate-800 pt-3">
+            <p className="text-[10px] text-slate-500 mb-2">Después de importar el catálogo, sube su geometría (mismo estado, mismos números de sección):</p>
+            <label className="block">
+              <input type="file" accept=".geojson,.json" className="hidden" id="input-geojson-estado"
+                onChange={(e) => setArchivoGeojsonEstado(e.target.files[0])} />
+              <span className="block text-center py-2 rounded-lg bg-slate-800 text-slate-300 text-xs font-bold cursor-pointer" onClick={() => document.getElementById('input-geojson-estado').click()}>
+                {archivoGeojsonEstado ? `📎 ${archivoGeojsonEstado.name}` : '🗺️ Elegir archivo GeoJSON de secciones'}
+              </span>
+            </label>
+            <button onClick={async () => {
+              if (!estadoNuevoId || !archivoGeojsonEstado) return;
+              setCargandoAccion(true);
+              const fd = new FormData();
+              fd.append('estado_id', estadoNuevoId);
+              fd.append('geojson', archivoGeojsonEstado);
+              try {
+                const { data } = await axios.post(`${API_URL}/admin/importar-geometria-estado`, fd, { headers: { ...headers, 'Content-Type': 'multipart/form-data' } });
+                setMensajeAgregados(data.mensaje);
+              } catch (e) { setMensajeAgregados('❌ ' + (e.response?.data?.error || 'Error al importar')); }
+              setCargandoAccion(false);
+            }} disabled={cargandoAccion || !estadoNuevoId || !archivoGeojsonEstado}
+              className="w-full mt-2 py-2.5 rounded-lg bg-cyan-700 text-white text-xs font-bold disabled:opacity-40">
+              {cargandoAccion ? '⏳ Importando...' : 'Importar geometría'}
+            </button>
+          </div>
+        </div>
+
         {/* ── CARGA DE DATOS POR ESTADO — resultados y afiliados vía CSV ── */}
         <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 space-y-4">
           <div>
@@ -528,10 +615,10 @@ export default function AdminPlataforma() {
           </div>
 
           <div className="flex gap-2">
-            <select value={estadoCarga} onChange={(e) => setEstadoCarga(parseInt(e.target.value))}
-              className="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs">
-              <option value={29}>Tlaxcala (29)</option>
-            </select>
+            {/* 🆕 Antes solo dejaba elegir Tlaxcala — ahora acepta
+                cualquier estado que ya hayas importado arriba. */}
+            <input type="number" placeholder="ID del estado (INE)" value={estadoCarga} onChange={(e) => setEstadoCarga(parseInt(e.target.value))}
+              className="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs w-40" />
             {resumenDatos && (
               <div className="flex-1 flex items-center gap-3 text-[10px] text-slate-400">
                 <span>{resumenDatos.total_secciones} secciones</span>
