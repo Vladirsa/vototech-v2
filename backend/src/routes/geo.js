@@ -11,7 +11,10 @@ const router = Router();
 // así que lo leemos del disco UNA sola vez y lo servimos desde RAM después.
 // Esto es exactamente el tipo de optimización que en WordPress/Hostinger
 // nunca pudimos controlar de forma confiable.
-let cacheGeoSecciones = null;
+// 🆕 cacheGeoSecciones se quitó — la geometría ya no vive en un
+// archivo fijo, ahora se consulta directo de la base de datos
+// (ver /secciones/:estadoId más abajo), lo que permite que
+// cualquier estado nuevo funcione sin tocar este código.
 let cacheLocalidades = null;
 let cacheManzanas = null;
 
@@ -31,15 +34,29 @@ router.get('/manzanas/:seccion', (req, res) => {
   }
 });
 
-router.get('/secciones/:estadoId', (req, res) => {
+router.get('/secciones/:estadoId', async (req, res) => {
   try {
-    if (!cacheGeoSecciones) {
-      const rutaArchivo = path.join(__dirname, '../db/secciones_tlaxcala.geojson');
-      cacheGeoSecciones = JSON.parse(fs.readFileSync(rutaArchivo, 'utf-8'));
-      console.log(`📍 GeoJSON de secciones cargado en memoria (${cacheGeoSecciones.features.length} secciones)`);
-    }
-    res.set('Cache-Control', 'public, max-age=3600'); // el navegador también puede cachear 1h
-    res.json({ ok: true, data: cacheGeoSecciones });
+    // 🆕 LA CORRECCIÓN REAL — antes esto SIEMPRE leía el archivo fijo
+    // de Tlaxcala, sin importar qué estadoId se pidiera. Ahora la
+    // geometría vive en la base de datos (columna secciones.geometria),
+    // así que cualquier estado que cargues con el nuevo importador
+    // funciona automáticamente, sin tocar código nunca más.
+    const resultado = await query(
+      `SELECT s.numero as seccion, m.nombre as municipio, s.distrito_local, s.distrito_federal, s.geometria
+       FROM secciones s JOIN municipios m ON m.id = s.municipio_id
+       WHERE s.estado_id = $1 AND s.geometria IS NOT NULL`,
+      [req.params.estadoId]
+    );
+    const featureCollection = {
+      type: 'FeatureCollection',
+      features: resultado.rows.map((r) => ({
+        type: 'Feature',
+        properties: { seccion: r.seccion, municipio: r.municipio, distrito_local: r.distrito_local, distrito_federal: r.distrito_federal },
+        geometry: r.geometria,
+      })),
+    };
+    res.set('Cache-Control', 'public, max-age=3600');
+    res.json({ ok: true, data: featureCollection });
   } catch (e) {
     console.error('Error sirviendo GeoJSON:', e);
     res.status(500).json({ ok: false, error: 'No se pudo cargar el mapa' });

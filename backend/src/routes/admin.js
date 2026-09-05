@@ -403,4 +403,150 @@ router.post('/aprobar-restauracion/:id', async (req, res) => {
   res.json({ ok: true, mensaje: 'Aprobado de tu lado — falta la aprobación del candidato.' });
 });
 
+/**
+ * 🆕 POST /api/admin/migrar-geometria-secciones
+ * Migración de UNA SOLA VEZ: copia la geometría del archivo estático
+ * secciones_tlaxcala.geojson hacia la columna secciones.geometria.
+ * Después de esto, la base de datos es la fuente de verdad — no el
+ * archivo — y cualquier estado nuevo sigue el mismo patrón sin
+ * necesitar un archivo .geojson por estado.
+ */
+router.post('/migrar-geometria-secciones', async (req, res) => {
+  try {
+    const fs = await import('fs');
+    const path = await import('path');
+    const { fileURLToPath } = await import('url');
+    const __dirname = path.dirname(fileURLToPath(import.meta.url));
+    const rutaArchivo = path.join(__dirname, '../db/secciones_tlaxcala.geojson');
+    const geo = JSON.parse(fs.readFileSync(rutaArchivo, 'utf-8'));
+
+    let migradas = 0, sinCoincidencia = 0;
+    for (const feat of geo.features) {
+      const numero = feat.properties.seccion;
+      const resultado = await query(
+        `UPDATE secciones SET geometria=$1::jsonb WHERE estado_id=29 AND numero=$2`,
+        [JSON.stringify(feat.geometry), numero]
+      );
+      if (resultado.rowCount > 0) migradas++;
+      else sinCoincidencia++;
+    }
+
+    res.json({ ok: true, mensaje: `✅ ${migradas} secciones migradas a la base de datos, ${sinCoincidencia} sin coincidencia.`, migradas, sinCoincidencia });
+  } catch (e) {
+    console.error('Error migrando geometría:', e);
+    res.status(500).json({ ok: false, error: 'No se pudo migrar: ' + e.message });
+  }
+});
+
+/**
+ * 🆕 POST /api/admin/importar-estado-nuevo
+ * LA HERRAMIENTA QUE FALTABA — carga el catálogo BASE (municipios +
+ * secciones, con distrito local/federal, lista nominal) de un estado
+ * que todavía no existe en el sistema. Sin esto, ningún estado fuera
+ * de Tlaxcala puede funcionar — ni resultados históricos, ni
+ * casillas, ni nada más tiene sentido sin que las secciones existan
+ * primero.
+ *
+ * Espera un CSV con columnas:
+ * seccion,municipio_clave_ine,municipio_nombre,distrito_local,distrito_federal,lista_nominal
+ * (las últimas 3 son opcionales, pero muy recomendadas)
+ */
+router.post('/importar-estado-nuevo', upload.single('catalogo'), async (req, res) => {
+  const { estado_id } = req.body;
+  if (!estado_id) return res.status(400).json({ ok: false, error: 'Falta estado_id' });
+  if (!req.file) return res.status(400).json({ ok: false, error: 'No se recibió el archivo de catálogo' });
+
+  const texto = req.file.buffer.toString('utf-8');
+  const lineas = texto.split(/\r?\n/).filter((l) => l.trim());
+  const encabezado = lineas[0].toLowerCase().split(',').map((c) => c.trim());
+  const idx = (nombre) => encabezado.indexOf(nombre);
+  const iSeccion = idx('seccion'), iMunClave = idx('municipio_clave_ine'), iMunNombre = idx('municipio_nombre'),
+    iDL = idx('distrito_local'), iDF = idx('distrito_federal'), iLN = idx('lista_nominal');
+
+  if ([iSeccion, iMunClave, iMunNombre].includes(-1)) {
+    return res.status(400).json({ ok: false, error: 'El CSV debe tener al menos: seccion,municipio_clave_ine,municipio_nombre (distrito_local, distrito_federal y lista_nominal son opcionales pero muy recomendados)' });
+  }
+
+  const municipiosCache = {}; // clave_ine -> id, para no repetir el INSERT/SELECT cientos de veces
+  let municipiosCreados = 0, seccionesCreadas = 0, errores = 0;
+
+  for (const linea of lineas.slice(1)) {
+    const cols = linea.split(',').map((c) => c.trim());
+    const numeroSeccion = parseInt(cols[iSeccion]);
+    const municipioClave = parseInt(cols[iMunClave]);
+    const municipioNombre = cols[iMunNombre];
+    if (isNaN(numeroSeccion) || isNaN(municipioClave) || !municipioNombre) { errores++; continue; }
+
+    try {
+      let municipioId = municipiosCache[municipioClave];
+      if (!municipioId) {
+        const municipioRes = await query(
+          `INSERT INTO municipios (nombre, clave_ine, estado_id) VALUES ($1,$2,$3)
+           ON CONFLICT (estado_id, clave_ine) DO UPDATE SET nombre=EXCLUDED.nombre RETURNING id`,
+          [municipioNombre, municipioClave, estado_id]
+        );
+        municipioId = municipioRes.rows[0].id;
+        municipiosCache[municipioClave] = municipioId;
+        municipiosCreados++;
+      }
+
+      const distritoLocal = iDL !== -1 && cols[iDL] ? parseInt(cols[iDL]) : null;
+      const distritoFederal = iDF !== -1 && cols[iDF] ? parseInt(cols[iDF]) : null;
+      const listaNominal = iLN !== -1 && cols[iLN] ? parseInt(cols[iLN]) : null;
+
+      await query(
+        `INSERT INTO secciones (estado_id, numero, municipio_id, distrito_local, distrito_federal, lista_nominal)
+         VALUES ($1,$2,$3,$4,$5,$6)
+         ON CONFLICT (estado_id, numero) DO UPDATE SET
+           municipio_id=EXCLUDED.municipio_id, distrito_local=EXCLUDED.distrito_local,
+           distrito_federal=EXCLUDED.distrito_federal, lista_nominal=EXCLUDED.lista_nominal`,
+        [estado_id, numeroSeccion, municipioId, distritoLocal, distritoFederal, listaNominal]
+      );
+      seccionesCreadas++;
+    } catch (e) { errores++; }
+  }
+
+  res.json({
+    ok: true,
+    mensaje: `✅ ${municipiosCreados} municipios y ${seccionesCreadas} secciones cargadas para el estado ${estado_id}. ${errores} filas con error. Ahora sube la geometría con "Importar geometría de secciones".`,
+    municipiosCreados, seccionesCreadas, errores,
+  });
+});
+
+/**
+ * 🆕 POST /api/admin/importar-geometria-estado
+ * Sube el archivo GeoJSON oficial (INE/OPLE/INEGI) de un estado y
+ * llena secciones.geometria emparejando por número de sección — ya
+ * NO se guarda como archivo aparte, todo va a la base de datos.
+ */
+router.post('/importar-geometria-estado', upload.single('geojson'), async (req, res) => {
+  const { estado_id } = req.body;
+  if (!estado_id) return res.status(400).json({ ok: false, error: 'Falta estado_id' });
+  if (!req.file) return res.status(400).json({ ok: false, error: 'No se recibió el archivo GeoJSON' });
+
+  let geo;
+  try {
+    geo = JSON.parse(req.file.buffer.toString('utf-8'));
+  } catch (e) {
+    return res.status(400).json({ ok: false, error: 'El archivo no es un GeoJSON válido' });
+  }
+  if (!geo.features) return res.status(400).json({ ok: false, error: 'El archivo no tiene "features" — no parece un GeoJSON de secciones' });
+
+  let migradas = 0, sinCoincidencia = 0;
+  for (const feat of geo.features) {
+    // Distintos estados/OPLE nombran la propiedad distinto — se
+    // intentan los nombres más comunes en vez de forzar uno solo.
+    const numero = feat.properties?.seccion || feat.properties?.SECCION || feat.properties?.Seccion || feat.properties?.seccion_ || feat.properties?.NUM_SEC;
+    if (!numero) { sinCoincidencia++; continue; }
+    const resultado = await query(
+      `UPDATE secciones SET geometria=$1::jsonb WHERE estado_id=$2 AND numero=$3`,
+      [JSON.stringify(feat.geometry), estado_id, parseInt(numero)]
+    );
+    if (resultado.rowCount > 0) migradas++;
+    else sinCoincidencia++;
+  }
+
+  res.json({ ok: true, mensaje: `✅ ${migradas} secciones con geometría cargada, ${sinCoincidencia} sin coincidencia (revisa que ya hayas subido el catálogo con esos mismos números de sección).` });
+});
+
 export default router;
