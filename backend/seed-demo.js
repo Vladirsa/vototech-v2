@@ -27,11 +27,18 @@ const CALLES_GENERICAS = ['Av. Juárez', 'Calle Hidalgo', 'Calle Morelos', 'Av. 
   'Calle Cuauhtémoc', 'Calle Guerrero', 'Av. Constitución', 'Calle Matamoros', 'Calle Aldama'];
 
 export async function crearDemo(opciones = {}) {
+  // 🆕 Ahora acepta estadoId — antes SIEMPRE creaba la demo en
+  // Tlaxcala (29) sin importar qué otro estado ya tuvieras cargado
+  // con la cartografía nueva.
+  const estadoId = opciones.estadoId || 29;
   const tipoEleccion = opciones.tipoEleccion || 'ayuntamiento';
-  const municipioClaveIne = opciones.municipioClaveIne || 3; // Apizaco por defecto (grande, con datos reales)
+  const municipioClaveIne = opciones.municipioClaveIne || 3; // Apizaco por defecto SOLO si es Tlaxcala
   const nombreMunicipio = opciones.nombreMunicipio || 'Apizaco';
   const distritoNumero = opciones.distritoNumero || 1;
   const partidoDemo = opciones.partido || 'morena';
+
+  const nombreEstadoRes = await query('SELECT nombre FROM estados WHERE id=$1', [estadoId]);
+  const nombreEstado = nombreEstadoRes.rows[0]?.nombre || 'Tlaxcala';
 
   let territorioTipo, territorioId, nombreTerritorio;
   if (tipoEleccion === 'dip_local') {
@@ -39,7 +46,7 @@ export async function crearDemo(opciones = {}) {
   } else if (tipoEleccion === 'dip_federal') {
     territorioTipo = 'distrito_federal'; territorioId = distritoNumero; nombreTerritorio = `Distrito Federal ${distritoNumero}`;
   } else if (tipoEleccion === 'gobernador' || tipoEleccion === 'senador') {
-    territorioTipo = 'estatal'; territorioId = null; nombreTerritorio = 'Todo Tlaxcala';
+    territorioTipo = 'estatal'; territorioId = null; nombreTerritorio = `Todo ${nombreEstado}`;
   } else {
     territorioTipo = 'municipio'; territorioId = municipioClaveIne; nombreTerritorio = nombreMunicipio;
   }
@@ -52,32 +59,52 @@ export async function crearDemo(opciones = {}) {
   const campana = await query(
     `INSERT INTO campanas (nombre_candidato, eslogan, partido, tipo_eleccion, estado_id, territorio_tipo, territorio_id,
        subdominio, activa, estado_aprobacion, es_demo, fecha_eleccion, tope_gasto_ople, fecha_inicio_campana_oficial)
-     VALUES ('Candidato Demo','Juntos por un mejor futuro',$1,$2,29,$3,$4,
-       $5, true, 'aprobada', true, '2027-06-06', 850000, CURRENT_DATE - 10)
+     VALUES ('Candidato Demo','Juntos por un mejor futuro',$1,$2,$3,$4,$5,
+       $6, true, 'aprobada', true, '2027-06-06', 850000, CURRENT_DATE - 10)
      RETURNING id`,
-    [partidoDemo, tipoEleccion, territorioTipo, territorioId, DEMO_SUBDOMINIO]
+    [partidoDemo, tipoEleccion, estadoId, territorioTipo, territorioId, DEMO_SUBDOMINIO]
   );
   const campanaId = campana.rows[0].id;
   console.log(`✅ Campaña demo creada (${tipoEleccion} — ${nombreTerritorio} — partido ${partidoDemo})`);
 
   // ── TERRITORIO — TODAS las secciones disponibles, no solo 20 ──────
-  let filtroSecciones = 'WHERE s.estado_id=29';
-  const paramsSecciones = [];
-  if (territorioTipo === 'municipio') { filtroSecciones += ' AND m.clave_ine=$1'; paramsSecciones.push(territorioId); }
-  else if (territorioTipo === 'distrito_local') { filtroSecciones += ' AND s.distrito_local=$1'; paramsSecciones.push(territorioId); }
-  else if (territorioTipo === 'distrito_federal') { filtroSecciones += ' AND s.distrito_federal=$1'; paramsSecciones.push(territorioId); }
+  let filtroSecciones = 'WHERE s.estado_id=$1';
+  const paramsSecciones = [estadoId];
+  if (territorioTipo === 'municipio') { filtroSecciones += ' AND m.clave_ine=$2'; paramsSecciones.push(territorioId); }
+  else if (territorioTipo === 'distrito_local') { filtroSecciones += ' AND s.distrito_local=$2'; paramsSecciones.push(territorioId); }
+  else if (territorioTipo === 'distrito_federal') { filtroSecciones += ' AND s.distrito_federal=$2'; paramsSecciones.push(territorioId); }
 
   const seccionesRes = await query(
-    `SELECT s.id, s.numero, s.lista_nominal FROM secciones s JOIN municipios m ON m.id=s.municipio_id
+    `SELECT s.id, s.numero, s.lista_nominal, s.geometria FROM secciones s JOIN municipios m ON m.id=s.municipio_id
      ${filtroSecciones} ORDER BY s.numero`,
     paramsSecciones
   );
   if (seccionesRes.rows.length === 0) {
     throw new Error(`No se encontraron secciones para ${nombreTerritorio} — verifica que ese distrito/municipio exista en la base de datos`);
   }
-  const secciones = seccionesRes.rows; // [{id, numero, lista_nominal}]
+  const secciones = seccionesRes.rows; // [{id, numero, lista_nominal, geometria}]
   const seccionAl = (i) => secciones[i % secciones.length];
   console.log(`✅ Territorio: ${secciones.length} secciones disponibles`);
+
+  // 🆕 Centro geográfico REAL del territorio — antes esto estaba fijo
+  // cerca de Apizaco, así que una demo de otro estado ponía las
+  // caminatas y el GPS de los promotores en Tlaxcala por error. Se
+  // calcula del centro de la primera sección con geometría cargada;
+  // si ninguna la tiene todavía (cartografía no subida aún), usa
+  // Apizaco solo como último respaldo para no tronar la demo.
+  function centroDeUnaSeccion(geometria) {
+    if (!geometria?.coordinates) return null;
+    const anillo = geometria.type === 'Polygon' ? geometria.coordinates[0] : geometria.coordinates[0]?.[0];
+    if (!anillo || anillo.length === 0) return null;
+    let sumaLat = 0, sumaLng = 0;
+    anillo.forEach(([lng, lat]) => { sumaLat += lat; sumaLng += lng; });
+    return { lat: sumaLat / anillo.length, lng: sumaLng / anillo.length };
+  }
+  const seccionConGeometria = secciones.find((s) => s.geometria);
+  const centroTerritorio = seccionConGeometria ? centroDeUnaSeccion(seccionConGeometria.geometria) : null;
+  const CENTRO_LAT = centroTerritorio?.lat || 19.415;
+  const CENTRO_LNG = centroTerritorio?.lng || -98.150;
+  if (!centroTerritorio) console.log('⚠️ Ninguna sección de este territorio tiene geometría cargada todavía — usando un punto de referencia genérico para caminatas y GPS.');
 
   // 1. Usuario candidato
   const candidato = await query(
@@ -203,9 +230,10 @@ export async function crearDemo(opciones = {}) {
       `INSERT INTO agenda (campana_id, titulo, tipo, fecha_inicio, lugar, creado_por) VALUES ($1,$2,'recorrido',$3,$4,$5) RETURNING id`,
       [campanaId, tituloCaminata, fecha, CALLES_GENERICAS[i % CALLES_GENERICAS.length], jefeId]
     );
-    // Puntos aproximados alrededor de Apizaco (centro ~-98.15,19.415) — es demo, no necesita pegarse a calles reales
-    const baseLat = 19.415 + (Math.random() - 0.5) * 0.02;
-    const baseLng = -98.150 + (Math.random() - 0.5) * 0.02;
+    // Puntos aproximados alrededor del centro real del territorio
+    // cargado — antes esto era un punto fijo cerca de Apizaco.
+    const baseLat = CENTRO_LAT + (Math.random() - 0.5) * 0.02;
+    const baseLng = CENTRO_LNG + (Math.random() - 0.5) * 0.02;
     const puntos = Array.from({ length: 4 }, (_, j) => [baseLng + j * 0.0015, baseLat + j * 0.0012]);
     const geojson = { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: puntos } };
     await query(
