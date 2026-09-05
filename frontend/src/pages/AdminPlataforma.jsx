@@ -572,10 +572,12 @@ export default function AdminPlataforma() {
           </div>
 
           <div className="flex gap-2">
-            {/* 🆕 Antes solo dejaba elegir Tlaxcala — ahora acepta
-                cualquier estado que ya hayas importado arriba. */}
-            <input type="number" placeholder="ID del estado (INE)" value={estadoCarga} onChange={(e) => setEstadoCarga(parseInt(e.target.value))}
-              className="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs w-40" />
+            {/* 🆕 Ahora es un menú con el nombre del estado, no un
+                número que hay que saberse de memoria. */}
+            <select value={estadoCarga} onChange={(e) => setEstadoCarga(parseInt(e.target.value))}
+              className="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs">
+              {estadosDisponibles.map((e) => <option key={e.id} value={e.id}>{e.nombre}</option>)}
+            </select>
             {resumenDatos && (
               <div className="flex-1 flex items-center gap-3 text-[10px] text-slate-400">
                 <span>{resumenDatos.total_secciones} secciones</span>
@@ -813,34 +815,37 @@ export default function AdminPlataforma() {
           <p className="text-[10px] text-slate-400">Personaliza la demo según a quién vayas a presentar — su municipio, su tipo de elección.</p>
 
           <div className="grid grid-cols-2 gap-2">
-            {/* 🆕 Selector de estado — antes la demo siempre se creaba
-                en Tlaxcala sin poder elegir otro. */}
+            {/* 🆕 Reordenado: primero qué elección, luego en qué
+                estado, y al final el municipio/distrito exacto —
+                sigue el mismo orden en que se piensa una campaña real. */}
+            <select value={tipoEleccionDemo} onChange={(e) => setTipoEleccionDemo(e.target.value)}
+              className="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs col-span-2">
+              {TIPOS_ELECCION.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+            </select>
             <select value={estadoDemo} onChange={(e) => setEstadoDemo(parseInt(e.target.value))}
               className="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs col-span-2">
               {estadosDisponibles.map((e) => <option key={e.id} value={e.id}>{e.nombre}</option>)}
             </select>
-            <select value={tipoEleccionDemo} onChange={(e) => setTipoEleccionDemo(e.target.value)}
-              className="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs">
-              {TIPOS_ELECCION.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
-            </select>
             {esDistrito ? (
               <select value={distritoDemo} onChange={(e) => setDistritoDemo(parseInt(e.target.value))}
-                className="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs">
-                {Array.from({ length: tipoEleccionDemo === 'dip_federal' ? 3 : 19 }, (_, i) => i + 1).map((n) => (
+                className="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs col-span-2">
+                {Array.from({ length: tipoEleccionDemo === 'dip_federal' ? 40 : 40 }, (_, i) => i + 1).map((n) => (
                   <option key={n} value={n}>{tipoEleccionDemo === 'dip_federal' ? 'Distrito Federal' : 'Distrito Local'} {n}</option>
                 ))}
               </select>
             ) : esEstatal ? (
-              <div className="px-3 py-2 rounded-lg bg-slate-800/50 border border-slate-700 text-slate-400 text-xs flex items-center">🗺️ Todo Tlaxcala</div>
+              <div className="px-3 py-2 rounded-lg bg-slate-800/50 border border-slate-700 text-slate-400 text-xs flex items-center col-span-2">
+                🗺️ Todo {estadosDisponibles.find((e) => e.id === estadoDemo)?.nombre || 'el estado'}
+              </div>
             ) : (
               <select value={municipioDemo} onChange={(e) => setMunicipioDemo(e.target.value)}
-                className="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs">
+                className="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs col-span-2">
                 {municipios.map((m) => <option key={m.clave_ine} value={m.clave_ine}>{m.nombre}</option>)}
               </select>
             )}
           </div>
           {esDistrito && (
-            <p className="text-[9px] text-slate-500">Tlaxcala tiene 19 distritos locales y 3 federales — Apizaco (con datos reales) está en Distrito Local 4 / Federal 1</p>
+            <p className="text-[9px] text-slate-500">El número de distritos varía por estado — verifica el número correcto para el estado elegido antes de generar</p>
           )}
           {tipoEleccionDemo !== 'ayuntamiento' && tipoEleccionDemo !== 'pres_comunidad' && (
             <p className="text-[9px] text-amber-400">⚠️ Solo hay resultados históricos reales cargados para Ayuntamiento y Pdte. de Comunidad — con otros tipos, el mapa no mostrará colores de partido, pero el resto del sistema funciona igual.</p>
