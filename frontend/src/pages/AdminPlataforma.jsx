@@ -161,7 +161,9 @@ export default function AdminPlataforma() {
     setGenerandoCasillas(true);
     setMensajeCasillas('');
     try {
-      const { data } = await axios.post(`${API_URL}/admin/generar-casillas-oficiales`, {}, { headers });
+      // 🆕 Ahora manda el estado elegido — antes siempre generaba
+      // solo las de Tlaxcala sin importar qué estado tuvieras activo.
+      const { data } = await axios.post(`${API_URL}/admin/generar-casillas-oficiales`, { estado_id: estadoParaCartografia || 29 }, { headers });
       setMensajeCasillas(data.mensaje);
     } catch (e) {
       setMensajeCasillas('⚠️ Error: ' + (e.response?.data?.error || e.message));
@@ -176,7 +178,8 @@ export default function AdminPlataforma() {
     setImportandoCalles(true);
     setMensajeCalles('');
     try {
-      const { data } = await axios.post(`${API_URL}/admin/importar-calles-inegi`, {}, { headers });
+      // 🆕 Mismo cambio — antes solo funcionaba para Tlaxcala.
+      const { data } = await axios.post(`${API_URL}/admin/importar-calles-inegi`, { estado_id: estadoParaCartografia || 29 }, { headers });
       let msg = `✅ ${data.cargadas} calles cargadas · ${data.totalLocalidades} localidades revisadas (${data.localidadesSinVialidades} sin datos) · ${data.sinNombre} sin nombre · ${data.errores} con error.`;
       if (data.cargadas === 0 && data.diagnosticoPrimeraPeticion) {
         msg += `\n\n⚠️ DIAGNÓSTICO (primera petición probada):\n${JSON.stringify(data.diagnosticoPrimeraPeticion, null, 2)}\n\nCopia esto completo y pásaselo a Claude.`;
@@ -196,10 +199,6 @@ export default function AdminPlataforma() {
   const [cargandoAgregados, setCargandoAgregados] = useState(false);
   const [mensajeAgregados, setMensajeAgregados] = useState('');
   const [estadoCarga, setEstadoCarga] = useState(29);
-  // 🆕 Estados nuevos para las herramientas de "Importar Estado Nuevo"
-  const [estadoNuevoId, setEstadoNuevoId] = useState('');
-  const [archivoCatalogoEstado, setArchivoCatalogoEstado] = useState(null);
-  const [archivoGeojsonEstado, setArchivoGeojsonEstado] = useState(null);
   const [cargandoAccion, setCargandoAccion] = useState(false);
   const [tipoEleccionCarga, setTipoEleccionCarga] = useState('senador');
   const [anioCarga, setAnioCarga] = useState(2024);
@@ -332,66 +331,40 @@ export default function AdminPlataforma() {
   };
   const [resumenDatos, setResumenDatos] = useState(null);
 
-  // ── EXPANSIÓN A OTRO ESTADO — crear estado, subir municipios, subir cartografía ──
+  // 🆕 Estado seleccionable — reemplaza a "EXPANSIÓN A OTRO ESTADO",
+  // que tenía pantalla pero nunca tuvo backend real (llamaba a
+  // /admin/estados, /admin/subir-municipios, /admin/subir-cartografia
+  // — ninguno existía). Los 32 estados ya vienen cargados de fábrica
+  // en la tabla "estados", así que ya no hace falta "crear" ninguno.
   const [estadosDisponibles, setEstadosDisponibles] = useState([]);
-  const [mostrarExpansion, setMostrarExpansion] = useState(false);
-  const [nuevoEstadoId, setNuevoEstadoId] = useState('');
-  const [nuevoEstadoNombre, setNuevoEstadoNombre] = useState('');
-  const [mensajeEstado, setMensajeEstado] = useState('');
-  const [archivoMunicipios, setArchivoMunicipios] = useState(null);
-  const [archivoCartografia, setArchivoCartografia] = useState(null);
-  const [estadoParaCartografia, setEstadoParaCartografia] = useState('');
-  const [subiendoExpansion, setSubiendoExpansion] = useState(false);
-  const [mensajeExpansion, setMensajeExpansion] = useState('');
+  const [estadoParaCartografia, setEstadoParaCartografia] = useState(29);
+  const [archivoCartografiaUnica, setArchivoCartografiaUnica] = useState(null);
+  const [subiendoCartografia, setSubiendoCartografia] = useState(false);
+  const [mensajeCartografia, setMensajeCartografia] = useState('');
 
-  const cargarEstados = async () => {
-    const { data } = await axios.get(`${API_URL}/admin/estados`, { headers });
-    setEstadosDisponibles(data.data);
-  };
-  useEffect(() => { if (mostrarExpansion) cargarEstados(); }, [mostrarExpansion]);
+  useEffect(() => {
+    axios.get(`${API_URL}/admin/estados`, { headers }).then(({ data }) => setEstadosDisponibles(data.data)).catch(() => {});
+  }, []);
 
-  const crearEstado = async () => {
-    setMensajeEstado('');
-    try {
-      const { data } = await axios.post(`${API_URL}/admin/estados`, { id: parseInt(nuevoEstadoId), nombre: nuevoEstadoNombre }, { headers });
-      setMensajeEstado('✅ ' + data.mensaje);
-      setNuevoEstadoId(''); setNuevoEstadoNombre('');
-      cargarEstados();
-    } catch (e) {
-      setMensajeEstado('⚠️ ' + (e.response?.data?.error || e.message));
-    }
-  };
-
-  const subirMunicipiosNuevoEstado = async () => {
-    if (!archivoMunicipios || !estadoParaCartografia) return;
-    setSubiendoExpansion(true);
-    setMensajeExpansion('');
+  const subirCartografiaUnica = async () => {
+    if (!archivoCartografiaUnica || !estadoParaCartografia) return;
+    setSubiendoCartografia(true);
+    setMensajeCartografia('');
     const fd = new FormData();
-    fd.append('archivo', archivoMunicipios);
+    fd.append('geojson', archivoCartografiaUnica);
     fd.append('estado_id', estadoParaCartografia);
     try {
-      const { data } = await axios.post(`${API_URL}/admin/subir-municipios`, fd, { headers: { ...headers, 'Content-Type': 'multipart/form-data' } });
-      setMensajeExpansion('✅ Municipios: ' + data.mensaje);
+      const { data } = await axios.post(`${API_URL}/admin/importar-cartografia-estado`, fd, { headers: { ...headers, 'Content-Type': 'multipart/form-data' } });
+      setMensajeCartografia(data.mensaje);
     } catch (e) {
-      setMensajeExpansion('⚠️ ' + (e.response?.data?.error || e.message));
+      const detalle = e.response?.data;
+      if (detalle?.propiedadesDeEjemplo) {
+        setMensajeCartografia(`⚠️ No se detectaron las columnas de sección/municipio. Propiedades reales de tu archivo:\n${JSON.stringify(detalle.propiedadesDeEjemplo, null, 2)}\n\nCopia esto y pásaselo a Claude para que ajuste la detección automática.`);
+      } else {
+        setMensajeCartografia('⚠️ ' + (detalle?.error || e.message));
+      }
     }
-    setSubiendoExpansion(false);
-  };
-
-  const subirCartografiaNuevoEstado = async () => {
-    if (!archivoCartografia || !estadoParaCartografia) return;
-    setSubiendoExpansion(true);
-    setMensajeExpansion('');
-    const fd = new FormData();
-    fd.append('archivo', archivoCartografia);
-    fd.append('estado_id', estadoParaCartografia);
-    try {
-      const { data } = await axios.post(`${API_URL}/admin/subir-cartografia`, fd, { headers: { ...headers, 'Content-Type': 'multipart/form-data' } });
-      setMensajeExpansion('✅ Cartografía: ' + data.mensaje);
-    } catch (e) {
-      setMensajeExpansion('⚠️ ' + (e.response?.data?.error || e.message));
-    }
-    setSubiendoExpansion(false);
+    setSubiendoCartografia(false);
   };
 
   const cargarResumenDatos = async (estId) => {
@@ -489,10 +462,21 @@ export default function AdminPlataforma() {
 
         {/* Botones de mantenimiento de datos — para cuando no hay
             acceso a terminal (plan gratuito de Render, sin Shell) */}
+        {/* 🆕 Selector de estado — se usa en los 3 botones de abajo
+            (casillas, calles, cartografía). Antes cada uno operaba
+            siempre sobre Tlaxcala sin poder elegir otro. */}
+        <div className="bg-slate-800/40 rounded-xl p-3">
+          <label className="text-[10px] text-slate-500 font-bold uppercase block mb-1">Estado sobre el que trabajar</label>
+          <select value={estadoParaCartografia} onChange={(e) => setEstadoParaCartografia(e.target.value)}
+            className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white text-xs">
+            {estadosDisponibles.map((e) => <option key={e.id} value={e.id}>{e.nombre} (id {e.id})</option>)}
+          </select>
+        </div>
+
         <div className="bg-indigo-500/10 border border-indigo-500/30 rounded-xl p-3 flex items-center justify-between">
           <div>
             <div className="text-xs font-bold text-indigo-300">🗳️ Generar base de casillas oficiales</div>
-            <div className="text-[10px] text-slate-500">Estima las casillas de las 634 secciones (regla INE, 750 electores) — seguro de correr más de una vez</div>
+            <div className="text-[10px] text-slate-500">Estima las casillas del estado elegido arriba (regla INE, 750 electores) — seguro de correr más de una vez</div>
           </div>
           <button onClick={generarCasillasOficiales} disabled={generandoCasillas} className="px-3 py-2 rounded-lg bg-indigo-600 text-white text-xs font-bold disabled:opacity-50 flex-shrink-0">
             {generandoCasillas ? '⏳...' : 'Generar'}
@@ -505,8 +489,8 @@ export default function AdminPlataforma() {
             depender de una consulta en vivo a Nominatim cada vez. */}
         <div className="bg-indigo-500/10 border border-indigo-500/30 rounded-xl p-3 flex items-center justify-between">
           <div>
-            <div className="text-xs font-bold text-indigo-300">🛣️ Importar calles del INEGI (Tlaxcala)</div>
-            <div className="text-[10px] text-slate-500">Descarga el catálogo oficial de vialidades — tarda varios minutos, no cierres la pestaña</div>
+            <div className="text-xs font-bold text-indigo-300">🛣️ Importar calles del INEGI</div>
+            <div className="text-[10px] text-slate-500">Descarga el catálogo oficial de vialidades del estado elegido arriba — tarda varios minutos, no cierres la pestaña</div>
           </div>
           <button onClick={importarCalles} disabled={importandoCalles} className="px-3 py-2 rounded-lg bg-indigo-600 text-white text-xs font-bold disabled:opacity-50 flex-shrink-0">
             {importandoCalles ? '⏳ Descargando...' : 'Importar'}
@@ -543,68 +527,32 @@ export default function AdminPlataforma() {
           </button>
         </div>
 
-        {/* 🆕 IMPORTAR ESTADO NUEVO — el catálogo base (municipios +
-            secciones) que faltaba. Sin esto, ningún estado fuera de
-            Tlaxcala puede funcionar — todo lo demás depende de que
-            las secciones ya existan. */}
+        {/* 🆕 CARGAR CARTOGRAFÍA DE ESTADO — herramienta única, sube
+            un solo archivo GeoJSON de secciones (el que ya
+            descargaste del INE y convertiste en mapshaper.org).
+            Detecta sola los nombres de columna más comunes que usa
+            el INE (varían por año/estado) — crea los municipios que
+            hagan falta, y carga secciones + geometría de un jalón.
+            Reemplaza tanto a "Importar Estado Nuevo" (que hacía esto
+            en 2 pasos) como a "Expandir a Otro Estado" (que nunca
+            tuvo backend real). */}
         <div className="bg-slate-900/60 border border-cyan-500/30 rounded-xl p-4 space-y-3">
           <div>
-            <h3 className="text-sm font-bold text-white mb-1">🆕 Importar Estado Nuevo (catálogo base)</h3>
-            <p className="text-[10px] text-slate-500">Carga los municipios y secciones de un estado que todavía no existe en el sistema — el primer paso obligatorio antes de resultados históricos, casillas, o cualquier otra cosa.</p>
-          </div>
-          <div className="flex gap-2">
-            <input type="number" placeholder="ID del estado (INE): Hidalgo=13, Edo. Méx=15, CDMX=9" value={estadoNuevoId}
-              onChange={(e) => setEstadoNuevoId(e.target.value)}
-              className="flex-1 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs" />
+            <h3 className="text-sm font-bold text-white mb-1">🗺️ Cargar Cartografía de Estado</h3>
+            <p className="text-[10px] text-slate-500">Un solo archivo GeoJSON de secciones (del estado elegido arriba) — el sistema detecta solo el número de sección, municipio, distritos y geometría. Sin esto, ningún estado fuera de Tlaxcala puede funcionar.</p>
           </div>
           <label className="block">
-            <input type="file" accept=".csv" className="hidden" id="input-catalogo-estado"
-              onChange={(e) => setArchivoCatalogoEstado(e.target.files[0])} />
-            <span className="block text-center py-2 rounded-lg bg-slate-800 text-slate-300 text-xs font-bold cursor-pointer" onClick={() => document.getElementById('input-catalogo-estado').click()}>
-              {archivoCatalogoEstado ? `📎 ${archivoCatalogoEstado.name}` : '📄 Elegir CSV: seccion,municipio_clave_ine,municipio_nombre,distrito_local,distrito_federal,lista_nominal'}
+            <input type="file" accept=".geojson,.json" className="hidden" id="input-cartografia-unica"
+              onChange={(e) => setArchivoCartografiaUnica(e.target.files[0])} />
+            <span className="block text-center py-2 rounded-lg bg-slate-800 text-slate-300 text-xs font-bold cursor-pointer" onClick={() => document.getElementById('input-cartografia-unica').click()}>
+              {archivoCartografiaUnica ? `📎 ${archivoCartografiaUnica.name}` : '🗺️ Elegir archivo GeoJSON de secciones'}
             </span>
           </label>
-          <button onClick={async () => {
-            if (!estadoNuevoId || !archivoCatalogoEstado) return;
-            setCargandoAccion(true);
-            const fd = new FormData();
-            fd.append('estado_id', estadoNuevoId);
-            fd.append('catalogo', archivoCatalogoEstado);
-            try {
-              const { data } = await axios.post(`${API_URL}/admin/importar-estado-nuevo`, fd, { headers: { ...headers, 'Content-Type': 'multipart/form-data' } });
-              setMensajeAgregados(data.mensaje);
-            } catch (e) { setMensajeAgregados('❌ ' + (e.response?.data?.error || 'Error al importar')); }
-            setCargandoAccion(false);
-          }} disabled={cargandoAccion || !estadoNuevoId || !archivoCatalogoEstado}
+          <button onClick={subirCartografiaUnica} disabled={subiendoCartografia || !archivoCartografiaUnica || !estadoParaCartografia}
             className="w-full py-2.5 rounded-lg bg-cyan-600 text-white text-xs font-bold disabled:opacity-40">
-            {cargandoAccion ? '⏳ Importando...' : 'Importar catálogo'}
+            {subiendoCartografia ? '⏳ Procesando... puede tardar un momento' : 'Cargar cartografía'}
           </button>
-
-          <div className="border-t border-slate-800 pt-3">
-            <p className="text-[10px] text-slate-500 mb-2">Después de importar el catálogo, sube su geometría (mismo estado, mismos números de sección):</p>
-            <label className="block">
-              <input type="file" accept=".geojson,.json" className="hidden" id="input-geojson-estado"
-                onChange={(e) => setArchivoGeojsonEstado(e.target.files[0])} />
-              <span className="block text-center py-2 rounded-lg bg-slate-800 text-slate-300 text-xs font-bold cursor-pointer" onClick={() => document.getElementById('input-geojson-estado').click()}>
-                {archivoGeojsonEstado ? `📎 ${archivoGeojsonEstado.name}` : '🗺️ Elegir archivo GeoJSON de secciones'}
-              </span>
-            </label>
-            <button onClick={async () => {
-              if (!estadoNuevoId || !archivoGeojsonEstado) return;
-              setCargandoAccion(true);
-              const fd = new FormData();
-              fd.append('estado_id', estadoNuevoId);
-              fd.append('geojson', archivoGeojsonEstado);
-              try {
-                const { data } = await axios.post(`${API_URL}/admin/importar-geometria-estado`, fd, { headers: { ...headers, 'Content-Type': 'multipart/form-data' } });
-                setMensajeAgregados(data.mensaje);
-              } catch (e) { setMensajeAgregados('❌ ' + (e.response?.data?.error || 'Error al importar')); }
-              setCargandoAccion(false);
-            }} disabled={cargandoAccion || !estadoNuevoId || !archivoGeojsonEstado}
-              className="w-full mt-2 py-2.5 rounded-lg bg-cyan-700 text-white text-xs font-bold disabled:opacity-40">
-              {cargandoAccion ? '⏳ Importando...' : 'Importar geometría'}
-            </button>
-          </div>
+          {mensajeCartografia && <p className="text-[10px] text-slate-300 bg-slate-800/60 rounded-lg p-2 whitespace-pre-wrap">{mensajeCartografia}</p>}
         </div>
 
         {/* ── CARGA DE DATOS POR ESTADO — resultados y afiliados vía CSV ── */}
@@ -827,72 +775,6 @@ export default function AdminPlataforma() {
               </div>
             ))}
           </div>
-        </div>
-
-        {/* ── EXPANSIÓN A OTRO ESTADO ── */}
-        <div className="bg-slate-900/60 border border-purple-800/40 rounded-xl p-4 space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-sm font-bold text-white mb-1">🗺️ Expandir a Otro Estado</h3>
-              <p className="text-[10px] text-slate-500">Crea el estado, sube su catálogo de municipios, y su cartografía (mapa oficial de secciones del INE).</p>
-            </div>
-            <button onClick={() => setMostrarExpansion((v) => !v)}
-              className="px-3 py-2 rounded-lg bg-purple-600 text-white text-xs font-bold flex-shrink-0">
-              {mostrarExpansion ? '✕ Cerrar' : '+ Nuevo estado'}
-            </button>
-          </div>
-
-          {mostrarExpansion && (
-            <div className="space-y-4">
-              <div className="bg-slate-800/60 rounded-lg p-3">
-                <p className="text-xs font-bold text-slate-300 mb-2">1. Crear el estado</p>
-                <p className="text-[9px] text-slate-500 mb-2">El ID debe ser la clave oficial del INE para ese estado (1-32) — no un número inventado.</p>
-                <div className="flex gap-2">
-                  <input placeholder="ID (ej. 21 = Puebla)" type="number" value={nuevoEstadoId} onChange={(e) => setNuevoEstadoId(e.target.value)}
-                    className="w-32 px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white text-xs" />
-                  <input placeholder="Nombre del estado" value={nuevoEstadoNombre} onChange={(e) => setNuevoEstadoNombre(e.target.value)}
-                    className="flex-1 px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white text-xs" />
-                  <button onClick={crearEstado} disabled={!nuevoEstadoId || !nuevoEstadoNombre}
-                    className="px-3 py-2 rounded-lg bg-indigo-600 text-white text-xs font-bold disabled:opacity-40 flex-shrink-0">Crear</button>
-                </div>
-                {mensajeEstado && <p className="text-[10px] text-slate-300 mt-2">{mensajeEstado}</p>}
-              </div>
-
-              <div>
-                <label className="text-[10px] text-slate-500 font-bold uppercase block mb-1">Estado destino para los siguientes pasos</label>
-                <select value={estadoParaCartografia} onChange={(e) => setEstadoParaCartografia(e.target.value)}
-                  className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs">
-                  <option value="">Selecciona un estado...</option>
-                  {estadosDisponibles.map((e) => <option key={e.id} value={e.id}>{e.nombre} (id {e.id})</option>)}
-                </select>
-              </div>
-
-              <div className="bg-slate-800/60 rounded-lg p-3">
-                <p className="text-xs font-bold text-slate-300 mb-2">2. Subir catálogo de municipios</p>
-                <p className="text-[9px] text-slate-500 mb-2">CSV con columnas: <code className="text-purple-300">clave_ine,nombre</code> — necesario ANTES de la cartografía.</p>
-                <div className="flex gap-2">
-                  <input type="file" accept=".csv" onChange={(e) => setArchivoMunicipios(e.target.files[0])} className="flex-1 text-[10px] text-slate-300" />
-                  <button onClick={subirMunicipiosNuevoEstado} disabled={!archivoMunicipios || !estadoParaCartografia || subiendoExpansion}
-                    className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-[10px] font-bold disabled:opacity-40 flex-shrink-0">Subir</button>
-                </div>
-              </div>
-
-              <div className="bg-slate-800/60 rounded-lg p-3">
-                <p className="text-xs font-bold text-slate-300 mb-2">3. Subir cartografía (el mapa)</p>
-                <p className="text-[9px] text-slate-500 mb-2">Archivo <code className="text-purple-300">.geojson</code> de la Cartografía Electoral del INE — cada sección debe traer <code className="text-purple-300">seccion, municipio, distrito_local, distrito_federal</code> en sus propiedades.</p>
-                <div className="flex gap-2">
-                  <input type="file" accept=".geojson,.json" onChange={(e) => setArchivoCartografia(e.target.files[0])} className="flex-1 text-[10px] text-slate-300" />
-                  <button onClick={subirCartografiaNuevoEstado} disabled={!archivoCartografia || !estadoParaCartografia || subiendoExpansion}
-                    className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-[10px] font-bold disabled:opacity-40 flex-shrink-0">
-                    {subiendoExpansion ? '⏳...' : 'Subir'}
-                  </button>
-                </div>
-              </div>
-
-              {mensajeExpansion && <p className="text-[10px] text-slate-300 bg-slate-800/60 rounded-lg p-2">{mensajeExpansion}</p>}
-              <p className="text-[9px] text-slate-500">Después de estos 3 pasos, ya puedes usar el panel de arriba ("📂 Carga de Datos por Estado") para subir resultados históricos y afiliados de este nuevo estado.</p>
-            </div>
-          )}
         </div>
 
         <div>
