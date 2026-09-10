@@ -108,6 +108,11 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
     return () => window.removeEventListener('resize', alRedimensionar);
   }, []);
   const [menuMobileAbierto, setMenuMobileAbierto] = useState(false);
+  // 🆕 DIAGNÓSTICO TEMPORAL — si la petición de secciones falla, se
+  // muestra el error DIRECTO en la pantalla (celular o computadora),
+  // sin necesitar herramientas de desarrollador para verlo. Se puede
+  // quitar una vez que encontremos y resolvamos la causa real.
+  const [errorDiagnostico, setErrorDiagnostico] = useState(null);
   const mapRef = useRef(null);
   const [geoSecciones, setGeoSecciones] = useState(null);
   const [resultados, setResultados] = useState({});
@@ -160,7 +165,16 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
       .filter(Boolean);
   }, [promovidos, centroidesSeccion]);
   useEffect(() => {
-    api.get('/geo/secciones/29').then(r => setGeoSecciones(r.data.data));
+    api.get('/geo/secciones/29')
+      .then(r => {
+        setGeoSecciones(r.data.data);
+        if (!r.data.data?.features || r.data.data.features.length === 0) {
+          setErrorDiagnostico(`⚠️ La petición funcionó, pero llegó VACÍA — 0 secciones. Respuesta completa: ${JSON.stringify(r.data).slice(0, 300)}`);
+        }
+      })
+      .catch(e => {
+        setErrorDiagnostico(`❌ Falló la petición de secciones: ${e.response?.status || 'sin conexión'} — ${e.response?.data?.error || e.message}`);
+      });
     api.get('/geo/municipios/29').then(r => {
       const mapa = {};
       r.data.data.forEach(m => { mapa[m.clave_ine] = m.nombre; });
@@ -828,6 +842,14 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
   const centroTlaxcala = [19.32, -98.24];
   return (
     <div className="relative w-full h-full bg-slate-950 overflow-hidden">
+      {/* 🆕 DIAGNÓSTICO TEMPORAL — banner visible si algo falla, se
+          puede leer directo desde el celular sin herramientas de
+          desarrollador. Se quita una vez resuelta la causa real. */}
+      {errorDiagnostico && (
+        <div className="absolute top-0 left-0 right-0 z-[3000] bg-red-600 text-white text-[11px] p-3 break-words">
+          {errorDiagnostico}
+        </div>
+      )}
       <MapContainer key={idMontajeMapa} center={centroTlaxcala} zoom={11} className="w-full h-full" zoomControl={false}>
         <LayersControl position="bottomleft">
           <LayersControl.BaseLayer name="🌙 Oscuro (recomendado de noche)">
