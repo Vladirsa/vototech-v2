@@ -711,6 +711,18 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
       if (territorioTipo === 'distrito_federal') return f.properties.distrito_federal === territorioId;
       return true;
     });
+    // 🆕 DIAGNÓSTICO TEMPORAL — si el filtro deja 0 secciones, se
+    // muestra EXACTAMENTE qué se estaba comparando (valores y tipos
+    // de dato), para encontrar la causa sin herramientas técnicas.
+    if (filtradas.length === 0 && geoSecciones.features.length > 0) {
+      const ejemplo = geoSecciones.features[0]?.properties?.[territorioTipo];
+      setErrorDiagnostico(
+        `⚠️ Filtro sin coincidencias — territorioTipo="${territorioTipo}" (${typeof territorioTipo}), ` +
+        `territorioId=${JSON.stringify(territorioId)} (${typeof territorioId}), ` +
+        `ejemplo real en los datos: ${JSON.stringify(ejemplo)} (${typeof ejemplo}). ` +
+        `Total secciones antes de filtrar: ${geoSecciones.features.length}.`
+      );
+    }
     return { ...geoSecciones, features: filtradas };
   }, [geoSecciones, territorioTipo, territorioId]);
   const estiloSeccion = (feature) => {
