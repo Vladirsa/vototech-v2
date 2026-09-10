@@ -41,8 +41,16 @@ router.get('/secciones/:estadoId', async (req, res) => {
     // geometría vive en la base de datos (columna secciones.geometria),
     // así que cualquier estado que cargues con el nuevo importador
     // funciona automáticamente, sin tocar código nunca más.
+    //
+    // 🆕 SEGUNDA CORRECCIÓN — properties.municipio debe ser la CLAVE
+    // numérica del municipio (m.clave_ine), no su nombre. El resto
+    // del sistema (el filtro por territorio, el coloreado por
+    // municipio) compara esto contra territorioId, que siempre es un
+    // número — con el nombre como texto, la comparación nunca
+    // coincidía y el mapa se veía completamente vacío en cualquier
+    // campaña de un solo municipio (como "alejandro").
     const resultado = await query(
-      `SELECT s.numero as seccion, m.nombre as municipio, s.distrito_local, s.distrito_federal, s.geometria
+      `SELECT s.numero as seccion, m.clave_ine as municipio, m.nombre as municipio_nombre, s.distrito_local, s.distrito_federal, s.geometria
        FROM secciones s JOIN municipios m ON m.id = s.municipio_id
        WHERE s.estado_id = $1 AND s.geometria IS NOT NULL`,
       [req.params.estadoId]
@@ -51,7 +59,7 @@ router.get('/secciones/:estadoId', async (req, res) => {
       type: 'FeatureCollection',
       features: resultado.rows.map((r) => ({
         type: 'Feature',
-        properties: { seccion: r.seccion, municipio: r.municipio, distrito_local: r.distrito_local, distrito_federal: r.distrito_federal },
+        properties: { seccion: r.seccion, municipio: r.municipio, municipio_nombre: r.municipio_nombre, distrito_local: r.distrito_local, distrito_federal: r.distrito_federal },
         geometry: r.geometria,
       })),
     };
