@@ -451,6 +451,60 @@ router.post('/:id/contacto', async (req, res) => {
  * contactos, para ver la evolución real de la relación, no solo
  * el contador.
  */
+/**
+ * 🆕 GET /api/promovidos/verificacion-campo
+ * Resumen por promotor de qué tan lejos capturan de la dirección
+ * que registran — para que un coordinador detecte patrones
+ * sospechosos (todo capturado desde el mismo punto = probable que
+ * no esté saliendo a tocar puertas). Solo altos mandos y
+ * coordinadores deberían ver esto.
+ */
+router.get('/verificacion-campo', async (req, res) => {
+  const resultado = await query(
+    `SELECT
+       u.id as promotor_id, u.nombre as promotor_nombre,
+       COUNT(p.id) as total_con_gps,
+       ROUND(AVG(p.distancia_verificacion_metros)) as distancia_promedio_metros,
+       COUNT(*) FILTER (WHERE p.distancia_verificacion_metros > 500) as capturas_lejanas,
+       -- Si casi todos sus puntos de celular caen muy cerca entre sí,
+       -- probablemente nunca se movió de un solo lugar.
+       ROUND(STDDEV(p.promotor_lat)::numeric * 111000) as variacion_ubicacion_metros
+     FROM promovidos p
+     JOIN usuarios u ON u.id = p.registrado_por
+     WHERE p.campana_id = $1 AND p.promotor_lat IS NOT NULL
+     GROUP BY u.id, u.nombre
+     ORDER BY capturas_lejanas DESC NULLS LAST`,
+    [req.usuario.campana_id]
+  );
+  res.json({ ok: true, data: resultado.rows });
+});
+
+/**
+ * 🆕 GET /api/promovidos/ubicaciones-promotores
+ * Para la capa del mapa "Promotores en campo" — la ÚLTIMA ubicación
+ * GPS conocida de cada promotor (de la que ya se captura al guardar
+ * un promovido, reusando ese mismo dato en vez de pedir uno nuevo).
+ * Solo trae promotores que sí tienen al menos una captura con GPS.
+ */
+router.get('/ubicaciones-promotores', async (req, res) => {
+  const resultado = await query(
+    `SELECT DISTINCT ON (p.registrado_por)
+       p.registrado_por as promotor_id, u.nombre as promotor_nombre,
+       p.promotor_lat as lat, p.promotor_lng as lng, p.creado_en as ultima_captura
+     FROM promovidos p
+     JOIN usuarios u ON u.id = p.registrado_por
+     WHERE p.campana_id = $1 AND p.promotor_lat IS NOT NULL AND p.promotor_lng IS NOT NULL
+     ORDER BY p.registrado_por, p.creado_en DESC`,
+    [req.usuario.campana_id]
+  );
+  res.json({ ok: true, data: resultado.rows });
+});
+
+// 🆕 IMPORTANTE — todo lo de arriba debe ir ANTES de esta ruta con
+// parámetro dinámico. Express hace coincidir las rutas en el orden
+// en que están escritas — '/:id' aceptaría cualquier texto como si
+// fuera un ID (incluyendo 'ubicaciones-promotores'), y eso causaba
+// un error 500 al intentar buscar un promovido con ese "id" inválido.
 router.get('/:id', async (req, res) => {
   const promovido = await query(
     `SELECT p.*, s.numero as seccion_numero, u.nombre as registrado_por_nombre
@@ -620,55 +674,6 @@ router.patch('/:id/clasificacion', async (req, res) => {
   );
   if (!resultado.rows[0]) return res.status(404).json({ ok: false, error: 'No encontrado' });
   res.json({ ok: true, data: resultado.rows[0] });
-});
-
-/**
- * 🆕 GET /api/promovidos/verificacion-campo
- * Resumen por promotor de qué tan lejos capturan de la dirección
- * que registran — para que un coordinador detecte patrones
- * sospechosos (todo capturado desde el mismo punto = probable que
- * no esté saliendo a tocar puertas). Solo altos mandos y
- * coordinadores deberían ver esto.
- */
-router.get('/verificacion-campo', async (req, res) => {
-  const resultado = await query(
-    `SELECT
-       u.id as promotor_id, u.nombre as promotor_nombre,
-       COUNT(p.id) as total_con_gps,
-       ROUND(AVG(p.distancia_verificacion_metros)) as distancia_promedio_metros,
-       COUNT(*) FILTER (WHERE p.distancia_verificacion_metros > 500) as capturas_lejanas,
-       -- Si casi todos sus puntos de celular caen muy cerca entre sí,
-       -- probablemente nunca se movió de un solo lugar.
-       ROUND(STDDEV(p.promotor_lat)::numeric * 111000) as variacion_ubicacion_metros
-     FROM promovidos p
-     JOIN usuarios u ON u.id = p.registrado_por
-     WHERE p.campana_id = $1 AND p.promotor_lat IS NOT NULL
-     GROUP BY u.id, u.nombre
-     ORDER BY capturas_lejanas DESC NULLS LAST`,
-    [req.usuario.campana_id]
-  );
-  res.json({ ok: true, data: resultado.rows });
-});
-
-/**
- * 🆕 GET /api/promovidos/ubicaciones-promotores
- * Para la capa del mapa "Promotores en campo" — la ÚLTIMA ubicación
- * GPS conocida de cada promotor (de la que ya se captura al guardar
- * un promovido, reusando ese mismo dato en vez de pedir uno nuevo).
- * Solo trae promotores que sí tienen al menos una captura con GPS.
- */
-router.get('/ubicaciones-promotores', async (req, res) => {
-  const resultado = await query(
-    `SELECT DISTINCT ON (p.registrado_por)
-       p.registrado_por as promotor_id, u.nombre as promotor_nombre,
-       p.promotor_lat as lat, p.promotor_lng as lng, p.creado_en as ultima_captura
-     FROM promovidos p
-     JOIN usuarios u ON u.id = p.registrado_por
-     WHERE p.campana_id = $1 AND p.promotor_lat IS NOT NULL AND p.promotor_lng IS NOT NULL
-     ORDER BY p.registrado_por, p.creado_en DESC`,
-    [req.usuario.campana_id]
-  );
-  res.json({ ok: true, data: resultado.rows });
 });
 
 export default router;
