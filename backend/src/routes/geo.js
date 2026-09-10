@@ -63,7 +63,13 @@ router.get('/secciones/:estadoId', async (req, res) => {
         geometry: r.geometria,
       })),
     };
-    res.set('Cache-Control', 'public, max-age=3600');
+    // 🆕 Bajado de 1 hora a 1 minuto — con 1 hora, cada corrección que
+    // hacíamos aquí tardaba hasta 1 hora en verse reflejada para
+    // cualquiera que ya hubiera abierto el mapa antes, obligando a
+    // usar modo incógnito para probar cambios. Con 1 minuto, el mapa
+    // sigue cargando rápido en el uso normal, pero un cambio real se
+    // nota casi de inmediato.
+    res.set('Cache-Control', 'public, max-age=60');
     res.json({ ok: true, data: featureCollection });
   } catch (e) {
     console.error('Error sirviendo GeoJSON:', e);
