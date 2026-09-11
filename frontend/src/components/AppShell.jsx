@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../lib/authStore';
 import { useTema } from '../lib/temaStore';
+import { contarPendientesOffline } from '../lib/colaOffline';
 
 // Mismo listado y misma lógica de permisos por rol que ya existía en
 // NavBar.jsx — se traen tal cual, solo cambia CÓMO se pintan (antes
@@ -125,6 +126,23 @@ export default function AppShell({ children }) {
   const navigate = useNavigate();
   const location = useLocation();
   const [cajonAbierto, setCajonAbierto] = useState(false);
+  // 🆕 Indicador de registros esperando conexión — antes no había
+  // ninguna forma de saber si algo se quedó guardado localmente sin
+  // enviarse todavía. Se revisa cada 8 segundos, y también apenas
+  // cambia el estado de conexión del navegador.
+  const [pendientesOffline, setPendientesOffline] = useState(0);
+  useEffect(() => {
+    const revisar = () => contarPendientesOffline().then(setPendientesOffline).catch(() => {});
+    revisar();
+    const intervalo = setInterval(revisar, 8000);
+    window.addEventListener('online', revisar);
+    window.addEventListener('offline', revisar);
+    return () => {
+      clearInterval(intervalo);
+      window.removeEventListener('online', revisar);
+      window.removeEventListener('offline', revisar);
+    };
+  }, []);
 
   const salir = () => { cerrarSesion(); navigate('/login'); };
   const modulosPermitidos = usuario?.rol === 'voluntario' ? modulosDeVoluntario(usuario.puesto)
@@ -149,6 +167,14 @@ export default function AppShell({ children }) {
           {moduloActual && <span className="text-xs text-slate-500 hidden md:inline">· {moduloActual.label}</span>}
         </div>
         <div className="flex items-center gap-2">
+          {/* 🆕 Aviso de registros esperando conexión — solo aparece
+              si de verdad hay algo pendiente, para no estorbar en el
+              uso normal del día a día. */}
+          {pendientesOffline > 0 && (
+            <span title="Registros guardados en este celular, esperando conexión para enviarse" className="text-[10px] font-bold px-2 py-1 rounded-full bg-amber-500/20 text-amber-300 flex items-center gap-1">
+              📡 {pendientesOffline}
+            </span>
+          )}
           <button onClick={alternar} className="text-sm px-2 py-1 rounded-lg hover:bg-slate-800" title="Cambiar tema">
             {tema === 'dark' ? '☀️' : '🌙'}
           </button>
