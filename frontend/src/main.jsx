@@ -4,6 +4,7 @@ import { registerSW } from 'virtual:pwa-register'
 import * as Sentry from '@sentry/react'
 import './index.css'
 import App from './App.jsx'
+import { sincronizarColaOffline } from './lib/colaOffline'
 
 // 🆕 Sentry del lado del navegador — captura errores que pasan en la
 // pantalla de la persona (que nunca llegan a tus logs de Render,
@@ -16,6 +17,13 @@ if (import.meta.env.VITE_SENTRY_DSN) {
     tracesSampleRate: 0.1,
   });
 }
+
+// 🆕 Antes solo se reintentaba mandar lo pendiente cuando el
+// navegador avisaba "ya hay internet" — si la app se cerró estando
+// SIN señal y se vuelve a abrir YA con señal (sin pasar por ese
+// aviso de cambio de estado), lo guardado se quedaba esperando sin
+// razón. Con esto, se intenta mandar apenas abre la app también.
+if (navigator.onLine) sincronizarColaOffline().catch(() => {});
 
 /**
  * 🆕 LA CORRECCIÓN REAL DEL "SIGO VIENDO LA VERSIÓN VIEJA" — antes no
