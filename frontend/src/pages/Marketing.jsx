@@ -153,6 +153,10 @@ function PanelNuevoEnvio({ onEnviado }) {
   const [previa, setPrevia] = useState(null);
   const [enviando, setEnviando] = useState(false);
   const [resultado, setResultado] = useState(null);
+  // 🆕 Progreso en vivo — antes la pantalla se quedaba "colgada"
+  // esperando el resultado final; ahora consulta cada 2 segundos
+  // mientras el envío automático corre en segundo plano.
+  const [progreso, setProgreso] = useState(null);
 
   const previsualizar = async () => {
     const { data } = await api.post('/marketing/audiencia/previsualizar', { tipo: audienciaTipo, filtros });
@@ -160,14 +164,33 @@ function PanelNuevoEnvio({ onEnviado }) {
   };
   useEffect(() => { previsualizar(); }, [audienciaTipo, JSON.stringify(filtros)]);
 
+  useEffect(() => {
+    if (!progreso || progreso.estado === 'completado') return;
+    const intervalo = setInterval(async () => {
+      try {
+        const { data } = await api.get(`/marketing/envios/${progreso.id}`);
+        setProgreso(data.data);
+        if (data.data.estado === 'completado') {
+          setResultado(data.data);
+          onEnviado();
+        }
+      } catch (e) { /* si falla un sondeo, se reintenta en el siguiente */ }
+    }, 2000);
+    return () => clearInterval(intervalo);
+  }, [progreso]);
+
   const enviar = async () => {
     setEnviando(true);
     try {
       const { data } = await api.post('/marketing/envios', {
         titulo, modo, mensaje_base: mensaje, audiencia_tipo: audienciaTipo, audiencia_filtro: filtros,
       });
-      setResultado(data.data);
-      onEnviado();
+      if (modo === 'twilio' && data.data.estado === 'en_progreso') {
+        setProgreso(data.data); // arranca el sondeo — ver useEffect arriba
+      } else {
+        setResultado(data.data);
+        onEnviado();
+      }
     } catch (e) { alert(e.response?.data?.error || 'Error al crear el envío'); }
     setEnviando(false);
   };
@@ -179,7 +202,25 @@ function PanelNuevoEnvio({ onEnviado }) {
         <p className="text-sm text-emerald-300 font-bold">
           {modo === 'enlace' ? `Cola lista con ${resultado.total} personas` : `${resultado.enviados} enviados, ${resultado.fallidos} fallidos`}
         </p>
-        <button onClick={() => setResultado(null)} className="text-xs font-bold text-indigo-400">Hacer otro envío</button>
+        <button onClick={() => { setResultado(null); setProgreso(null); }} className="text-xs font-bold text-indigo-400">Hacer otro envío</button>
+      </div>
+    );
+  }
+
+  // 🆕 Barra de progreso en vivo mientras el envío automático corre
+  // en segundo plano — la pantalla ya no se queda esperando sin
+  // avisar nada.
+  if (progreso) {
+    const hechos = progreso.enviados + progreso.fallidos;
+    const porcentaje = progreso.total > 0 ? Math.round((hechos / progreso.total) * 100) : 0;
+    return (
+      <div className="bg-indigo-500/10 border border-indigo-500/30 rounded-xl p-4 space-y-3 text-center">
+        <div className="text-2xl">📤</div>
+        <p className="text-sm font-bold text-white">Enviando... {hechos} de {progreso.total}</p>
+        <div className="h-2.5 bg-slate-800 rounded-full overflow-hidden">
+          <div className="h-full bg-indigo-500 transition-all" style={{ width: `${porcentaje}%` }} />
+        </div>
+        <p className="text-[10px] text-slate-500">✅ {progreso.enviados} enviados · ⚠️ {progreso.fallidos} fallidos — puedes cerrar esta pantalla, el envío sigue corriendo solo</p>
       </div>
     );
   }
