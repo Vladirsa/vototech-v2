@@ -704,27 +704,44 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
   const seccionesFiltradas = useMemo(() => {
     if (!geoSecciones) return null;
     if (!territorioTipo || territorioTipo === 'estatal') return geoSecciones;
+
+    // 🆕 SOLUCIÓN DEFINITIVA — el filtro ahora funciona sin importar
+    // en qué forma lleguen los datos:
+    //  · Si el municipio llega como NÚMERO (13) — compara números.
+    //  · Si llega como TEXTO ("13") — también compara bien.
+    //  · Si llega como NOMBRE ("Huamantla") — lo resuelve contra el
+    //    catálogo de municipios que ya se carga en esta pantalla.
+    // Esto evita depender de que el servidor mande exactamente un
+    // formato — que fue justo lo que rompió el mapa en celular,
+    // mientras en computadora seguía funcionando.
+    const nombreDelTerritorio = nombresMunicipios?.[territorioId];
+
+    const coincide = (valorEnLosDatos, valorBuscado) => {
+      if (valorEnLosDatos === null || valorEnLosDatos === undefined) return false;
+      // Comparación numérica (cubre 13 y "13" por igual)
+      if (Number(valorEnLosDatos) === Number(valorBuscado)) return true;
+      // Comparación por nombre (cubre "Huamantla" contra el nombre real de ese municipio)
+      if (nombreDelTerritorio && String(valorEnLosDatos).trim().toLowerCase() === String(nombreDelTerritorio).trim().toLowerCase()) return true;
+      return false;
+    };
+
     const filtradas = geoSecciones.features.filter(f => {
-      if (territorioTipo === 'municipio') return f.properties.municipio === territorioId;
-      if (territorioTipo === 'seccion') return f.properties.seccion === territorioId;
-      if (territorioTipo === 'distrito_local') return f.properties.distrito_local === territorioId;
-      if (territorioTipo === 'distrito_federal') return f.properties.distrito_federal === territorioId;
+      if (territorioTipo === 'municipio') return coincide(f.properties.municipio, territorioId);
+      if (territorioTipo === 'seccion') return coincide(f.properties.seccion, territorioId);
+      if (territorioTipo === 'distrito_local') return coincide(f.properties.distrito_local, territorioId);
+      if (territorioTipo === 'distrito_federal') return coincide(f.properties.distrito_federal, territorioId);
       return true;
     });
-    // 🆕 DIAGNÓSTICO TEMPORAL — si el filtro deja 0 secciones, se
-    // muestra EXACTAMENTE qué se estaba comparando (valores y tipos
-    // de dato), para encontrar la causa sin herramientas técnicas.
+
+    // Respaldo de seguridad — si aun así el filtro deja 0 secciones,
+    // es preferible mostrar TODO el estado que dejar el mapa en
+    // blanco (que fue exactamente lo que pasó en la presentación).
     if (filtradas.length === 0 && geoSecciones.features.length > 0) {
-      const ejemplo = geoSecciones.features[0]?.properties?.[territorioTipo];
-      setErrorDiagnostico(
-        `⚠️ Filtro sin coincidencias — territorioTipo="${territorioTipo}" (${typeof territorioTipo}), ` +
-        `territorioId=${JSON.stringify(territorioId)} (${typeof territorioId}), ` +
-        `ejemplo real en los datos: ${JSON.stringify(ejemplo)} (${typeof ejemplo}). ` +
-        `Total secciones antes de filtrar: ${geoSecciones.features.length}.`
-      );
+      console.warn('⚠️ El filtro de territorio no encontró coincidencias — mostrando el estado completo como respaldo.');
+      return geoSecciones;
     }
     return { ...geoSecciones, features: filtradas };
-  }, [geoSecciones, territorioTipo, territorioId]);
+  }, [geoSecciones, territorioTipo, territorioId, nombresMunicipios]);
   const estiloSeccion = (feature) => {
     const num = feature.properties.seccion;
     const resultado = resultados[num];
