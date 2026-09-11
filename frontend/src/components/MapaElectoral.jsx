@@ -1,14 +1,11 @@
 import { useEffect, useState, useMemo, useRef } from 'react';
 import { MapContainer, TileLayer, GeoJSON, Marker, Popup, Polyline, LayersControl, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
-// 🆕 LA CORRECCIÓN REAL — este archivo NUNCA se había importado en
-// todo el proyecto. Sin él, Leaflet no tiene sus reglas base para
-// posicionar correctamente las capas vectoriales (los polígonos de
-// cada sección) — el mapa de fondo (imágenes de calles) sobrevive
-// sin él casi por casualidad, pero las secciones dependen mucho más
-// de este archivo, y en celular la diferencia se nota todavía más
-// (por el manejo distinto de tama\u00f1os/zoom t\u00e1ctil).
-import 'leaflet/dist/leaflet.css';
+// NOTA: se probó importar 'leaflet/dist/leaflet.css' aquí, pero eso
+// rompió la visualización del mapa en celular (dejaba de verse por
+// completo, incluso en campañas que antes funcionaban bien). El
+// proyecto ya trae sus propios estilos que cubren lo necesario — no
+// volver a agregar ese import sin probar primero en un celular real.
 import InsigniaPartido, { COLOR_PARTIDO as PARTIDOS } from './InsigniaPartido';
 import 'leaflet.heat';
 import axios from 'axios';
