@@ -20,9 +20,9 @@ async function abrirDB() {
 }
 
 /** Guarda una petición que falló por falta de red, para reintentarla después. */
-export async function guardarEnColaOffline(tipo, endpoint, payload) {
+export async function guardarEnColaOffline(tipo, endpoint, payload, metodo = 'post') {
   const db = await abrirDB();
-  await db.add(TIENDA, { tipo, endpoint, payload, creado_en: new Date().toISOString(), intentos: 0 });
+  await db.add(TIENDA, { tipo, endpoint, payload, metodo, creado_en: new Date().toISOString(), intentos: 0 });
 }
 
 export async function contarPendientesOffline() {
@@ -49,7 +49,12 @@ export async function sincronizarColaOffline() {
 
   for (const item of pendientes) {
     try {
-      await api.post(item.endpoint, item.payload);
+      // 🆕 Ahora respeta el método real (POST o PATCH) — antes
+      // siempre mandaba POST sin importar cuál necesitaba la
+      // petición original, lo que hubiera hecho fallar cualquier
+      // cosa guardada como PATCH (como marcar "ya votó").
+      const metodo = item.metodo || 'post';
+      await api[metodo](item.endpoint, metodo === 'patch' && Object.keys(item.payload || {}).length === 0 ? undefined : item.payload);
       await db.delete(TIENDA, item.id);
       exitosos++;
     } catch (e) {
