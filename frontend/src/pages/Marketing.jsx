@@ -525,8 +525,16 @@ function PanelBiblioteca() {
             <textarea placeholder="Texto" value={form.texto} onChange={(e) => setForm({ ...form, texto: e.target.value })}
               className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm min-h-24" />
           ) : (
-            <input type="file" onChange={(e) => setArchivo(e.target.files[0])}
-              className="w-full text-xs text-slate-400" />
+            <label className="block rounded-xl p-4 cursor-pointer bg-gradient-to-r from-indigo-600 to-purple-600 shadow-lg shadow-indigo-500/30 transition-transform active:scale-[0.98]">
+              <div className="flex items-center justify-center gap-3">
+                <span className="text-3xl">📎</span>
+                <div className="text-left">
+                  <div className="text-sm font-black text-white">{archivo ? archivo.name : 'Elegir archivo'}</div>
+                  <div className="text-[10px] text-indigo-100">{archivo ? 'Toca para cambiarlo' : 'Toca aquí para subir imagen, PDF o video'}</div>
+                </div>
+              </div>
+              <input type="file" onChange={(e) => setArchivo(e.target.files[0])} className="hidden" />
+            </label>
           )}
           <div className="flex gap-1.5 flex-wrap">
             {form.etiquetas.map((et, i) => <span key={i} className="text-[10px] bg-indigo-500/20 text-indigo-300 px-2 py-1 rounded-full">#{et}</span>)}

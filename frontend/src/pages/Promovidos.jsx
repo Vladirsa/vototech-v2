@@ -171,15 +171,23 @@ export function ModalAgregar({ onCerrar, onGuardado, seccionInicial }) {
 
         {/* 🆕 Lectura de credencial INE — llena nombre, sección y
             domicilio de un jalón. La foto nunca se guarda, solo el
-            texto que se lee de ella. */}
-        <div className="bg-indigo-500/10 border border-indigo-500/30 rounded-lg p-3">
-          <label className="flex items-center justify-center gap-2 text-xs font-bold text-indigo-300 cursor-pointer py-1.5">
-            {leyendoCredencial ? '⏳ Leyendo credencial...' : '📇 Leer credencial INE (llena los datos solo)'}
-            <input ref={inputCredencial} type="file" accept="image/*" capture="environment" className="hidden"
-              onChange={(e) => leerCredencialConIA(e.target.files[0])} disabled={leyendoCredencial} />
-          </label>
-          <p className="text-[9px] text-indigo-300/70 text-center -mt-1">La foto no se guarda — solo se lee el texto una vez</p>
-          {avisoCredencial && (
+            texto que se lee de ella.
+            🆕 Rediseñado para que se vea como un botón real — antes
+            era texto con un fondo sutil, y la gente no se daba cuenta
+            de que ahí se podía tocar. */}
+        <label className={`block rounded-xl p-4 cursor-pointer transition-transform active:scale-[0.98] ${leyendoCredencial ? 'bg-slate-700' : 'bg-gradient-to-r from-indigo-600 to-purple-600 shadow-lg shadow-indigo-500/30'}`}>
+          <div className="flex items-center justify-center gap-3">
+            <span className="text-3xl">{leyendoCredencial ? '⏳' : '📇'}</span>
+            <div className="text-left">
+              <div className="text-sm font-black text-white">{leyendoCredencial ? 'Leyendo credencial...' : 'Leer credencial INE'}</div>
+              <div className="text-[10px] text-indigo-100">{leyendoCredencial ? 'Un momento...' : 'Toca aquí para llenar los datos solo, con una foto'}</div>
+            </div>
+          </div>
+          <input ref={inputCredencial} type="file" accept="image/*" capture="environment" className="hidden"
+            onChange={(e) => leerCredencialConIA(e.target.files[0])} disabled={leyendoCredencial} />
+        </label>
+        <p className="text-[9px] text-slate-500 text-center">La foto no se guarda — solo se lee el texto una vez</p>
+        {avisoCredencial && (
             <div className={`mt-2 text-[10px] rounded-lg px-2 py-1.5 ${avisoCredencial.confianza === 'alta' ? 'bg-emerald-500/10 text-emerald-300' : avisoCredencial.confianza === 'media' ? 'bg-amber-500/10 text-amber-300' : 'bg-red-500/10 text-red-300'}`}>
               {avisoCredencial.confianza === 'alta' ? '✅ Leída con buena claridad' : avisoCredencial.confianza === 'media' ? '⚠️ Revisa los datos, algo pudo no leerse bien' : `⚠️ ${avisoCredencial.advertencia || 'No se leyó bien, revisa o captura a mano'}`}
               {(avisoCredencial.distrito_federal || avisoCredencial.distrito_local || avisoCredencial.municipio || avisoCredencial.colonia) && (
@@ -192,7 +200,6 @@ export function ModalAgregar({ onCerrar, onGuardado, seccionInicial }) {
               )}
             </div>
           )}
-        </div>
 
         <input placeholder="Nombre completo *" value={form.nombre} onChange={(e) => actualizar('nombre', e.target.value)}
           className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
@@ -532,12 +539,18 @@ function ModalImportar({ onCerrar, onImportado }) {
         </p>
 
         {!archivo && (
-          <div>
-            <input type="file" accept=".csv,.xlsx,.xls" onChange={(e) => leerArchivo(e.target.files[0])}
-              className="w-full text-xs text-slate-400 file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:bg-indigo-600 file:text-white file:text-xs file:font-bold" />
-            <p className="text-[9px] text-slate-600 mt-2">Formato CSV recomendado (exporta tu Excel como CSV desde Excel/Google Sheets)</p>
-          </div>
+          <label className="block rounded-xl p-4 cursor-pointer bg-gradient-to-r from-indigo-600 to-purple-600 shadow-lg shadow-indigo-500/30 transition-transform active:scale-[0.98]">
+            <div className="flex items-center justify-center gap-3">
+              <span className="text-3xl">📁</span>
+              <div className="text-left">
+                <div className="text-sm font-black text-white">Elegir archivo</div>
+                <div className="text-[10px] text-indigo-100">Toca aquí para subir tu Excel o CSV</div>
+              </div>
+            </div>
+            <input type="file" accept=".csv,.xlsx,.xls" onChange={(e) => leerArchivo(e.target.files[0])} className="hidden" />
+          </label>
         )}
+        {!archivo && <p className="text-[9px] text-slate-600 text-center">Formato CSV recomendado (exporta tu Excel como CSV desde Excel/Google Sheets)</p>}
         {errorLectura && (
           <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 text-xs text-red-300">
             ⚠️ {errorLectura}
