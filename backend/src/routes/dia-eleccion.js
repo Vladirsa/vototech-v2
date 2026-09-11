@@ -733,6 +733,63 @@ router.get('/avance-estructura', async (req, res) => {
 });
 
 /**
+ * 🆕 GET /api/dia-eleccion/avance-por-seccion
+ * Por sección: cuántos de tus comprometidos ya confirmaron haber
+ * votado, y — SOLO si ya existe un resultado OFICIAL capturado ahí —
+ * si tu propio partido va ganando en esa sección específica.
+ *
+ * IMPORTANTE — respeta el mismo principio legal de siempre: nunca se
+ * infiere por quién votó nadie. Lo de "ya votaron" es solo asistencia
+ * confirmada de TUS propios comprometidos (dato lícito, ellos mismos
+ * lo confirman). Lo de "ganando/perdiendo" viene ÚNICAMENTE de actas
+ * ya capturadas — votos reales, no una suposición.
+ */
+router.get('/avance-por-seccion', async (req, res) => {
+  const campanaId = req.usuario.campana_id;
+  const campanaRes = await query('SELECT partido FROM campanas WHERE id=$1', [campanaId]);
+  const partidoPropio = campanaRes.rows[0]?.partido;
+
+  const resultado = await query(
+    `SELECT
+       s.numero as seccion_numero,
+       COUNT(p.id) FILTER (WHERE p.comprometido=true AND p.clasificacion='base') as comprometidos_base,
+       COUNT(p.id) FILTER (WHERE p.comprometido=true AND p.clasificacion='base' AND p.ya_voto=true) as ya_votaron,
+       (SELECT json_agg(json_build_object('votos', rc.votos, 'nulos', rc.nulos))
+          FROM resultados_casilla rc WHERE rc.campana_id=$1 AND rc.seccion_id=s.id) as resultados_capturados
+     FROM secciones s
+     LEFT JOIN promovidos p ON p.seccion_id = s.id AND p.campana_id = $1
+     WHERE s.id IN (SELECT DISTINCT seccion_id FROM casillas WHERE campana_id=$1)
+     GROUP BY s.id, s.numero
+     ORDER BY s.numero`,
+    [campanaId]
+  );
+
+  const filas = resultado.rows.map((r) => {
+    let vaGanando = null; // null = todavía no hay resultado oficial de esa sección
+    if (r.resultados_capturados && r.resultados_capturados.length > 0) {
+      const sumaVotos = {};
+      r.resultados_capturados.forEach((rc) => {
+        Object.entries(rc.votos || {}).forEach(([partido, votos]) => {
+          sumaVotos[partido] = (sumaVotos[partido] || 0) + votos;
+        });
+      });
+      const partidoLider = Object.entries(sumaVotos).sort((a, b) => b[1] - a[1])[0]?.[0];
+      vaGanando = partidoLider === partidoPropio;
+    }
+    return {
+      seccion_numero: r.seccion_numero,
+      comprometidos_base: parseInt(r.comprometidos_base),
+      ya_votaron: parseInt(r.ya_votaron),
+      porcentaje_asistencia: r.comprometidos_base > 0 ? Math.round((r.ya_votaron / r.comprometidos_base) * 100) : 0,
+      tiene_resultado_oficial: !!r.resultados_capturados,
+      va_ganando: vaGanando, // true, false, o null (sin resultado todavía)
+    };
+  });
+
+  res.json({ ok: true, data: filas });
+});
+
+/**
  * POST /api/dia-eleccion/simular-eleccion
  * SOLO para campañas demo — genera resultados realistas para las
  * casillas que aún no tienen resultado, usando el histórico REAL de
@@ -832,6 +889,33 @@ router.post('/simular-eleccion', async (req, res) => {
             ...resultado.rows[0], seccion_numero: casilla.seccion_numero, capturado_por_nombre: '🤖 Simulación',
           });
         }
+
+        // 🆕 LO QUE FALTABA — el simulador solo generaba resultados
+        // OFICIALES por casilla, nunca marcaba promovidos individuales
+        // como "ya votó". Por eso la Cacería y la capa "Ya votaron"
+        // del mapa se quedaban vacías (o con solo 1 registro, el que
+        // alguien marcó a mano) mientras "Avance en vivo" sí se veía
+        // lleno — dos partes de la misma demo que no coincidían.
+        // Ahora se marca un porcentaje realista de los comprometidos
+        // de ESA MISMA sección, con la misma tasa de participación
+        // (53%) que ya se usa arriba — para que ambas vistas cuenten
+        // la misma historia.
+        const comprometidosSeccion = await query(
+          `SELECT id FROM promovidos
+           WHERE campana_id=$1 AND seccion_id=$2 AND clasificacion='base' AND comprometido=true AND ya_voto=false`,
+          [req.usuario.campana_id, casilla.seccion_id]
+        );
+        const aMarcar = comprometidosSeccion.rows.filter(() => Math.random() < PARTICIPACION_OBJETIVO);
+        if (aMarcar.length > 0) {
+          const idsAMarcar = aMarcar.map((p) => p.id);
+          const marcados = await query(
+            `UPDATE promovidos SET ya_voto=true, hora_voto=now() WHERE id = ANY($1::uuid[]) RETURNING id, nombre`,
+            [idsAMarcar]
+          );
+          marcados.rows.forEach((p) => {
+            getIo().to(`campana:${req.usuario.campana_id}`).emit('voto_confirmado', p);
+          });
+        }
       } catch (e) {
         console.error('Error en simulación de casilla:', e.message);
       }
@@ -855,6 +939,9 @@ router.post('/reiniciar-simulacion', async (req, res) => {
     return res.status(403).json({ ok: false, error: 'Solo disponible en campañas demo' });
   }
   await query('DELETE FROM resultados_casilla WHERE campana_id=$1', [req.usuario.campana_id]);
+  // 🆕 También se limpian los "ya votó" que puso el simulador — para
+  // que reiniciar de verdad regrese todo a cero, no solo la mitad.
+  await query(`UPDATE promovidos SET ya_voto=false, hora_voto=NULL WHERE campana_id=$1 AND ya_voto=true`, [req.usuario.campana_id]);
   getIo().to(`campana:${req.usuario.campana_id}`).emit('resultado_actualizado', { reinicio: true });
   res.json({ ok: true, mensaje: 'Resultados borrados — listo para simular de nuevo' });
 });
