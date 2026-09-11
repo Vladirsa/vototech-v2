@@ -185,6 +185,51 @@ router.delete('/checklist/item/:itemId', async (req, res) => {
   res.json({ ok: true });
 });
 
+// ═══════════════════════════════════════════════════════════════
+// 🆕 ASIGNACIONES POR EVENTO — la pieza que faltaba. Antes,
+// Vehículos y Choferes eran solo un inventario general, sin ninguna
+// forma de decir "para el mitin del sábado, usa el Vehículo #2 con
+// el chofer Juan" — cada evento necesitaba coordinarse aparte, por
+// fuera del sistema. Ahora se conecta directo con la Agenda.
+// ═══════════════════════════════════════════════════════════════
+
+router.get('/asignaciones/:agendaId', async (req, res) => {
+  const resultado = await query(
+    `SELECT la.*, a.subtipo as vehiculo_nombre, c.nombre as chofer_nombre, c.telefono as chofer_telefono
+     FROM logistica_asignaciones la
+     LEFT JOIN activos a ON a.id = la.vehiculo_id
+     LEFT JOIN choferes c ON c.id = la.chofer_id
+     WHERE la.agenda_id=$1 AND la.campana_id=$2 ORDER BY la.creado_en`,
+    [req.params.agendaId, req.usuario.campana_id]
+  );
+  res.json({ ok: true, data: resultado.rows });
+});
+
+const esquemaAsignacion = z.object({
+  vehiculo_id: z.string().uuid().optional(),
+  chofer_id: z.string().uuid().optional(),
+  hora_salida: z.string().optional(),
+  notas: z.string().max(300).optional(),
+});
+
+router.post('/asignaciones/:agendaId', async (req, res) => {
+  const parseado = esquemaAsignacion.safeParse(req.body);
+  if (!parseado.success) return res.status(400).json({ ok: false, error: parseado.error.errors[0].message });
+  const d = parseado.data;
+  if (!d.vehiculo_id && !d.chofer_id) return res.status(400).json({ ok: false, error: 'Elige al menos un vehículo o un chofer' });
+  const resultado = await query(
+    `INSERT INTO logistica_asignaciones (campana_id, agenda_id, vehiculo_id, chofer_id, hora_salida, notas)
+     VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+    [req.usuario.campana_id, req.params.agendaId, d.vehiculo_id || null, d.chofer_id || null, d.hora_salida || null, d.notas || null]
+  );
+  res.status(201).json({ ok: true, data: resultado.rows[0] });
+});
+
+router.delete('/asignaciones/:id', async (req, res) => {
+  await query('DELETE FROM logistica_asignaciones WHERE id=$1 AND campana_id=$2', [req.params.id, req.usuario.campana_id]);
+  res.json({ ok: true });
+});
+
 router.get('/resumen', async (req, res) => {
   const proximosEventos = await query(
     `SELECT a.id, a.titulo, a.fecha_inicio,
