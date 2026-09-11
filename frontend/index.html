@@ -6,6 +6,14 @@
     <link rel="apple-touch-icon" href="/pwa-192x192.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#1e1b4b" />
+    <!-- 🆕 LO QUE FALTABA — sin estas 3 líneas, iPhone SÍ deja
+         "Agregar a pantalla de inicio", pero el resultado se abre
+         como una pestaña normal de Safari (con barra de dirección y
+         botones del navegador) en vez de sentirse como una app real
+         de pantalla completa — por eso parecía que "no funcionaba". -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="VotoTech" />
     <meta name="description" content="VotoTech — Sistema de gestión de campañas electorales" />
     <title>VotoTech</title>
   </head>
