@@ -202,48 +202,73 @@ router.post('/envios', async (req, res) => {
     return res.status(400).json({ ok: false, error: 'No tienes números de WhatsApp configurados. Agrega al menos uno en la pestaña Números.' });
   }
 
-  const usoHoy = {};
-  for (const n of numeros.rows) {
-    const u = await query(`SELECT COUNT(*) as total FROM whatsapp_envios_log WHERE numero_id=$1 AND enviado_en::date = CURRENT_DATE`, [n.id]);
-    usoHoy[n.id] = parseInt(u.rows[0].total);
-  }
+  // 🆕 LA CORRECCIÓN REAL — antes esta petición se quedaba esperando
+  // a que TODOS los mensajes se mandaran uno por uno (250ms cada
+  // uno) antes de contestar. Con audiencias grandes (cientos de
+  // personas), esto tardaba minutos — tiempo suficiente para que
+  // Render cortara la conexión, mostrando un error aunque el envío
+  // real siguiera corriendo por dentro.
+  //
+  // Ahora se responde DE INMEDIATO con el envío en curso, y el
+  // mandado real pasa en segundo plano, guardando el avance en la
+  // base cada pocos mensajes — la pantalla lo consulta con el mismo
+  // endpoint de detalle que ya existía, cada 2-3 segundos, mostrando
+  // una barra de progreso real en vez de quedarse "colgada".
+  res.status(201).json({ ok: true, data: envio });
 
-  const lista = envio.destinatarios;
-  let enviados = 0, fallidos = 0;
-
-  for (const persona of lista) {
-    const disponibles = numeros.rows.filter((n) => usoHoy[n.id] < n.limite_diario);
-    if (disponibles.length === 0) { persona.estado = 'fallido'; persona.mensaje_error = 'Todos los números llegaron a su límite diario'; fallidos++; continue; }
-    disponibles.sort((a, b) => usoHoy[a.id] - usoHoy[b.id]);
-    const numero = disponibles[0];
-
-    if (!numero.account_sid || !numero.auth_token) {
-      persona.estado = 'fallido'; persona.mensaje_error = 'Número sin credenciales de Twilio configuradas'; fallidos++; continue;
+  (async () => {
+    const usoHoy = {};
+    for (const n of numeros.rows) {
+      const u = await query(`SELECT COUNT(*) as total FROM whatsapp_envios_log WHERE numero_id=$1 AND enviado_en::date = CURRENT_DATE`, [n.id]);
+      usoHoy[n.id] = parseInt(u.rows[0].total);
     }
 
-    try {
-      const cliente = twilio(numero.account_sid, numero.auth_token);
-      const from = numero.numero_whatsapp.startsWith('whatsapp:') ? numero.numero_whatsapp : `whatsapp:${numero.numero_whatsapp}`;
-      let tel = persona.telefono.replace(/\D/g, '');
-      if (tel.length === 10) tel = '52' + tel;
-      await cliente.messages.create({ from, to: `whatsapp:+${tel}`, body: persona.mensaje });
+    const lista = envio.destinatarios;
+    let enviados = 0, fallidos = 0;
 
-      persona.estado = 'enviado'; persona.enviado_en = new Date().toISOString(); persona.numero_usado = numero.alias;
-      await query('INSERT INTO whatsapp_envios_log (numero_id) VALUES ($1)', [numero.id]);
-      usoHoy[numero.id]++;
-      enviados++;
-    } catch (e) {
-      persona.estado = 'fallido'; persona.mensaje_error = 'Error al enviar'; fallidos++;
+    for (let i = 0; i < lista.length; i++) {
+      const persona = lista[i];
+      const disponibles = numeros.rows.filter((n) => usoHoy[n.id] < n.limite_diario);
+      if (disponibles.length === 0) { persona.estado = 'fallido'; persona.mensaje_error = 'Todos los números llegaron a su límite diario'; fallidos++; continue; }
+      disponibles.sort((a, b) => usoHoy[a.id] - usoHoy[b.id]);
+      const numero = disponibles[0];
+
+      if (!numero.account_sid || !numero.auth_token) {
+        persona.estado = 'fallido'; persona.mensaje_error = 'Número sin credenciales de Twilio configuradas'; fallidos++; continue;
+      }
+
+      try {
+        const cliente = twilio(numero.account_sid, numero.auth_token);
+        const from = numero.numero_whatsapp.startsWith('whatsapp:') ? numero.numero_whatsapp : `whatsapp:${numero.numero_whatsapp}`;
+        let tel = persona.telefono.replace(/\D/g, '');
+        if (tel.length === 10) tel = '52' + tel;
+        await cliente.messages.create({ from, to: `whatsapp:+${tel}`, body: persona.mensaje });
+
+        persona.estado = 'enviado'; persona.enviado_en = new Date().toISOString(); persona.numero_usado = numero.alias;
+        await query('INSERT INTO whatsapp_envios_log (numero_id) VALUES ($1)', [numero.id]);
+        usoHoy[numero.id]++;
+        enviados++;
+      } catch (e) {
+        persona.estado = 'fallido'; persona.mensaje_error = 'Error al enviar'; fallidos++;
+      }
+
+      // Guarda el avance cada 5 mensajes (y siempre en el último) —
+      // suficiente para que la barra de progreso se vea viva, sin
+      // saturar la base con una escritura por cada mensaje.
+      if (i % 5 === 0 || i === lista.length - 1) {
+        await query(
+          `UPDATE marketing_envios SET destinatarios=$1, enviados=$2, fallidos=$3 WHERE id=$4`,
+          [JSON.stringify(lista), enviados, fallidos, envio.id]
+        ).catch(() => {});
+      }
+      await new Promise((r) => setTimeout(r, 250));
     }
-    await new Promise((r) => setTimeout(r, 250));
-  }
 
-  const actualizado = await query(
-    `UPDATE marketing_envios SET destinatarios=$1, enviados=$2, fallidos=$3, estado='completado' WHERE id=$4 RETURNING *`,
-    [JSON.stringify(lista), enviados, fallidos, envio.id]
-  );
-
-  res.status(201).json({ ok: true, data: actualizado.rows[0] });
+    await query(
+      `UPDATE marketing_envios SET destinatarios=$1, enviados=$2, fallidos=$3, estado='completado' WHERE id=$4`,
+      [JSON.stringify(lista), enviados, fallidos, envio.id]
+    ).catch((e) => console.error('Error guardando envío completado:', e.message));
+  })();
 });
 
 router.patch('/envios/:id/marcar/:destinatarioId', async (req, res) => {
