@@ -234,7 +234,24 @@ export default function DiaEleccion() {
     captura_estado_cambio: (d) => setCapturaCerrada(d.cerrada),
   });
 
-  const marcarVoto = async (id) => { await api.patch(`/dia-eleccion/caceria/${id}/voto`); };
+  const marcarVoto = async (id) => {
+    // 🆕 Se quita de la lista al momento, sin esperar respuesta del
+    // servidor — así el promotor ve el efecto de inmediato incluso
+    // sin señal, en vez de seguir viendo a alguien que ya marcó.
+    setCaceria((prev) => prev.filter((c) => c.id !== id));
+    try {
+      await api.patch(`/dia-eleccion/caceria/${id}/voto`);
+    } catch (e) {
+      if (!e.response) {
+        // 🆕 Sin señal real — se guarda para mandarlo solo después,
+        // igual que ya protege a Día D (resultados) e Incidencias.
+        await guardarEnColaOffline('voto_confirmado', `/dia-eleccion/caceria/${id}/voto`, {}, 'patch');
+      }
+      // Si el error SÍ tiene respuesta del servidor (raro para esta
+      // acción tan simple), no se hace nada más — ya se quitó de la
+      // lista local, y no vale la pena estorbar con un aviso aquí.
+    }
+  };
 
   const toggleCierre = async () => {
     const { data } = await api.post('/dia-eleccion/cerrar-captura', { cerrar: !capturaCerrada });

@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import api, { descargarArchivo } from '../lib/api';
+import { guardarEnColaOffline } from '../lib/colaOffline';
 import BuscadorCalle from '../components/BuscadorCalle';
 import InsigniaPartido from '../components/InsigniaPartido';
 import Papa from 'papaparse';
@@ -127,25 +128,37 @@ export function ModalAgregar({ onCerrar, onGuardado, seccionInicial }) {
   const guardar = async () => {
     if (!form.consentimiento) { setError('Se requiere el consentimiento del ciudadano (LFPDPPP)'); return; }
     setGuardando(true);
+    const datos = {
+      ...form,
+      seccion_numero: form.seccion_numero ? parseInt(form.seccion_numero) : undefined,
+      // 🆕 lat/lng arrancan en null cuando no se ha elegido una
+      // dirección real todavía — el backend espera un número o que
+      // el campo ni siquiera venga, nunca "null" explícito (por
+      // eso salía "Expected number, received null").
+      lat: form.lat ?? undefined,
+      lng: form.lng ?? undefined,
+      encuesta: form.necesidad_principal ? { necesidad_principal: form.necesidad_principal } : undefined,
+    };
     try {
-      const { data } = await api.post('/promovidos', {
-        ...form,
-        seccion_numero: form.seccion_numero ? parseInt(form.seccion_numero) : undefined,
-        // 🆕 lat/lng arrancan en null cuando no se ha elegido una
-        // dirección real todavía — el backend espera un número o que
-        // el campo ni siquiera venga, nunca "null" explícito (por
-        // eso salía "Expected number, received null").
-        lat: form.lat ?? undefined,
-        lng: form.lng ?? undefined,
-        encuesta: form.necesidad_principal ? { necesidad_principal: form.necesidad_principal } : undefined,
-      });
+      const { data } = await api.post('/promovidos', datos);
       // 🆕 Si la dirección buscada cae geográficamente en otra
       // sección distinta a la que se escribió, se avisa — no bloquea
       // el guardado, pero conviene revisarlo.
       if (data.alerta_seccion_no_coincide) alert(data.alerta_seccion_no_coincide);
       onGuardado();
     } catch (err) {
-      setError(err.response?.data?.error || 'Error al guardar');
+      if (!err.response) {
+        // 🆕 LA PIEZA QUE FALTABA — igual que ya protege a Día D e
+        // Incidencias: sin señal real (no un error del servidor),
+        // el promovido se guarda en el celular y se manda solo en
+        // cuanto regrese la conexión, en vez de perderse.
+        await guardarEnColaOffline('promovido', '/promovidos', datos);
+        setError('');
+        alert('📡 Sin señal — este promovido se guardó en tu celular y se enviará automáticamente en cuanto haya conexión.');
+        onGuardado();
+      } else {
+        setError(err.response?.data?.error || 'Error al guardar');
+      }
     }
     setGuardando(false);
   };
