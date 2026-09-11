@@ -29,8 +29,8 @@ function ControlCentrarMapa({ centro, zoomInicial, centroReal }) {
   }, [centroReal, map, zoomInicial]);
   return (
     <div className="absolute top-16 right-2 z-[999] flex flex-col gap-1.5">
-      <button onClick={() => map.flyTo(centro, zoomInicial, { duration: 0.8 })}
-        title="Centrar el mapa"
+      <button onClick={() => map.flyTo(centroReal || centro, zoomInicial, { duration: 0.8 })}
+        title="Centrar el mapa en tu territorio"
         className="w-9 h-9 rounded-lg bg-slate-900/95 backdrop-blur border border-slate-700 text-white text-base shadow-lg flex items-center justify-center hover:bg-slate-800">
         🎯
       </button>
