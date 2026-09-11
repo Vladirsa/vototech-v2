@@ -74,6 +74,11 @@ async function calcularAudiencia(campanaId, tipo, filtros = {}, estadoId = 29) {
     }
     if (filtros.partido) { params.push(filtros.partido); sql += ` AND p.partido=$${params.length}`; }
     if (filtros.comprometido !== undefined) { params.push(filtros.comprometido); sql += ` AND p.comprometido=$${params.length}`; }
+    // 🆕 Filtros nuevos — necesarios para que los segmentos sugeridos
+    // (ver /segmentos-sugeridos) se puedan aplicar de verdad al mandar.
+    if (filtros.temperatura) { params.push(filtros.temperatura); sql += ` AND p.temperatura=$${params.length}`; }
+    if (filtros.ya_voto !== undefined) { params.push(filtros.ya_voto); sql += ` AND p.ya_voto=$${params.length}`; }
+    if (filtros.dias_sin_contacto_min) { params.push(filtros.dias_sin_contacto_min); sql += ` AND p.creado_en < now() - ($${params.length}::text || ' days')::interval`; }
     const r = await query(sql, params);
     return r.rows;
   }
@@ -93,6 +98,64 @@ router.post('/audiencia/previsualizar', async (req, res) => {
   if (!['promovidos', 'estructura'].includes(tipo)) return res.status(400).json({ ok: false, error: 'Tipo de audiencia inválido' });
   const gente = await calcularAudiencia(req.usuario.campana_id, tipo, filtros || {}, req.usuario.estado_id);
   res.json({ ok: true, total: gente.length, muestra: gente.slice(0, 5) });
+});
+
+/**
+ * 🆕 GET /api/marketing/segmentos-sugeridos
+ * El "asesor de segmentos" — en vez de armar un filtro a ciegas,
+ * analiza tus promovidos reales y sugiere A QUIÉN conviene mandarle
+ * QUÉ TIPO de mensaje, con la razón — para mejor eficiencia en vez
+ * de mandar el mismo mensaje a todos por igual.
+ */
+router.get('/segmentos-sugeridos', async (req, res) => {
+  const campanaId = req.usuario.campana_id;
+
+  const definiciones = [
+    {
+      id: 'base_sin_comprometer',
+      nombre: 'Base sin comprometer todavía',
+      razon: 'Ya se identificaron como afines, pero no han confirmado su voto — el mensaje correcto es invitarlos a comprometerse, no venderles el candidato desde cero.',
+      tipo_mensaje_sugerido: 'mensaje_dia',
+      filtro: { clasificacion: 'base', comprometido: false },
+    },
+    {
+      id: 'persuadibles',
+      nombre: 'Persuadibles',
+      razon: 'Todavía no decidieron — aquí sí conviene un mensaje con argumentos y propuestas concretas, no solo una invitación.',
+      tipo_mensaje_sugerido: 'argumentario',
+      filtro: { clasificacion: 'persuadible' },
+    },
+    {
+      id: 'calientes_sin_comprometer',
+      nombre: 'Temperatura caliente, sin comprometer',
+      razon: 'Mostraron mucho interés en persona pero todavía no se registran como comprometidos — están listos para un mensaje directo de cierre, no de introducción.',
+      tipo_mensaje_sugerido: 'mensaje_dia',
+      filtro: { temperatura: 'caliente', comprometido: false },
+    },
+    {
+      id: 'comprometidos_sin_contacto',
+      nombre: 'Comprometidos, sin contacto en 15+ días',
+      razon: 'Ya dijeron que sí, pero lleva tiempo sin haber ningún seguimiento — se enfrían solos si se les deja de lado. Conviene un mensaje de reactivación, recordándoles que sigues contando con ellos.',
+      tipo_mensaje_sugerido: 'storytelling',
+      filtro: { comprometido: true, dias_sin_contacto_min: 15 },
+    },
+    {
+      id: 'comprometidos_sin_voto_confirmado',
+      nombre: 'Comprometidos que no han confirmado su voto',
+      razon: 'El grupo más importante para el día de la elección — ya están comprometidos, falta el empujón final para que de verdad vayan a votar.',
+      tipo_mensaje_sugerido: 'mensaje_dia',
+      filtro: { comprometido: true, ya_voto: false },
+    },
+  ];
+
+  const segmentos = await Promise.all(definiciones.map(async (def) => {
+    const gente = await calcularAudiencia(campanaId, 'promovidos', def.filtro, req.usuario.estado_id);
+    return { ...def, total: gente.length };
+  }));
+
+  // Solo se muestran los segmentos que de verdad tienen gente — no
+  // tiene sentido sugerir mandarle algo a 0 personas.
+  res.json({ ok: true, data: segmentos.filter((s) => s.total > 0).sort((a, b) => b.total - a.total) });
 });
 
 // ═══════════════════════════════════════════════════════════════
