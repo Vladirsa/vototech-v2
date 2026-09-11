@@ -179,6 +179,7 @@ export default function DiaEleccion() {
   const [prep, setPrep] = useState(null);
   const [conteoRapido, setConteoRapido] = useState(null);
   const [avanceEstructura, setAvanceEstructura] = useState(null);
+  const [avancePorSeccion, setAvancePorSeccion] = useState(null);
   const [alertasSinReportar, setAlertasSinReportar] = useState([]);
   const [capturaCerrada, setCapturaCerrada] = useState(false);
   const [esDemo, setEsDemo] = useState(false);
@@ -192,6 +193,7 @@ export default function DiaEleccion() {
     api.get('/dia-eleccion/conteo-rapido').then((r) => setConteoRapido(r.data.data));
     api.get('/dia-eleccion/alertas-sin-reportar').then((r) => setAlertasSinReportar(r.data.data));
     if (!vistaSimple) api.get('/dia-eleccion/avance-estructura').then((r) => setAvanceEstructura(r.data.data)).catch(() => {});
+    if (!vistaSimple) api.get('/dia-eleccion/avance-por-seccion').then((r) => setAvancePorSeccion(r.data.data)).catch(() => {});
     api.get('/auth/mi-campana').then((r) => setEsDemo(r.data.data.es_demo)).catch(() => {});
   };
   useEffect(cargarTodo, []);
@@ -222,7 +224,13 @@ export default function DiaEleccion() {
 
   useSocket({
     resultado_actualizado: () => cargarTodo(),
-    voto_confirmado: (p) => setCaceria((prev) => prev.filter((c) => c.id !== p.id)),
+    voto_confirmado: (p) => {
+      setCaceria((prev) => prev.filter((c) => c.id !== p.id));
+      // 🆕 Antes solo se actualizaba la lista de Cacería — el panel
+      // de "avance por sección" se quedaba desactualizado hasta la
+      // siguiente vez que se recargara toda la página.
+      if (!vistaSimple) api.get('/dia-eleccion/avance-por-seccion').then((r) => setAvancePorSeccion(r.data.data)).catch(() => {});
+    },
     captura_estado_cambio: (d) => setCapturaCerrada(d.cerrada),
   });
 
@@ -255,15 +263,6 @@ export default function DiaEleccion() {
           <button onClick={toggleCierre} className={`w-full py-2 rounded-lg text-xs font-bold ${capturaCerrada ? 'bg-red-600/80 text-white' : 'bg-slate-800 text-slate-300'}`}>
             {capturaCerrada ? '🔒 Captura CERRADA — toca para reabrir' : '🔓 Captura abierta — toca para cerrar'}
           </button>
-        )}
-
-        {alertasSinReportar.length > 0 && (
-          <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3">
-            <div className="text-[10px] font-bold text-amber-300 mb-1">⚠️ Casillas confirmadas sin reportar todavía</div>
-            {alertasSinReportar.map((a) => (
-              <div key={a.id} className="text-[10px] text-slate-300">Sección {a.seccion_numero} ({a.casilla_numero}) — {a.representante_nombre || 'sin asignar'}</div>
-            ))}
-          </div>
         )}
 
         <div className="flex gap-2 flex-wrap">
@@ -404,6 +403,50 @@ export default function DiaEleccion() {
                 </div>
               </div>
             )}
+
+            {/* 🆕 Avance por sección — cuántos de tus comprometidos ya
+                confirmaron su voto, y si ya hay acta capturada ahí,
+                si tu partido va ganando en ESA sección. Nunca infiere
+                por quién votó nadie — "ya votaron" es solo asistencia
+                confirmada de tu propia gente, y "va ganando" viene
+                solo de actas reales ya capturadas. */}
+            {avancePorSeccion && avancePorSeccion.length > 0 && (
+              <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+                <div className="text-xs font-bold text-slate-400 uppercase mb-1">🗳️ Avance de voto por sección</div>
+                <p className="text-[9px] text-slate-500 mb-3">"Ya votaron" = comprometidos tuyos que confirmaron asistencia. "Ganando/perdiendo" solo aparece cuando ya hay un acta real capturada de esa sección — nunca es una suposición.</p>
+                <div className="space-y-1.5 max-h-96 overflow-y-auto">
+                  {avancePorSeccion.map((s) => (
+                    <div key={s.seccion_numero} className="flex items-center justify-between rounded-lg px-3 py-2 text-xs bg-slate-800/40">
+                      <div className="flex-1">
+                        <span className="font-bold text-white">Sección {s.seccion_numero}</span>
+                        <span className="text-slate-500"> — {s.ya_votaron}/{s.comprometidos_base} comprometidos ya votaron ({s.porcentaje_asistencia}%)</span>
+                        <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden mt-1 w-full max-w-[200px]">
+                          <div className="h-full bg-indigo-500" style={{ width: `${s.porcentaje_asistencia}%` }} />
+                        </div>
+                      </div>
+                      <div className="flex-shrink-0 ml-2">
+                        {s.va_ganando === null && <span className="text-[9px] text-slate-500">Sin acta todavía</span>}
+                        {s.va_ganando === true && <span className="text-emerald-400 font-bold text-[10px]">📈 Vamos ganando</span>}
+                        {s.va_ganando === false && <span className="text-red-400 font-bold text-[10px]">📉 Vamos perdiendo</span>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* 🆕 Movido hasta abajo — antes aparecía arriba de todo,
+            empujando hacia abajo lo que la mayoría de la gente
+            necesita ver primero (Captura, Cacería). Sigue siendo
+            visible, solo que ya no interrumpe lo principal. */}
+        {alertasSinReportar.length > 0 && (
+          <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3">
+            <div className="text-[10px] font-bold text-amber-300 mb-1">⚠️ Casillas confirmadas sin reportar todavía</div>
+            {alertasSinReportar.map((a) => (
+              <div key={a.id} className="text-[10px] text-slate-300">Sección {a.seccion_numero} ({a.casilla_numero}) — {a.representante_nombre || 'sin asignar'}</div>
+            ))}
           </div>
         )}
       </div>
