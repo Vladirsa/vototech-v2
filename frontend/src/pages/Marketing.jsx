@@ -79,6 +79,10 @@ function PanelNuevoEnvio({ onEnviado }) {
   const [filtros, setFiltros] = useState({});
   const [titulo, setTitulo] = useState('');
   const [mensaje, setMensaje] = useState('');
+  // 🆕 Imágenes que se agregan al mensaje — hasta 5, cada una sube a
+  // un lugar público y WhatsApp les muestra su vista previa sola.
+  const [imagenes, setImagenes] = useState([]);
+  const [subiendoImagen, setSubiendoImagen] = useState(false);
   const [previa, setPrevia] = useState(null);
   const [enviando, setEnviando] = useState(false);
   const [resultado, setResultado] = useState(null);
@@ -89,11 +93,23 @@ function PanelNuevoEnvio({ onEnviado }) {
   };
   useEffect(() => { previsualizar(); }, [audienciaTipo, JSON.stringify(filtros)]);
 
+  const subirImagen = async (archivo) => {
+    if (imagenes.length >= 5) { alert('Máximo 5 imágenes por mensaje'); return; }
+    setSubiendoImagen(true);
+    const fd = new FormData();
+    fd.append('imagen', archivo);
+    try {
+      const { data } = await api.post('/marketing/subir-imagen-envio', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      setImagenes((prev) => [...prev, data.data.url]);
+    } catch (e) { alert(e.response?.data?.error || 'No se pudo subir la imagen'); }
+    setSubiendoImagen(false);
+  };
+
   const enviar = async () => {
     setEnviando(true);
     try {
       const { data } = await api.post('/marketing/envios', {
-        titulo, mensaje_base: mensaje, audiencia_tipo: audienciaTipo, audiencia_filtro: filtros,
+        titulo, mensaje_base: mensaje, audiencia_tipo: audienciaTipo, audiencia_filtro: filtros, imagenes,
       });
       setResultado(data.data);
       onEnviado();
@@ -106,7 +122,7 @@ function PanelNuevoEnvio({ onEnviado }) {
       <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-4 text-center space-y-2">
         <div className="text-2xl">✅</div>
         <p className="text-sm text-emerald-300 font-bold">Cola lista con {resultado.total} personas</p>
-        <button onClick={() => setResultado(null)} className="text-xs font-bold text-indigo-400">Hacer otro envío</button>
+        <button onClick={() => { setResultado(null); setImagenes([]); }} className="text-xs font-bold text-indigo-400">Hacer otro envío</button>
       </div>
     );
   }
@@ -153,6 +169,30 @@ function PanelNuevoEnvio({ onEnviado }) {
 
       <textarea placeholder="Mensaje — usa {nombre} para personalizar" value={mensaje} onChange={(e) => setMensaje(e.target.value)}
         className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm min-h-24" />
+
+      {/* 🆕 Imágenes del mensaje — hasta 5, cada una se ve como una
+          vista previa en el WhatsApp de quien la reciba. */}
+      {imagenes.length > 0 && (
+        <div className="flex gap-2 flex-wrap">
+          {imagenes.map((url, i) => (
+            <div key={i} className="relative">
+              <img src={url} alt="" className="w-16 h-16 object-cover rounded-lg border border-slate-700" />
+              <button onClick={() => setImagenes((prev) => prev.filter((_, j) => j !== i))}
+                className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-red-600 text-white text-[10px] font-bold flex items-center justify-center">✕</button>
+            </div>
+          ))}
+        </div>
+      )}
+      {imagenes.length < 5 && (
+        <label className={`block rounded-xl p-3 cursor-pointer ${subiendoImagen ? 'bg-slate-700' : 'bg-gradient-to-r from-indigo-600 to-purple-600 shadow-lg shadow-indigo-500/30'} transition-transform active:scale-[0.98]`}>
+          <div className="flex items-center justify-center gap-2">
+            <span className="text-xl">{subiendoImagen ? '⏳' : '🖼️'}</span>
+            <span className="text-xs font-bold text-white">{subiendoImagen ? 'Subiendo...' : `Agregar imagen (${imagenes.length}/5)`}</span>
+          </div>
+          <input type="file" accept="image/*" className="hidden" disabled={subiendoImagen}
+            onChange={(e) => e.target.files[0] && subirImagen(e.target.files[0])} />
+        </label>
+      )}
 
       <button onClick={enviar} disabled={enviando || !titulo || !mensaje || !previa?.total}
         className="w-full py-3 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 text-white text-sm font-bold disabled:opacity-40">
