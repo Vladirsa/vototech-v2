@@ -19,77 +19,6 @@ const TIPO_CONTENIDO_LABEL = {
   storytelling: { ic: '📖', label: 'Storytelling ciudadano' },
 };
 
-function PanelNumeros() {
-  const [numeros, setNumeros] = useState([]);
-  const [mostrarForm, setMostrarForm] = useState(false);
-  const [form, setForm] = useState({ alias: '', numero_whatsapp: '', account_sid: '', auth_token: '', limite_diario: 250 });
-
-  const cargar = () => api.get('/marketing/numeros').then((r) => setNumeros(r.data.data));
-  useEffect(cargar, []);
-
-  const guardar = async () => {
-    await api.post('/marketing/numeros', form);
-    setForm({ alias: '', numero_whatsapp: '', account_sid: '', auth_token: '', limite_diario: 250 });
-    setMostrarForm(false);
-    cargar();
-  };
-  const toggleActivo = async (id, activo) => { await api.patch(`/marketing/numeros/${id}`, { activo: !activo }); cargar(); };
-  const eliminar = async (id) => { if (confirm('¿Quitar este número?')) { await api.delete(`/marketing/numeros/${id}`); cargar(); } };
-
-  return (
-    <div className="space-y-3">
-      <div className="bg-indigo-500/10 border border-indigo-500/30 rounded-xl p-3 text-[11px] text-indigo-300">
-        💡 Cada número necesita estar dado de alta como WhatsApp Business en tu cuenta de Twilio antes de agregarlo aquí — este panel solo los conecta, no los crea.
-      </div>
-
-      {numeros.map((n) => {
-        const pct = Math.min(100, (n.usados_hoy / n.limite_diario) * 100);
-        return (
-          <div key={n.id} className="bg-slate-900/60 border border-slate-800 rounded-xl p-3">
-            <div className="flex items-center justify-between mb-1.5">
-              <div>
-                <span className="text-sm font-bold text-white">{n.alias}</span>
-                <span className="text-[10px] text-slate-500 ml-2">{n.numero_whatsapp}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <button onClick={() => toggleActivo(n.id, n.activo)} className={`text-[9px] font-bold px-2 py-1 rounded-full ${n.activo ? 'bg-emerald-500/20 text-emerald-400' : 'bg-slate-700 text-slate-400'}`}>
-                  {n.activo ? '✅ Activo' : '⏸️ Pausado'}
-                </button>
-                <button onClick={() => eliminar(n.id)} className="text-red-500 text-xs">🗑️</button>
-              </div>
-            </div>
-            <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
-              <div className={`h-full ${pct > 90 ? 'bg-red-500' : pct > 70 ? 'bg-amber-500' : 'bg-emerald-500'}`} style={{ width: `${pct}%` }} />
-            </div>
-            <div className="text-[9px] text-slate-500 mt-1">{n.usados_hoy} de {n.limite_diario} mensajes usados hoy</div>
-          </div>
-        );
-      })}
-
-      {!mostrarForm ? (
-        <button onClick={() => setMostrarForm(true)} className="w-full py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-bold">+ Agregar número</button>
-      ) : (
-        <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 space-y-2.5">
-          <input placeholder="Alias (ej: Línea Voluntarios)" value={form.alias} onChange={(e) => setForm({ ...form, alias: e.target.value })}
-            className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
-          <input placeholder="Número (+521234567890)" value={form.numero_whatsapp} onChange={(e) => setForm({ ...form, numero_whatsapp: e.target.value })}
-            className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
-          <input placeholder="Account SID de Twilio" value={form.account_sid} onChange={(e) => setForm({ ...form, account_sid: e.target.value })}
-            className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
-          <input placeholder="Auth Token de Twilio" type="password" value={form.auth_token} onChange={(e) => setForm({ ...form, auth_token: e.target.value })}
-            className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
-          <input placeholder="Límite de mensajes por día" type="number" value={form.limite_diario} onChange={(e) => setForm({ ...form, limite_diario: parseInt(e.target.value) || 250 })}
-            className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
-          <div className="flex gap-2">
-            <button onClick={() => setMostrarForm(false)} className="flex-1 py-2 rounded-lg bg-slate-800 text-slate-300 text-xs font-bold">Cancelar</button>
-            <button onClick={guardar} disabled={!form.alias || !form.numero_whatsapp} className="flex-[2] py-2 rounded-lg bg-indigo-600 text-white text-xs font-bold disabled:opacity-40">Guardar</button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 function PanelPlantillas({ onUsar }) {
   const [plantillas, setPlantillas] = useState([]);
   const [mostrarForm, setMostrarForm] = useState(false);
@@ -153,10 +82,6 @@ function PanelNuevoEnvio({ onEnviado }) {
   const [previa, setPrevia] = useState(null);
   const [enviando, setEnviando] = useState(false);
   const [resultado, setResultado] = useState(null);
-  // 🆕 Progreso en vivo — antes la pantalla se quedaba "colgada"
-  // esperando el resultado final; ahora consulta cada 2 segundos
-  // mientras el envío automático corre en segundo plano.
-  const [progreso, setProgreso] = useState(null);
 
   const previsualizar = async () => {
     const { data } = await api.post('/marketing/audiencia/previsualizar', { tipo: audienciaTipo, filtros });
@@ -164,33 +89,14 @@ function PanelNuevoEnvio({ onEnviado }) {
   };
   useEffect(() => { previsualizar(); }, [audienciaTipo, JSON.stringify(filtros)]);
 
-  useEffect(() => {
-    if (!progreso || progreso.estado === 'completado') return;
-    const intervalo = setInterval(async () => {
-      try {
-        const { data } = await api.get(`/marketing/envios/${progreso.id}`);
-        setProgreso(data.data);
-        if (data.data.estado === 'completado') {
-          setResultado(data.data);
-          onEnviado();
-        }
-      } catch (e) { /* si falla un sondeo, se reintenta en el siguiente */ }
-    }, 2000);
-    return () => clearInterval(intervalo);
-  }, [progreso]);
-
   const enviar = async () => {
     setEnviando(true);
     try {
       const { data } = await api.post('/marketing/envios', {
-        titulo, modo, mensaje_base: mensaje, audiencia_tipo: audienciaTipo, audiencia_filtro: filtros,
+        titulo, mensaje_base: mensaje, audiencia_tipo: audienciaTipo, audiencia_filtro: filtros,
       });
-      if (modo === 'twilio' && data.data.estado === 'en_progreso') {
-        setProgreso(data.data); // arranca el sondeo — ver useEffect arriba
-      } else {
-        setResultado(data.data);
-        onEnviado();
-      }
+      setResultado(data.data);
+      onEnviado();
     } catch (e) { alert(e.response?.data?.error || 'Error al crear el envío'); }
     setEnviando(false);
   };
@@ -199,28 +105,8 @@ function PanelNuevoEnvio({ onEnviado }) {
     return (
       <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-4 text-center space-y-2">
         <div className="text-2xl">✅</div>
-        <p className="text-sm text-emerald-300 font-bold">
-          {modo === 'enlace' ? `Cola lista con ${resultado.total} personas` : `${resultado.enviados} enviados, ${resultado.fallidos} fallidos`}
-        </p>
-        <button onClick={() => { setResultado(null); setProgreso(null); }} className="text-xs font-bold text-indigo-400">Hacer otro envío</button>
-      </div>
-    );
-  }
-
-  // 🆕 Barra de progreso en vivo mientras el envío automático corre
-  // en segundo plano — la pantalla ya no se queda esperando sin
-  // avisar nada.
-  if (progreso) {
-    const hechos = progreso.enviados + progreso.fallidos;
-    const porcentaje = progreso.total > 0 ? Math.round((hechos / progreso.total) * 100) : 0;
-    return (
-      <div className="bg-indigo-500/10 border border-indigo-500/30 rounded-xl p-4 space-y-3 text-center">
-        <div className="text-2xl">📤</div>
-        <p className="text-sm font-bold text-white">Enviando... {hechos} de {progreso.total}</p>
-        <div className="h-2.5 bg-slate-800 rounded-full overflow-hidden">
-          <div className="h-full bg-indigo-500 transition-all" style={{ width: `${porcentaje}%` }} />
-        </div>
-        <p className="text-[10px] text-slate-500">✅ {progreso.enviados} enviados · ⚠️ {progreso.fallidos} fallidos — puedes cerrar esta pantalla, el envío sigue corriendo solo</p>
+        <p className="text-sm text-emerald-300 font-bold">Cola lista con {resultado.total} personas</p>
+        <button onClick={() => setResultado(null)} className="text-xs font-bold text-indigo-400">Hacer otro envío</button>
       </div>
     );
   }
@@ -230,10 +116,9 @@ function PanelNuevoEnvio({ onEnviado }) {
       <input placeholder="Título del envío (interno, para identificarlo)" value={titulo} onChange={(e) => setTitulo(e.target.value)}
         className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
 
-      <div className="flex gap-2">
-        <button onClick={() => setModo('enlace')} className={`flex-1 py-2.5 rounded-lg text-xs font-bold ${modo === 'enlace' ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🆓 Modo gratis (enlaces)</button>
-        <button onClick={() => setModo('twilio')} className={`flex-1 py-2.5 rounded-lg text-xs font-bold ${modo === 'twilio' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>⚡ Automático (Twilio)</button>
-        <Ayuda posicion="abajo" texto="Gratis: arma la lista y tu equipo toca 'enviar' uno por uno desde su propio WhatsApp, sin costo. Automático: se manda solo desde números configurados en la pestaña Números, sin que nadie toque nada, pero tiene costo por mensaje." />
+      <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg px-3 py-2 flex items-center gap-2">
+        <span className="text-xs font-bold text-emerald-300">🆓 Modo enlaces</span>
+        <Ayuda posicion="abajo" texto="El sistema arma la lista de enlaces personalizados — cada persona de tu equipo abre su propio WhatsApp y toca 'enviar' uno por uno, sin costo. Es la única forma segura de mandar mensajes de campaña, ya que sale de cuentas personales reales en vez de una API automática (que Meta puede suspender si detecta mensajes a gente sin opt-in específico de WhatsApp)." />
       </div>
 
       <div className="flex gap-2">
@@ -656,7 +541,6 @@ export default function Marketing() {
     { id: 'nuevo', ic: '📤', label: 'Nuevo envío' },
     { id: 'historial', ic: '📜', label: 'Historial' },
     { id: 'plantillas', ic: '📝', label: 'Plantillas' },
-    { id: 'numeros', ic: '📱', label: 'Números' },
     { id: 'ia', ic: '✨', label: 'Discursos con IA' },
     { id: 'boletines', ic: '📰', label: 'Boletines' },
     { id: 'periodistas', ic: '🎙️', label: 'Periodistas' },
@@ -680,7 +564,6 @@ export default function Marketing() {
         </div>
 
         {tab === 'nuevo' && <PanelNuevoEnvio onEnviado={cargarEnvios} />}
-        {tab === 'numeros' && <PanelNumeros />}
         {tab === 'plantillas' && <PanelPlantillas />}
         {tab === 'ia' && <PanelGeneracionIA />}
         {tab === 'boletines' && <PanelBoletines />}
