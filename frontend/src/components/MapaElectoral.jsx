@@ -14,8 +14,19 @@ import api from '../lib/api';
 const COLOR_CLASIFICACION = {
   base: '#10b981', persuadible: '#f59e0b', adversario: '#64748b',
 };
-function ControlCentrarMapa({ centro, zoomInicial }) {
+function ControlCentrarMapa({ centro, zoomInicial, centroReal }) {
   const map = useMap();
+  // 🆕 Antes el mapa siempre abría en el mismo punto fijo — ahora, en
+  // cuanto se calcula el centro real de tu territorio (municipio o
+  // distrito), el mapa se mueve solo ahí una vez, sin que tengas que
+  // buscarlo ni presionar el botón de abajo a mano.
+  const yaSeCentroSolo = useRef(false);
+  useEffect(() => {
+    if (centroReal && !yaSeCentroSolo.current) {
+      map.setView(centroReal, zoomInicial);
+      yaSeCentroSolo.current = true;
+    }
+  }, [centroReal, map, zoomInicial]);
   return (
     <div className="absolute top-16 right-2 z-[999] flex flex-col gap-1.5">
       <button onClick={() => map.flyTo(centro, zoomInicial, { duration: 0.8 })}
@@ -739,6 +750,24 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
     }
     return { ...geoSecciones, features: filtradas };
   }, [geoSecciones, territorioTipo, territorioId, nombresMunicipios]);
+
+  // 🆕 Centro real de TU territorio — antes el mapa siempre abría
+  // centrado en el mismo punto fijo de Apizaco, sin importar el
+  // municipio o distrito real de la campaña, obligando a buscarlo a
+  // mano cada vez. Ahora se calcula el centro promedio de las
+  // secciones que ya filtramos arriba (las propias de tu campaña).
+  const centroCampana = useMemo(() => {
+    if (!seccionesFiltradas || seccionesFiltradas.features.length === 0) return null;
+    let sumaLat = 0, sumaLng = 0, totalPuntos = 0;
+    seccionesFiltradas.features.forEach((f) => {
+      const anillo = f.geometry.type === 'Polygon' ? f.geometry.coordinates[0] : f.geometry.coordinates[0]?.[0];
+      if (!anillo) return;
+      anillo.forEach(([lng, lat]) => { sumaLat += lat; sumaLng += lng; totalPuntos++; });
+    });
+    if (totalPuntos === 0) return null;
+    return [sumaLat / totalPuntos, sumaLng / totalPuntos];
+  }, [seccionesFiltradas]);
+
   const estiloSeccion = (feature) => {
     const num = feature.properties.seccion;
     const resultado = resultados[num];
@@ -1089,7 +1118,7 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
               iconSize: [14, 14],
             })} />
         ))}
-        <ControlCentrarMapa centro={centroTlaxcala} zoomInicial={11} />
+        <ControlCentrarMapa centro={centroTlaxcala} zoomInicial={11} centroReal={centroCampana} />
         <CapaCalor
           puntos={promovidosFiltrados.map(p => ({ lat: p._lat, lng: p._lng }))}
           activa={capaCalor}
