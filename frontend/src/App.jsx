@@ -30,6 +30,7 @@ const Marketing = lazy(() => import('./pages/Marketing'));
 const Juridico = lazy(() => import('./pages/Juridico'));
 const Respaldos = lazy(() => import('./pages/Respaldos'));
 const EncuestaPublica = lazy(() => import('./pages/EncuestaPublica'));
+const AfiliacionPublica = lazy(() => import('./pages/AfiliacionPublica'));
 const TerminosPublico = lazy(() => import('./pages/TerminosPublico'));
 const ContratoPublico = lazy(() => import('./pages/ContratoPublico'));
 const PosturaLegal = lazy(() => import('./pages/PosturaLegal'));
@@ -79,6 +80,7 @@ export default function App() {
           <Routes>
             <Route path="/votar/:id" element={<ConfirmarVoto />} />
             <Route path="/encuesta/:id" element={<EncuestaPublica />} />
+            <Route path="/afiliate/:subdominio" element={<AfiliacionPublica />} />
             <Route path="/terminos" element={<TerminosPublico />} />
             <Route path="/contrato" element={<ContratoPublico />} />
             <Route path="/postura-legal" element={<PosturaLegal />} />
