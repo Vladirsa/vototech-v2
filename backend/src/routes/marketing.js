@@ -125,6 +125,29 @@ const esquemaEnvio = z.object({
   mensaje_base: z.string().min(2).max(2000),
   audiencia_tipo: z.enum(['promovidos', 'estructura']),
   audiencia_filtro: z.record(z.any()).default({}),
+  // 🆕 Enlaces de imágenes ya subidas (con /subir-imagen-envio) — se
+  // agregan al final del mensaje de cada persona, para que WhatsApp
+  // muestre su vista previa sola.
+  imagenes: z.array(z.string().url()).max(5).default([]),
+});
+
+/**
+ * 🆕 POST /api/marketing/subir-imagen-envio
+ * Sube una imagen para incluir en un mensaje de WhatsApp — como los
+ * enlaces (wa.me) solo mandan texto, la imagen se sube a un lugar
+ * público y su enlace se pega en el mensaje. WhatsApp muestra sola
+ * una vista previa bonita de esa imagen, aunque técnicamente sea un
+ * link de texto, no un archivo adjunto real.
+ */
+router.post('/subir-imagen-envio', upload.single('imagen'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ ok: false, error: 'No se recibió ninguna imagen' });
+  const supabase = clienteSupabase();
+  if (!supabase) return res.status(500).json({ ok: false, error: 'Almacenamiento no configurado' });
+  const ruta = `${req.usuario.campana_id}/envios-whatsapp/${crypto.randomBytes(8).toString('hex')}-${req.file.originalname}`;
+  const { error } = await supabase.storage.from('blog-publico').upload(ruta, req.file.buffer, { contentType: req.file.mimetype });
+  if (error) return res.status(500).json({ ok: false, error: 'No se pudo subir la imagen' });
+  const url = supabase.storage.from('blog-publico').getPublicUrl(ruta).data.publicUrl;
+  res.status(201).json({ ok: true, data: { url } });
 });
 
 router.post('/envios', async (req, res) => {
@@ -137,7 +160,9 @@ router.post('/envios', async (req, res) => {
 
   const destinatarios = gente.map((p) => ({
     id: p.id, nombre: p.nombre, telefono: p.telefono,
-    mensaje: rellenarVariables(d.mensaje_base, p),
+    // 🆕 Las imágenes se agregan como enlaces al final del mensaje
+    // (uno por línea) — WhatsApp les muestra su vista previa sola.
+    mensaje: rellenarVariables(d.mensaje_base, p) + (d.imagenes.length > 0 ? '\n\n' + d.imagenes.join('\n') : ''),
     estado: 'pendiente', enviado_en: null, enviado_por: null, numero_usado: null,
   }));
 
