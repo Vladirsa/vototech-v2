@@ -312,9 +312,26 @@ function ModalDetalle({ promovidoId, onCerrar, onActualizado }) {
   const [detalle, setDetalle] = useState(null);
   const [editando, setEditando] = useState(false);
   const [form, setForm] = useState(null);
+  // 🆕 Historial de conversación — como no hay forma de leer un chat
+  // de WhatsApp automáticamente, esto queda a mano, en 2 clics.
+  const [interacciones, setInteracciones] = useState([]);
+  const [notaNueva, setNotaNueva] = useState('');
+  const [guardandoNota, setGuardandoNota] = useState(false);
 
   const cargar = () => api.get(`/promovidos/${promovidoId}`).then((r) => { setDetalle(r.data.data); setForm(r.data.data); });
-  useEffect(cargar, [promovidoId]);
+  const cargarInteracciones = () => api.get(`/promovidos/${promovidoId}/interacciones`).then((r) => setInteracciones(r.data.data)).catch(() => setInteracciones([]));
+  useEffect(() => { cargar(); cargarInteracciones(); }, [promovidoId]);
+
+  const agregarNota = async () => {
+    if (notaNueva.trim().length < 2) return;
+    setGuardandoNota(true);
+    try {
+      await api.post(`/promovidos/${promovidoId}/interacciones`, { nota: notaNueva.trim() });
+      setNotaNueva('');
+      cargarInteracciones();
+    } catch (e) { alert(e.response?.data?.error || 'No se pudo guardar'); }
+    setGuardandoNota(false);
+  };
 
   const guardar = async () => {
     await api.patch(`/promovidos/${promovidoId}`, {
@@ -440,6 +457,35 @@ function ModalDetalle({ promovidoId, onCerrar, onActualizado }) {
             </div>
           </>
         )}
+
+        {/* 🆕 Historial de conversación — no hay forma de leer un
+            chat de WhatsApp automáticamente, así que esto se anota a
+            mano después de platicar con la persona. Queda visible
+            aquí sin importar si se está editando o no. */}
+        <div className="border-t border-slate-800 pt-3 space-y-2">
+          <div className="text-[10px] font-bold text-slate-400 uppercase">💬 Historial de conversación</div>
+          <div className="flex gap-1.5">
+            <input placeholder="¿Qué se platicó? (ej: dice que sí va a votar)" value={notaNueva} onChange={(e) => setNotaNueva(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && agregarNota()}
+              className="flex-1 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs" />
+            <button onClick={agregarNota} disabled={guardandoNota || notaNueva.trim().length < 2}
+              className="px-3 py-2 rounded-lg bg-indigo-600 text-white text-xs font-bold disabled:opacity-40">+</button>
+          </div>
+          {interacciones.length === 0 ? (
+            <p className="text-[10px] text-slate-600">Sin conversaciones registradas todavía.</p>
+          ) : (
+            <div className="space-y-1.5 max-h-40 overflow-y-auto">
+              {interacciones.map((i) => (
+                <div key={i.id} className="bg-slate-800/50 rounded-lg px-2.5 py-2">
+                  <p className="text-xs text-slate-300">{i.nota}</p>
+                  <p className="text-[9px] text-slate-500 mt-0.5">
+                    {i.creado_por_nombre || 'Alguien de tu equipo'} · {new Date(i.creado_en).toLocaleDateString('es-MX', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
