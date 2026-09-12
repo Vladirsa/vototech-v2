@@ -187,14 +187,32 @@ function PanelChecklist() {
   const [checklist, setChecklist] = useState(null);
   const [equipo, setEquipo] = useState([]);
   const [nuevoItem, setNuevoItem] = useState({ categoria: 'otro', item: '' });
+  // 🆕 Lo que faltaba — asignar vehículo y chofer a ESTE evento
+  // específico, no solo tenerlos en un inventario general sin
+  // conectar a nada.
+  const [vehiculos, setVehiculos] = useState([]);
+  const [choferes, setChoferes] = useState([]);
+  const [asignaciones, setAsignaciones] = useState([]);
+  const [nuevaAsig, setNuevaAsig] = useState({ vehiculo_id: '', chofer_id: '', hora_salida: '', notas: '' });
 
   useEffect(() => {
     api.get('/agenda').then((r) => setEventos(r.data.data.filter((e) => e.estado !== 'cancelado')));
     api.get('/estructura').then((r) => setEquipo(r.data.data)).catch(() => setEquipo([]));
+    api.get('/logistica/vehiculos').then((r) => setVehiculos(r.data.data)).catch(() => setVehiculos([]));
+    api.get('/logistica/choferes').then((r) => setChoferes(r.data.data)).catch(() => setChoferes([]));
   }, []);
 
+  const cargarAsignaciones = (id) => { if (id) api.get(`/logistica/asignaciones/${id}`).then((r) => setAsignaciones(r.data.data)).catch(() => setAsignaciones([])); };
+  const agregarAsignacion = async () => {
+    if (!nuevaAsig.vehiculo_id && !nuevaAsig.chofer_id) return;
+    await api.post(`/logistica/asignaciones/${eventoId}`, nuevaAsig);
+    setNuevaAsig({ vehiculo_id: '', chofer_id: '', hora_salida: '', notas: '' });
+    cargarAsignaciones(eventoId);
+  };
+  const quitarAsignacion = async (id) => { await api.delete(`/logistica/asignaciones/${id}`); cargarAsignaciones(eventoId); };
+
   const cargarChecklist = (id) => { if (id) api.get(`/logistica/checklist/${id}`).then((r) => setChecklist(r.data.data)); };
-  useEffect(() => { if (eventoId) cargarChecklist(eventoId); else setChecklist(null); }, [eventoId]);
+  useEffect(() => { if (eventoId) { cargarChecklist(eventoId); cargarAsignaciones(eventoId); } else { setChecklist(null); setAsignaciones([]); } }, [eventoId]);
 
   const generarEstandar = async () => {
     try { await api.post(`/logistica/checklist/${eventoId}/generar-estandar`); cargarChecklist(eventoId); }
@@ -216,6 +234,45 @@ function PanelChecklist() {
         <option value="">Elige un evento...</option>
         {eventos.map((e) => <option key={e.id} value={e.id}>{e.titulo} — {new Date(e.fecha_inicio).toLocaleDateString('es-MX')}</option>)}
       </select>
+
+      {/* 🆕 Asignación de vehículo + chofer a ESTE evento — antes
+          Vehículos/Choferes vivían solo como inventario general,
+          sin poder decir "para este evento, usa este vehículo con
+          este chofer". */}
+      {eventoId && (
+        <div className="bg-slate-900/60 border border-purple-500/30 rounded-xl p-3 space-y-2">
+          <div className="text-xs font-bold text-purple-300">🚗 Vehículos y choferes para este evento</div>
+          {asignaciones.length === 0 ? (
+            <p className="text-[10px] text-slate-500">Todavía no hay nada asignado a este evento.</p>
+          ) : asignaciones.map((a) => (
+            <div key={a.id} className="flex items-center justify-between bg-slate-800/60 rounded-lg px-2.5 py-2 text-[11px]">
+              <div className="text-slate-300">
+                {a.vehiculo_nombre && <span>🚗 {a.vehiculo_nombre}</span>}
+                {a.vehiculo_nombre && a.chofer_nombre && <span className="text-slate-600"> · </span>}
+                {a.chofer_nombre && <span>🧑‍✈️ {a.chofer_nombre}</span>}
+                {a.hora_salida && <span className="text-slate-500"> — sale {a.hora_salida}</span>}
+              </div>
+              <button onClick={() => quitarAsignacion(a.id)} className="text-red-500 text-xs">✕</button>
+            </div>
+          ))}
+          <div className="grid grid-cols-2 gap-1.5 pt-1">
+            <select value={nuevaAsig.vehiculo_id} onChange={(e) => setNuevaAsig({ ...nuevaAsig, vehiculo_id: e.target.value })}
+              className="px-2 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-[11px]">
+              <option value="">Sin vehículo</option>
+              {vehiculos.map((v) => <option key={v.id} value={v.id}>🚗 {v.subtipo || 'Vehículo'}</option>)}
+            </select>
+            <select value={nuevaAsig.chofer_id} onChange={(e) => setNuevaAsig({ ...nuevaAsig, chofer_id: e.target.value })}
+              className="px-2 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-[11px]">
+              <option value="">Sin chofer</option>
+              {choferes.map((c) => <option key={c.id} value={c.id}>🧑‍✈️ {c.nombre}</option>)}
+            </select>
+            <input type="time" value={nuevaAsig.hora_salida} onChange={(e) => setNuevaAsig({ ...nuevaAsig, hora_salida: e.target.value })}
+              className="px-2 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-[11px]" />
+            <button onClick={agregarAsignacion} disabled={!nuevaAsig.vehiculo_id && !nuevaAsig.chofer_id}
+              className="py-1.5 rounded-lg bg-purple-600 text-white text-[11px] font-bold disabled:opacity-40">+ Asignar</button>
+          </div>
+        </div>
+      )}
 
       {eventoId && checklist && (
         <>
