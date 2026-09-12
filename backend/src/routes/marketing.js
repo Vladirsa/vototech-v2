@@ -192,6 +192,12 @@ const esquemaEnvio = z.object({
   // agregan al final del mensaje de cada persona, para que WhatsApp
   // muestre su vista previa sola.
   imagenes: z.array(z.string().url()).max(5).default([]),
+  // 🆕 Enlace de confirmación — se agrega personalizado a cada
+  // persona, para que conteste tocando un botón en vez de un chat
+  // que nadie ve. 'voto' usa la pantalla ya existente de "¿ya
+  // votaste?"; 'evento' necesita saber A CUÁL evento (agenda_id).
+  enlace_confirmacion: z.enum(['ninguno', 'voto', 'evento']).default('ninguno'),
+  agenda_id_confirmacion: z.string().uuid().optional(),
   // 🆕 A quiénes de tu equipo repartirles la lista para mandar —
   // antes, una sola persona veía TODOS los enlaces (riesgo real de
   // que WhatsApp bloqueara su número por mandar demasiado). Si no se
@@ -251,11 +257,18 @@ router.post('/envios', async (req, res) => {
 
   const destinatarios = gente.map((p, i) => {
     const asignadoA = d.voluntarios_ids.length > 0 ? d.voluntarios_ids[i % d.voluntarios_ids.length] : null;
+    // 🆕 Enlace de confirmación personalizado — reusa las pantallas
+    // públicas que ya existen ("¿ya votaste?" y la nueva de eventos),
+    // en vez de esperar una respuesta en el chat que nadie ve.
+    const urlBase = process.env.FRONTEND_URL || 'https://vototech.com.mx';
+    let enlace = '';
+    if (d.enlace_confirmacion === 'voto') enlace = `\n\n${urlBase}/votar/${p.id}`;
+    else if (d.enlace_confirmacion === 'evento' && d.agenda_id_confirmacion) enlace = `\n\n${urlBase}/evento/${d.agenda_id_confirmacion}/${p.id}`;
     return {
       id: p.id, nombre: p.nombre, telefono: p.telefono,
       // 🆕 Las imágenes se agregan como enlaces al final del mensaje
       // (uno por línea) — WhatsApp les muestra su vista previa sola.
-      mensaje: rellenarVariables(d.mensaje_base, p) + (d.imagenes.length > 0 ? '\n\n' + d.imagenes.join('\n') : ''),
+      mensaje: rellenarVariables(d.mensaje_base, p) + (d.imagenes.length > 0 ? '\n\n' + d.imagenes.join('\n') : '') + enlace,
       estado: 'pendiente', enviado_en: null, enviado_por: null, numero_usado: null,
       asignado_a: asignadoA,
       asignado_a_nombre: asignadoA ? nombresVoluntarios[asignadoA] : null,
