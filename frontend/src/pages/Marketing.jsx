@@ -249,156 +249,6 @@ function DetalleEnvio({ envioId, onCerrar }) {
   );
 }
 
-/** 🆕 Base de periodistas — CRM chico de contactos de prensa. */
-function PanelPeriodistas({ onSeleccionMultiple, seleccionados }) {
-  const [periodistas, setPeriodistas] = useState([]);
-  const [mostrarForm, setMostrarForm] = useState(false);
-  const [form, setForm] = useState({ nombre: '', medio: '', tipo_medio: 'digital', telefono: '', email: '', notas: '' });
-
-  const cargar = () => api.get('/marketing/periodistas').then((r) => setPeriodistas(r.data.data));
-  useEffect(cargar, []);
-
-  const guardar = async () => {
-    await api.post('/marketing/periodistas', form);
-    setForm({ nombre: '', medio: '', tipo_medio: 'digital', telefono: '', email: '', notas: '' });
-    setMostrarForm(false);
-    cargar();
-  };
-  const eliminar = async (id) => { if (confirm('¿Eliminar este periodista?')) { await api.delete(`/marketing/periodistas/${id}`); cargar(); } };
-
-  return (
-    <div className="space-y-3">
-      <button onClick={() => setMostrarForm(!mostrarForm)} className="w-full py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-bold">
-        {mostrarForm ? 'Cancelar' : '+ Nuevo periodista'}
-      </button>
-      {mostrarForm && (
-        <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 space-y-2.5">
-          <input placeholder="Nombre completo" value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })}
-            className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
-          <input placeholder="Medio (ej: El Sol de Tlaxcala)" value={form.medio} onChange={(e) => setForm({ ...form, medio: e.target.value })}
-            className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
-          <select value={form.tipo_medio} onChange={(e) => setForm({ ...form, tipo_medio: e.target.value })}
-            className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
-            {Object.entries(TIPO_MEDIO_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-          </select>
-          <div className="flex gap-2">
-            <input placeholder="Teléfono" value={form.telefono} onChange={(e) => setForm({ ...form, telefono: e.target.value })}
-              className="flex-1 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
-            <input placeholder="Correo" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })}
-              className="flex-1 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
-          </div>
-          <input placeholder="Notas (opcional)" value={form.notas} onChange={(e) => setForm({ ...form, notas: e.target.value })}
-            className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
-          <button onClick={guardar} disabled={!form.nombre} className="w-full py-2 rounded-lg bg-emerald-600 text-white text-xs font-bold disabled:opacity-40">Guardar</button>
-        </div>
-      )}
-      {periodistas.length === 0 ? (
-        <div className="text-center text-slate-500 py-8">Sin periodistas registrados todavía</div>
-      ) : periodistas.map((p) => (
-        <div key={p.id} className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            {onSeleccionMultiple && (
-              <input type="checkbox" checked={seleccionados?.includes(p.id)} onChange={() => onSeleccionMultiple(p.id)} />
-            )}
-            <div>
-              <div className="text-sm font-bold text-white">{p.nombre}</div>
-              <div className="text-[10px] text-slate-500">{TIPO_MEDIO_LABEL[p.tipo_medio]} {p.medio && `· ${p.medio}`}{p.telefono && ` · ${p.telefono}`}</div>
-            </div>
-          </div>
-          {!onSeleccionMultiple && <button onClick={() => eliminar(p.id)} className="text-red-500 text-xs">🗑️</button>}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-/** 🆕 Boletines de prensa */
-function PanelBoletines() {
-  const [boletines, setBoletines] = useState([]);
-  const [mostrarForm, setMostrarForm] = useState(false);
-  const [form, setForm] = useState({ titulo: '', contenido: '' });
-  const [enviandoId, setEnviandoId] = useState(null);
-  const [seleccionEnvio, setSeleccionEnvio] = useState(null);
-  const [periodistasSeleccionados, setPeriodistasSeleccionados] = useState([]);
-
-  const cargar = () => api.get('/marketing/boletines').then((r) => setBoletines(r.data.data));
-  useEffect(cargar, []);
-
-  const guardar = async () => {
-    await api.post('/marketing/boletines', form);
-    setForm({ titulo: '', contenido: '' });
-    setMostrarForm(false);
-    cargar();
-  };
-  const eliminar = async (id) => { if (confirm('¿Eliminar este boletín?')) { await api.delete(`/marketing/boletines/${id}`); cargar(); } };
-
-  const enviarATodos = async (id) => {
-    if (!confirm('¿Enviar este boletín a TODA tu base de periodistas?')) return;
-    const { data } = await api.post(`/marketing/boletines/${id}/enviar`, {});
-    alert(`✅ Marcado como enviado a ${data.data.total} periodistas`);
-    cargar();
-  };
-
-  const togglePeriodista = (id) => {
-    setPeriodistasSeleccionados((prev) => prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id]);
-  };
-  const enviarASeleccionados = async () => {
-    await api.post(`/marketing/boletines/${seleccionEnvio}/enviar`, { periodista_ids: periodistasSeleccionados });
-    alert(`✅ Marcado como enviado a ${periodistasSeleccionados.length} periodistas`);
-    setSeleccionEnvio(null);
-    setPeriodistasSeleccionados([]);
-    cargar();
-  };
-
-  return (
-    <div className="space-y-3">
-      <button onClick={() => setMostrarForm(!mostrarForm)} className="w-full py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-bold">
-        {mostrarForm ? 'Cancelar' : '+ Nuevo boletín'}
-      </button>
-      {mostrarForm && (
-        <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 space-y-2.5">
-          <input placeholder="Título del boletín" value={form.titulo} onChange={(e) => setForm({ ...form, titulo: e.target.value })}
-            className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
-          <textarea placeholder="Contenido completo del boletín" value={form.contenido} onChange={(e) => setForm({ ...form, contenido: e.target.value })}
-            className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm min-h-40" />
-          <button onClick={guardar} disabled={!form.titulo || !form.contenido} className="w-full py-2 rounded-lg bg-emerald-600 text-white text-xs font-bold disabled:opacity-40">Guardar borrador</button>
-        </div>
-      )}
-      {boletines.length === 0 ? (
-        <div className="text-center text-slate-500 py-8">Sin boletines todavía</div>
-      ) : boletines.map((b) => (
-        <div key={b.id} className="bg-slate-900/60 border border-slate-800 rounded-xl p-3">
-          <div className="flex justify-between items-start">
-            <div>
-              <div className="text-sm font-bold text-white">{b.titulo}</div>
-              <div className="text-[10px] text-slate-500">{b.estado === 'enviado' ? `✅ Enviado a ${b.total_enviados} periodistas` : '📝 Borrador'} · {new Date(b.creado_en).toLocaleDateString('es-MX')}</div>
-            </div>
-            <button onClick={() => eliminar(b.id)} className="text-red-500 text-xs">🗑️</button>
-          </div>
-          <p className="text-xs text-slate-400 mt-2 line-clamp-2">{b.contenido}</p>
-          <div className="flex gap-2 mt-2">
-            <button onClick={() => enviarATodos(b.id)} className="flex-1 py-1.5 rounded-lg bg-emerald-700/50 text-emerald-300 text-[10px] font-bold">📤 Enviar a todos</button>
-            <button onClick={() => { setSeleccionEnvio(b.id); setPeriodistasSeleccionados([]); }} className="flex-1 py-1.5 rounded-lg bg-slate-700 text-slate-300 text-[10px] font-bold">✅ Elegir a quién</button>
-          </div>
-        </div>
-      ))}
-
-      {seleccionEnvio && (
-        <div className="fixed inset-0 bg-black/70 flex items-end md:items-center justify-center z-50" onClick={() => setSeleccionEnvio(null)}>
-          <div className="bg-slate-900 border border-slate-700 rounded-t-2xl md:rounded-2xl w-full max-w-md p-5 space-y-3 max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <h2 className="text-lg font-black text-white">Elegir periodistas</h2>
-            <PanelPeriodistas onSeleccionMultiple={togglePeriodista} seleccionados={periodistasSeleccionados} />
-            <button onClick={enviarASeleccionados} disabled={periodistasSeleccionados.length === 0}
-              className="w-full py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-bold disabled:opacity-40">
-              Enviar a {periodistasSeleccionados.length} seleccionados
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 /** 🆕 Biblioteca de contenido — fotos, videos, textos y documentos reutilizables. */
 function PanelBiblioteca() {
   const [items, setItems] = useState([]);
@@ -582,8 +432,6 @@ export default function Marketing() {
     { id: 'historial', ic: '📜', label: 'Historial' },
     { id: 'plantillas', ic: '📝', label: 'Plantillas' },
     { id: 'ia', ic: '✨', label: 'Discursos con IA' },
-    { id: 'boletines', ic: '📰', label: 'Boletines' },
-    { id: 'periodistas', ic: '🎙️', label: 'Periodistas' },
     { id: 'biblioteca', ic: '📚', label: 'Biblioteca' },
   ];
 
@@ -606,8 +454,6 @@ export default function Marketing() {
         {tab === 'nuevo' && <PanelNuevoEnvio onEnviado={cargarEnvios} />}
         {tab === 'plantillas' && <PanelPlantillas />}
         {tab === 'ia' && <PanelGeneracionIA />}
-        {tab === 'boletines' && <PanelBoletines />}
-        {tab === 'periodistas' && <PanelPeriodistas />}
         {tab === 'biblioteca' && <PanelBiblioteca />}
 
         {tab === 'historial' && (
