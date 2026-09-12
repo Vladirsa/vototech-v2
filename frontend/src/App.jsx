@@ -39,6 +39,7 @@ const PromotorHome = lazy(() => import('./pages/PromotorHome'));
 const AdminPlataforma = lazy(() => import('./pages/AdminPlataforma'));
 const MapaConCampana = lazy(() => import('./components/MapaConCampana'));
 const ConfirmarVoto = lazy(() => import('./pages/ConfirmarVoto'));
+const ConfirmarEvento = lazy(() => import('./pages/ConfirmarEvento'));
 
 /** Se ve un instante mientras baja el módulo — mismo estilo que el
  * resto de la app, para que no se sienta como un salto raro. */
@@ -79,6 +80,7 @@ export default function App() {
         <Suspense fallback={<CargandoModulo />}>
           <Routes>
             <Route path="/votar/:id" element={<ConfirmarVoto />} />
+            <Route path="/evento/:agendaId/:promovidoId" element={<ConfirmarEvento />} />
             <Route path="/encuesta/:id" element={<EncuestaPublica />} />
             <Route path="/afiliate/:subdominio" element={<AfiliacionPublica />} />
             <Route path="/terminos" element={<TerminosPublico />} />
