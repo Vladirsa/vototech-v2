@@ -192,6 +192,11 @@ const esquemaEnvio = z.object({
   // agregan al final del mensaje de cada persona, para que WhatsApp
   // muestre su vista previa sola.
   imagenes: z.array(z.string().url()).max(5).default([]),
+  // 🆕 A quiénes de tu equipo repartirles la lista para mandar —
+  // antes, una sola persona veía TODOS los enlaces (riesgo real de
+  // que WhatsApp bloqueara su número por mandar demasiado). Si no se
+  // manda nada aquí, se comporta igual que antes (sin repartir).
+  voluntarios_ids: z.array(z.string().uuid()).max(50).default([]),
 });
 
 /**
@@ -213,6 +218,19 @@ router.post('/subir-imagen-envio', upload.single('imagen'), async (req, res) => 
   res.status(201).json({ ok: true, data: { url } });
 });
 
+/**
+ * 🆕 GET /api/marketing/voluntarios-disponibles
+ * Lista de tu equipo con teléfono registrado — para elegir entre
+ * quiénes repartir la lista de un envío.
+ */
+router.get('/voluntarios-disponibles', async (req, res) => {
+  const resultado = await query(
+    `SELECT id, nombre, rol FROM usuarios WHERE campana_id=$1 AND telefono IS NOT NULL AND telefono != '' AND activo != false ORDER BY nombre`,
+    [req.usuario.campana_id]
+  );
+  res.json({ ok: true, data: resultado.rows });
+});
+
 router.post('/envios', async (req, res) => {
   const parseado = esquemaEnvio.safeParse(req.body);
   if (!parseado.success) return res.status(400).json({ ok: false, error: parseado.error.errors[0].message });
@@ -221,13 +239,28 @@ router.post('/envios', async (req, res) => {
   const gente = await calcularAudiencia(req.usuario.campana_id, d.audiencia_tipo, d.audiencia_filtro, req.usuario.estado_id);
   if (gente.length === 0) return res.status(400).json({ ok: false, error: 'No hay destinatarios con ese filtro (revisa que tengan teléfono registrado)' });
 
-  const destinatarios = gente.map((p) => ({
-    id: p.id, nombre: p.nombre, telefono: p.telefono,
-    // 🆕 Las imágenes se agregan como enlaces al final del mensaje
-    // (uno por línea) — WhatsApp les muestra su vista previa sola.
-    mensaje: rellenarVariables(d.mensaje_base, p) + (d.imagenes.length > 0 ? '\n\n' + d.imagenes.join('\n') : ''),
-    estado: 'pendiente', enviado_en: null, enviado_por: null, numero_usado: null,
-  }));
+  // 🆕 Si se eligieron voluntarios, se reparte la lista entre ellos
+  // por turnos (uno para cada quien, en orden, repitiendo) — así
+  // nadie manda más de lo que le toca, y cada quien puede filtrar
+  // para ver solo SU parte al abrir la cola.
+  let nombresVoluntarios = {};
+  if (d.voluntarios_ids.length > 0) {
+    const vol = await query(`SELECT id, nombre FROM usuarios WHERE campana_id=$1 AND id = ANY($2::uuid[])`, [req.usuario.campana_id, d.voluntarios_ids]);
+    vol.rows.forEach((v) => { nombresVoluntarios[v.id] = v.nombre; });
+  }
+
+  const destinatarios = gente.map((p, i) => {
+    const asignadoA = d.voluntarios_ids.length > 0 ? d.voluntarios_ids[i % d.voluntarios_ids.length] : null;
+    return {
+      id: p.id, nombre: p.nombre, telefono: p.telefono,
+      // 🆕 Las imágenes se agregan como enlaces al final del mensaje
+      // (uno por línea) — WhatsApp les muestra su vista previa sola.
+      mensaje: rellenarVariables(d.mensaje_base, p) + (d.imagenes.length > 0 ? '\n\n' + d.imagenes.join('\n') : ''),
+      estado: 'pendiente', enviado_en: null, enviado_por: null, numero_usado: null,
+      asignado_a: asignadoA,
+      asignado_a_nombre: asignadoA ? nombresVoluntarios[asignadoA] : null,
+    };
+  });
 
   // 🆕 Ahora es el ÚNICO modo — cada persona de tu equipo abre su
   // propio WhatsApp y toca cada enlace. Se quitó el envío automático
