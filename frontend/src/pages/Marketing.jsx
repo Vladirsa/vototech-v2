@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api, { descargarArchivo } from '../lib/api';
+import { useAuth } from '../lib/authStore';
 import Ayuda from '../components/Ayuda';
 
 const CATEGORIA_ESTILO = {
@@ -91,6 +92,26 @@ function PanelNuevoEnvio({ onEnviado }) {
   // filtro a ciegas cada vez.
   const [segmentos, setSegmentos] = useState([]);
   const [segmentoActivo, setSegmentoActivo] = useState(null);
+  // 🆕 Reparto entre voluntarios — antes una sola persona veía TODOS
+  // los enlaces de un envío (riesgo real de bloqueo de WhatsApp por
+  // mandar demasiado desde un solo número).
+  const [voluntariosDisponibles, setVoluntariosDisponibles] = useState([]);
+  const [voluntariosElegidos, setVoluntariosElegidos] = useState([]);
+  // 🆕 Enlace de confirmación — reusa las pantallas públicas que ya
+  // existen ("¿ya votaste?" y la de eventos) para que la gente
+  // conteste tocando un botón, en vez de un chat que nadie lee.
+  const [enlaceConfirmacion, setEnlaceConfirmacion] = useState('ninguno');
+  const [eventosDisponibles, setEventosDisponibles] = useState([]);
+  const [agendaIdElegido, setAgendaIdElegido] = useState('');
+  useEffect(() => {
+    api.get('/agenda').then((r) => setEventosDisponibles(r.data.data.filter((e) => e.estado !== 'cancelado' && new Date(e.fecha_inicio) >= new Date()))).catch(() => setEventosDisponibles([]));
+  }, []);
+  useEffect(() => {
+    api.get('/marketing/voluntarios-disponibles').then((r) => setVoluntariosDisponibles(r.data.data)).catch(() => setVoluntariosDisponibles([]));
+  }, []);
+  const toggleVoluntario = (id) => {
+    setVoluntariosElegidos((prev) => prev.includes(id) ? prev.filter((v) => v !== id) : [...prev, id]);
+  };
 
   useEffect(() => {
     api.get('/marketing/segmentos-sugeridos').then((r) => setSegmentos(r.data.data)).catch(() => setSegmentos([]));
@@ -125,6 +146,9 @@ function PanelNuevoEnvio({ onEnviado }) {
     try {
       const { data } = await api.post('/marketing/envios', {
         titulo, mensaje_base: mensaje, audiencia_tipo: audienciaTipo, audiencia_filtro: filtros, imagenes,
+        voluntarios_ids: voluntariosElegidos,
+        enlace_confirmacion: enlaceConfirmacion,
+        agenda_id_confirmacion: enlaceConfirmacion === 'evento' ? agendaIdElegido : undefined,
       });
       setResultado(data.data);
       onEnviado();
@@ -208,6 +232,28 @@ function PanelNuevoEnvio({ onEnviado }) {
       <textarea placeholder="Mensaje — usa {nombre} para personalizar" value={mensaje} onChange={(e) => setMensaje(e.target.value)}
         className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm min-h-24" />
 
+      {/* 🆕 Enlace de confirmación — se agrega personalizado al final
+          del mensaje de cada persona. Así contestan tocando un botón
+          real, en vez de un chat que nadie va a estar leyendo. */}
+      <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 space-y-2">
+        <div className="text-[10px] font-bold text-slate-400 uppercase">🔗 Agregar enlace de confirmación (opcional)</div>
+        <div className="flex gap-1.5">
+          <button onClick={() => setEnlaceConfirmacion('ninguno')} className={`flex-1 py-2 rounded-lg text-[11px] font-bold ${enlaceConfirmacion === 'ninguno' ? 'bg-slate-600 text-white' : 'bg-slate-800 text-slate-400'}`}>Ninguno</button>
+          <button onClick={() => setEnlaceConfirmacion('voto')} className={`flex-1 py-2 rounded-lg text-[11px] font-bold ${enlaceConfirmacion === 'voto' ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🗳️ "¿Ya votaste?"</button>
+          <button onClick={() => setEnlaceConfirmacion('evento')} className={`flex-1 py-2 rounded-lg text-[11px] font-bold ${enlaceConfirmacion === 'evento' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📅 Confirmar evento</button>
+        </div>
+        {enlaceConfirmacion === 'evento' && (
+          <select value={agendaIdElegido} onChange={(e) => setAgendaIdElegido(e.target.value)}
+            className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs">
+            <option value="">Elige a cuál evento...</option>
+            {eventosDisponibles.map((ev) => <option key={ev.id} value={ev.id}>{ev.titulo} — {new Date(ev.fecha_inicio).toLocaleDateString('es-MX')}</option>)}
+          </select>
+        )}
+        {enlaceConfirmacion !== 'ninguno' && (
+          <p className="text-[9px] text-slate-500">Cada persona recibe un enlace personalizado — al tocarlo, confirma directo sin necesitar cuenta ni contraseña.</p>
+        )}
+      </div>
+
       {/* 🆕 Imágenes del mensaje — hasta 5, cada una se ve como una
           vista previa en el WhatsApp de quien la reciba. */}
       {imagenes.length > 0 && (
@@ -232,7 +278,31 @@ function PanelNuevoEnvio({ onEnviado }) {
         </label>
       )}
 
-      <button onClick={enviar} disabled={enviando || !titulo || !mensaje || !previa?.total}
+      {/* 🆕 Repartir entre voluntarios — opcional. Sin elegir a
+          nadie, funciona como antes (una sola cola para quien la
+          abra). Eligiendo varios, cada quien puede filtrar para ver
+          solo su parte — evita que un solo número mande cientos de
+          mensajes y termine bloqueado. */}
+      {voluntariosDisponibles.length > 0 && (
+        <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 space-y-2">
+          <div className="text-[10px] font-bold text-slate-400 uppercase">🤝 Repartir entre tu equipo (opcional)</div>
+          <p className="text-[10px] text-slate-500">
+            {voluntariosElegidos.length === 0
+              ? 'Sin elegir a nadie, una sola persona vería toda la lista.'
+              : `Se repartirá entre ${voluntariosElegidos.length} personas, ~${Math.ceil((previa?.total || 0) / voluntariosElegidos.length)} mensajes cada una.`}
+          </p>
+          <div className="max-h-32 overflow-y-auto space-y-1">
+            {voluntariosDisponibles.map((v) => (
+              <label key={v.id} className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+                <input type="checkbox" checked={voluntariosElegidos.includes(v.id)} onChange={() => toggleVoluntario(v.id)} />
+                {v.nombre} <span className="text-slate-600 text-[9px]">({v.rol})</span>
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <button onClick={enviar} disabled={enviando || !titulo || !mensaje || !previa?.total || (enlaceConfirmacion === 'evento' && !agendaIdElegido)}
         className="w-full py-3 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 text-white text-sm font-bold disabled:opacity-40">
         {enviando ? '⏳ Procesando...' : modo === 'enlace' ? `📋 Armar cola para ${previa?.total || 0} personas` : `⚡ Enviar a ${previa?.total || 0} personas ahora`}
       </button>
@@ -242,6 +312,11 @@ function PanelNuevoEnvio({ onEnviado }) {
 
 function DetalleEnvio({ envioId, onCerrar }) {
   const [envio, setEnvio] = useState(null);
+  const usuario = useAuth((s) => s.usuario);
+  // 🆕 Si el envío se repartió entre varios, por defecto cada quien
+  // ve solo SU parte al abrirlo — evita que alguien mande de más sin
+  // querer, y hace más claro cuál es su tarea real.
+  const [verTodos, setVerTodos] = useState(false);
 
   const cargar = () => api.get(`/marketing/envios/${envioId}`).then((r) => setEnvio(r.data.data));
   useEffect(cargar, [envioId]);
@@ -249,6 +324,11 @@ function DetalleEnvio({ envioId, onCerrar }) {
   const marcarEnviado = async (destId) => { await api.patch(`/marketing/envios/${envioId}/marcar/${destId}`); cargar(); };
 
   if (!envio) return null;
+
+  const fueRepartido = envio.destinatarios.some((d) => d.asignado_a);
+  const destinatariosMostrados = fueRepartido && !verTodos
+    ? envio.destinatarios.filter((d) => d.asignado_a === usuario?.id)
+    : envio.destinatarios;
 
   return (
     <div className="fixed inset-0 bg-black/70 flex items-end md:items-center justify-center z-50" onClick={onCerrar}>
@@ -259,12 +339,25 @@ function DetalleEnvio({ envioId, onCerrar }) {
         </div>
         <div className="text-xs text-slate-400">{envio.enviados} de {envio.total} enviados{envio.modo === 'enlace' ? ' — toca cada uno tras mandarlo de verdad' : ''}</div>
 
+        {/* 🆕 Aviso de reparto — solo aparece si este envío sí se
+            dividió entre varias personas. */}
+        {fueRepartido && (
+          <div className="bg-purple-500/10 border border-purple-500/30 rounded-lg px-3 py-2 flex items-center justify-between">
+            <span className="text-[10px] text-purple-300">
+              {verTodos ? '👥 Viendo la lista completa' : `👤 Mostrando solo tu parte (${destinatariosMostrados.length})`}
+            </span>
+            <button onClick={() => setVerTodos((v) => !v)} className="text-[10px] font-bold text-purple-400">
+              {verTodos ? 'Ver solo lo mío' : 'Ver todos'}
+            </button>
+          </div>
+        )}
+
         <div className="space-y-1.5">
-          {envio.destinatarios.map((d) => (
+          {destinatariosMostrados.map((d) => (
             <div key={d.id} className="flex items-center justify-between bg-slate-800/50 rounded-lg px-3 py-2">
               <div>
                 <div className="text-xs font-bold text-white">{d.nombre}</div>
-                <div className="text-[9px] text-slate-500">{d.telefono}</div>
+                <div className="text-[9px] text-slate-500">{d.telefono}{d.asignado_a_nombre && verTodos ? ` · 👤 ${d.asignado_a_nombre}` : ''}</div>
               </div>
               {d.estado === 'enviado' ? (
                 <span className="text-[10px] text-emerald-400 font-bold">✅ Enviado</span>
