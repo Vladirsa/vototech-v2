@@ -86,6 +86,21 @@ function PanelNuevoEnvio({ onEnviado }) {
   const [previa, setPrevia] = useState(null);
   const [enviando, setEnviando] = useState(false);
   const [resultado, setResultado] = useState(null);
+  // 🆕 Asesor de segmentos — analiza tus promovidos reales y sugiere
+  // a quién conviene mandarle qué tipo de mensaje, en vez de armar un
+  // filtro a ciegas cada vez.
+  const [segmentos, setSegmentos] = useState([]);
+  const [segmentoActivo, setSegmentoActivo] = useState(null);
+
+  useEffect(() => {
+    api.get('/marketing/segmentos-sugeridos').then((r) => setSegmentos(r.data.data)).catch(() => setSegmentos([]));
+  }, []);
+
+  const elegirSegmento = (seg) => {
+    setSegmentoActivo(seg.id);
+    setAudienciaTipo('promovidos');
+    setFiltros(seg.filtro);
+  };
 
   const previsualizar = async () => {
     const { data } = await api.post('/marketing/audiencia/previsualizar', { tipo: audienciaTipo, filtros });
@@ -137,9 +152,32 @@ function PanelNuevoEnvio({ onEnviado }) {
         <Ayuda posicion="abajo" texto="El sistema arma la lista de enlaces personalizados — cada persona de tu equipo abre su propio WhatsApp y toca 'enviar' uno por uno, sin costo. Es la única forma segura de mandar mensajes de campaña, ya que sale de cuentas personales reales en vez de una API automática (que Meta puede suspender si detecta mensajes a gente sin opt-in específico de WhatsApp)." />
       </div>
 
+      {/* 🆕 Asesor de segmentos — sugiere a quién mandarle qué tipo
+          de mensaje, en vez de armar el filtro completamente a
+          ciegas. Solo se muestran segmentos que de verdad tienen
+          gente (el backend ya filtra los de 0 personas). */}
+      {segmentos.length > 0 && (
+        <div className="space-y-1.5">
+          <div className="text-[10px] text-slate-500 font-bold uppercase">💡 A quién conviene mandarle mensaje ahora</div>
+          {segmentos.map((seg) => (
+            <button key={seg.id} onClick={() => elegirSegmento(seg)}
+              className={`w-full text-left rounded-xl p-3 border transition-colors ${segmentoActivo === seg.id ? 'bg-purple-500/20 border-purple-500' : 'bg-slate-900/60 border-slate-800 hover:border-slate-700'}`}>
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-white">{seg.nombre}</span>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300">{seg.total} personas</span>
+              </div>
+              <p className="text-[10px] text-slate-500 mt-1">{seg.razon}</p>
+              <div className="text-[10px] text-indigo-400 mt-1.5">
+                {TIPO_CONTENIDO_LABEL[seg.tipo_mensaje_sugerido]?.ic} Tipo de mensaje sugerido: {TIPO_CONTENIDO_LABEL[seg.tipo_mensaje_sugerido]?.label}
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className="flex gap-2">
-        <button onClick={() => setAudienciaTipo('promovidos')} className={`flex-1 py-2 rounded-lg text-xs font-bold ${audienciaTipo === 'promovidos' ? 'bg-purple-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🤝 Promovidos</button>
-        <button onClick={() => setAudienciaTipo('estructura')} className={`flex-1 py-2 rounded-lg text-xs font-bold ${audienciaTipo === 'estructura' ? 'bg-purple-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🗂️ Estructura</button>
+        <button onClick={() => { setAudienciaTipo('promovidos'); setSegmentoActivo(null); }} className={`flex-1 py-2 rounded-lg text-xs font-bold ${audienciaTipo === 'promovidos' ? 'bg-purple-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🤝 Promovidos</button>
+        <button onClick={() => { setAudienciaTipo('estructura'); setSegmentoActivo(null); }} className={`flex-1 py-2 rounded-lg text-xs font-bold ${audienciaTipo === 'estructura' ? 'bg-purple-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🗂️ Estructura</button>
       </div>
 
       {audienciaTipo === 'promovidos' ? (
