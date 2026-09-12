@@ -459,6 +459,38 @@ router.post('/:id/contacto', async (req, res) => {
  * no esté saliendo a tocar puertas). Solo altos mandos y
  * coordinadores deberían ver esto.
  */
+/**
+ * 🆕 GET /api/promovidos/:id/interacciones
+ * Historial de conversaciones con un promovido — lo que se platicó
+ * por WhatsApp, en persona, etc. No hay forma de leer un chat de
+ * WhatsApp automáticamente, así que esto lo registra quien tuvo la
+ * conversación, a mano, en 2 clics.
+ */
+router.get('/:id/interacciones', async (req, res) => {
+  const resultado = await query(
+    `SELECT pi.*, u.nombre as creado_por_nombre
+     FROM promovidos_interacciones pi
+     LEFT JOIN usuarios u ON u.id = pi.creado_por
+     JOIN promovidos p ON p.id = pi.promovido_id
+     WHERE pi.promovido_id=$1 AND p.campana_id=$2
+     ORDER BY pi.creado_en DESC`,
+    [req.params.id, req.usuario.campana_id]
+  );
+  res.json({ ok: true, data: resultado.rows });
+});
+
+router.post('/:id/interacciones', async (req, res) => {
+  const { nota, canal } = req.body;
+  if (!nota || nota.trim().length < 2) return res.status(400).json({ ok: false, error: 'Escribe qué se platicó' });
+  const promovido = await query('SELECT id FROM promovidos WHERE id=$1 AND campana_id=$2', [req.params.id, req.usuario.campana_id]);
+  if (!promovido.rows[0]) return res.status(404).json({ ok: false, error: 'Promovido no encontrado' });
+  const resultado = await query(
+    `INSERT INTO promovidos_interacciones (campana_id, promovido_id, canal, nota, creado_por) VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+    [req.usuario.campana_id, req.params.id, canal || 'whatsapp', nota.trim(), req.usuario.sub]
+  );
+  res.status(201).json({ ok: true, data: resultado.rows[0] });
+});
+
 router.get('/verificacion-campo', async (req, res) => {
   const resultado = await query(
     `SELECT
