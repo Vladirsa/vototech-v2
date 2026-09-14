@@ -26,6 +26,12 @@ export default function AdminPlataforma() {
   const [campanas, setCampanas] = useState([]);
   const [codigos, setCodigos] = useState([]);
   const [municipios, setMunicipios] = useState([]);
+  // 🆕 Leads del Cotizador público — con el precio que ya se les mostró
+  const [leads, setLeads] = useState([]);
+  const marcarContactado = async (id) => {
+    await axios.patch(`${API_URL}/admin/leads-comerciales/${id}/contactado`, {}, { headers });
+    setLeads((prev) => prev.map((l) => (l.id === id ? { ...l, contactado: true } : l)));
+  };
   const [notaCodigo, setNotaCodigo] = useState('');
   const navigate = useNavigate();
   const iniciarSesion = useAuth((s) => s.iniciarSesion);
@@ -34,14 +40,16 @@ export default function AdminPlataforma() {
 
   const cargar = async () => {
     try {
-      const [c, co, m] = await Promise.all([
+      const [c, co, m, l] = await Promise.all([
         axios.get(`${API_URL}/admin/campanas`, { headers }),
         axios.get(`${API_URL}/admin/codigos-acceso`, { headers }),
         axios.get(`${API_URL}/admin/municipios`, { headers }),
+        axios.get(`${API_URL}/admin/leads-comerciales`, { headers }),
       ]);
       setCampanas(c.data.data);
       setCodigos(co.data.data);
       setMunicipios(m.data.data);
+      setLeads(l.data.data);
       setAutenticado(true);
       sessionStorage.setItem('vt_admin_key', clave);
       setError('');
@@ -456,6 +464,34 @@ export default function AdminPlataforma() {
     <div className="min-h-screen bg-slate-950 p-4 md:p-8">
       <div className="max-w-7xl mx-auto space-y-6">
         <h1 className="text-2xl font-black text-white">🔐 Panel de Administración VotoTech</h1>
+
+        {/* 🆕 Leads del Cotizador público — con el precio exacto que
+            ya vieron, para saber qué contestarles cuando escriban. */}
+        {leads.filter((l) => !l.contactado).length > 0 && (
+          <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-4">
+            <div className="text-sm font-bold text-emerald-300 mb-2">💰 {leads.filter((l) => !l.contactado).length} prospectos nuevos del Cotizador</div>
+            <div className="space-y-2 max-h-80 overflow-y-auto">
+              {leads.filter((l) => !l.contactado).map((l) => (
+                <div key={l.id} className="bg-slate-900/60 rounded-lg p-3 flex items-center justify-between">
+                  <div>
+                    <div className="text-sm font-bold text-white">{l.nombre} — {l.telefono}</div>
+                    <div className="text-[11px] text-slate-400">
+                      {l.tipo_eleccion} {l.estado_nombre ? `· ${l.estado_nombre}` : ''} {l.poblacion_aproximada ? `· ~${parseInt(l.poblacion_aproximada).toLocaleString()} hab.` : ''}
+                    </div>
+                    <div className="text-xs font-bold text-emerald-400 mt-0.5">
+                      Se le mostró: ${l.precio_min?.toLocaleString()} – ${l.precio_max?.toLocaleString()}
+                    </div>
+                  </div>
+                  <div className="flex gap-1.5 flex-shrink-0">
+                    <a href={`https://wa.me/52${l.telefono?.replace(/\D/g, '')}`} target="_blank" rel="noreferrer"
+                      className="px-2.5 py-1.5 rounded-lg bg-emerald-700 text-white text-[10px] font-bold">📲</a>
+                    <button onClick={() => marcarContactado(l.id)} className="px-2.5 py-1.5 rounded-lg bg-slate-700 text-slate-300 text-[10px] font-bold">✅</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Reparación puntual de datos incompletos */}
         <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 flex items-center justify-between">
