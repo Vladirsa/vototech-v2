@@ -237,44 +237,50 @@ router.post('/afiliar/:subdominio', limiteAfiliacion, upload.fields([{ name: 'cr
 // un rango, nunca un número exacto.
 // ═══════════════════════════════════════════════════════════════
 
-const BRACKETS_MUNICIPAL = [
-  { hasta: 15000, min: 2500, max: 4000 },
-  { hasta: 50000, min: 5500, max: 10000 },
-  { hasta: 150000, min: 10000, max: 25000 },
-  { hasta: 400000, min: 30000, max: 50000 },
-  { hasta: Infinity, min: 50000, max: 70000 },
+// 🆕 NUEVA TABLA — cobro MENSUAL, con 2 planes (Básico y Premium),
+// escalando según tipo de elección y número real de electores. Ya
+// no es un precio único por campaña — es una suscripción mientras
+// dure el contrato.
+const TABLA_MUNICIPAL = [
+  { hasta: 10000, basico: 4000, premium: 9000 },
+  { hasta: 30000, basico: 6000, premium: 14000 },
+  { hasta: 80000, basico: 12000, premium: 27000 },
+  { hasta: 200000, basico: 25000, premium: 55000 },
+  { hasta: Infinity, basico: 40000, premium: 75000 },
 ];
-const BRACKETS_JUDICIAL = { juez: [4000, 8000], magistrado: [8000, 16000], ministro: [15000, 25000] };
+const TABLA_JUDICIAL = {
+  juez: { basico: 4000, premium: 8000 },
+  magistrado: { basico: 8000, premium: 16000 },
+  ministro: { basico: 15000, premium: 30000 },
+};
+const TABLA_DISTRITAL = { basico: 20000, premium: 45000 };
+const TABLA_ESTATAL = { basico: 50000, premium: 115000 }; // punto medio del rango $80k-$150k premium
 
 router.post('/cotizar', async (req, res) => {
-  const { tipo_eleccion, estado_id, poblacion_aproximada, cargo_judicial } = req.body;
+  const { tipo_eleccion, estado_id, electores_aproximados, cargo_judicial } = req.body;
   if (!tipo_eleccion) return res.status(400).json({ ok: false, error: 'Falta el tipo de elección' });
 
-  let min, max, nota = '';
+  let basico, premium, nota = '';
 
   if (tipo_eleccion === 'judicial') {
-    const rango = BRACKETS_JUDICIAL[cargo_judicial] || BRACKETS_JUDICIAL.juez;
-    [min, max] = rango;
+    const t = TABLA_JUDICIAL[cargo_judicial] || TABLA_JUDICIAL.juez;
+    basico = t.basico; premium = t.premium;
     nota = 'Las elecciones judiciales tienen topes de gasto mucho menores por ley — por eso el precio es más bajo que una campaña política tradicional.';
   } else if (tipo_eleccion === 'gobernador' || tipo_eleccion === 'senador') {
-    min = 60000; max = 150000;
-    nota = 'Cubre todo el estado — el precio varía según el tamaño real del padrón electoral estatal.';
+    basico = TABLA_ESTATAL.basico; premium = TABLA_ESTATAL.premium;
+    nota = 'Cubre todo el estado — el precio final varía según el tamaño real del padrón electoral estatal.';
   } else if (tipo_eleccion === 'dip_local' || tipo_eleccion === 'dip_federal') {
-    min = 15000; max = 45000;
+    basico = TABLA_DISTRITAL.basico; premium = TABLA_DISTRITAL.premium;
     nota = 'Un distrito agrupa varios municipios — el precio final depende de cuántas secciones tiene tu distrito específico.';
   } else {
-    // Municipal / Presidente de Comunidad — se calcula por bracket de población
-    const poblacion = parseInt(poblacion_aproximada) || 0;
-    // La lista nominal (gente que puede votar) es aproximadamente
-    // 60% de la población total en México — se usa como estimado
-    // cuando el prospecto no sabe su lista nominal exacta.
-    const listaNominalEstimada = Math.round(poblacion * 0.6);
-    const bracket = BRACKETS_MUNICIPAL.find((b) => listaNominalEstimada <= b.hasta) || BRACKETS_MUNICIPAL[BRACKETS_MUNICIPAL.length - 1];
-    min = bracket.min; max = bracket.max;
-    nota = `Estimado con base en ~${listaNominalEstimada.toLocaleString()} electores — el precio final se confirma con el tope de gasto oficial de tu municipio.`;
+    // Municipal / Presidente de Comunidad — por número real de electores (lista nominal)
+    const electores = parseInt(electores_aproximados) || 0;
+    const tramo = TABLA_MUNICIPAL.find((t) => electores <= t.hasta) || TABLA_MUNICIPAL[TABLA_MUNICIPAL.length - 1];
+    basico = tramo.basico; premium = tramo.premium;
+    nota = `Con base en ~${electores.toLocaleString()} electores — el precio final se confirma con el padrón oficial de tu municipio.`;
   }
 
-  res.json({ ok: true, data: { precio_min: min, precio_max: max, nota } });
+  res.json({ ok: true, data: { basico, premium, nota, periodo: 'mensual' } });
 });
 
 /**
@@ -284,12 +290,15 @@ router.post('/cotizar', async (req, res) => {
  * tener que estar pendiente de un chat en vivo.
  */
 router.post('/solicitar-contacto', async (req, res) => {
-  const { nombre, telefono, email, tipo_eleccion, estado_id, poblacion_aproximada, cargo_judicial, precio_min, precio_max } = req.body;
+  const { nombre, telefono, email, tipo_eleccion, estado_id, electores_aproximados, cargo_judicial, basico, premium } = req.body;
   if (!nombre || !telefono) return res.status(400).json({ ok: false, error: 'Falta nombre y teléfono' });
   await query(
+    // 🆕 Se reusan las mismas columnas precio_min/precio_max — ahora
+    // significan "básico" y "premium" en vez de un rango de un solo
+    // precio, para no necesitar una migración de tabla.
     `INSERT INTO leads_comerciales (nombre, telefono, email, tipo_eleccion, estado_id, poblacion_aproximada, cargo_judicial, precio_min, precio_max)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-    [nombre, telefono, email || null, tipo_eleccion, estado_id || null, poblacion_aproximada || null, cargo_judicial || null, precio_min || null, precio_max || null]
+    [nombre, telefono, email || null, tipo_eleccion, estado_id || null, electores_aproximados || null, cargo_judicial || null, basico || null, premium || null]
   );
   res.status(201).json({ ok: true, mensaje: '¡Gracias! Te contactaremos pronto.' });
 });
