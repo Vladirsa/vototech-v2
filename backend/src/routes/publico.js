@@ -229,4 +229,69 @@ router.post('/afiliar/:subdominio', limiteAfiliacion, upload.fields([{ name: 'cr
   res.status(201).json({ ok: true, mensaje: `¡Gracias ${nombre.trim()}! Tu registro fue recibido correctamente.` });
 });
 
+// ═══════════════════════════════════════════════════════════════
+// 🆕 COTIZADOR PÚBLICO — calcula un precio estimado sin que Vlado
+// tenga que investigar el tope de gasto manualmente cada vez. Usa
+// la misma lógica de siempre: tamaño real del territorio → rango de
+// precio. Es un ESTIMADO, no un precio final — por eso siempre es
+// un rango, nunca un número exacto.
+// ═══════════════════════════════════════════════════════════════
+
+const BRACKETS_MUNICIPAL = [
+  { hasta: 15000, min: 2500, max: 4000 },
+  { hasta: 50000, min: 5500, max: 10000 },
+  { hasta: 150000, min: 10000, max: 25000 },
+  { hasta: 400000, min: 30000, max: 50000 },
+  { hasta: Infinity, min: 50000, max: 70000 },
+];
+const BRACKETS_JUDICIAL = { juez: [4000, 8000], magistrado: [8000, 16000], ministro: [15000, 25000] };
+
+router.post('/cotizar', async (req, res) => {
+  const { tipo_eleccion, estado_id, poblacion_aproximada, cargo_judicial } = req.body;
+  if (!tipo_eleccion) return res.status(400).json({ ok: false, error: 'Falta el tipo de elección' });
+
+  let min, max, nota = '';
+
+  if (tipo_eleccion === 'judicial') {
+    const rango = BRACKETS_JUDICIAL[cargo_judicial] || BRACKETS_JUDICIAL.juez;
+    [min, max] = rango;
+    nota = 'Las elecciones judiciales tienen topes de gasto mucho menores por ley — por eso el precio es más bajo que una campaña política tradicional.';
+  } else if (tipo_eleccion === 'gobernador' || tipo_eleccion === 'senador') {
+    min = 60000; max = 150000;
+    nota = 'Cubre todo el estado — el precio varía según el tamaño real del padrón electoral estatal.';
+  } else if (tipo_eleccion === 'dip_local' || tipo_eleccion === 'dip_federal') {
+    min = 15000; max = 45000;
+    nota = 'Un distrito agrupa varios municipios — el precio final depende de cuántas secciones tiene tu distrito específico.';
+  } else {
+    // Municipal / Presidente de Comunidad — se calcula por bracket de población
+    const poblacion = parseInt(poblacion_aproximada) || 0;
+    // La lista nominal (gente que puede votar) es aproximadamente
+    // 60% de la población total en México — se usa como estimado
+    // cuando el prospecto no sabe su lista nominal exacta.
+    const listaNominalEstimada = Math.round(poblacion * 0.6);
+    const bracket = BRACKETS_MUNICIPAL.find((b) => listaNominalEstimada <= b.hasta) || BRACKETS_MUNICIPAL[BRACKETS_MUNICIPAL.length - 1];
+    min = bracket.min; max = bracket.max;
+    nota = `Estimado con base en ~${listaNominalEstimada.toLocaleString()} electores — el precio final se confirma con el tope de gasto oficial de tu municipio.`;
+  }
+
+  res.json({ ok: true, data: { precio_min: min, precio_max: max, nota } });
+});
+
+/**
+ * 🆕 POST /api/publico/solicitar-contacto
+ * El prospecto ya vio su rango de precio y quiere que le contacten
+ * — se guarda como lead, para que Vlado lo revise cuando pueda, sin
+ * tener que estar pendiente de un chat en vivo.
+ */
+router.post('/solicitar-contacto', async (req, res) => {
+  const { nombre, telefono, email, tipo_eleccion, estado_id, poblacion_aproximada, cargo_judicial, precio_min, precio_max } = req.body;
+  if (!nombre || !telefono) return res.status(400).json({ ok: false, error: 'Falta nombre y teléfono' });
+  await query(
+    `INSERT INTO leads_comerciales (nombre, telefono, email, tipo_eleccion, estado_id, poblacion_aproximada, cargo_judicial, precio_min, precio_max)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+    [nombre, telefono, email || null, tipo_eleccion, estado_id || null, poblacion_aproximada || null, cargo_judicial || null, precio_min || null, precio_max || null]
+  );
+  res.status(201).json({ ok: true, mensaje: '¡Gracias! Te contactaremos pronto.' });
+});
+
 export default router;
