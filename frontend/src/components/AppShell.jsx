@@ -8,27 +8,42 @@ import { contarPendientesOffline } from '../lib/colaOffline';
 // NavBar.jsx — se traen tal cual, solo cambia CÓMO se pintan (antes
 // pastillas horizontales arriba, ahora una lista vertical con nombre
 // completo, del lado derecho).
+// 🆕 Cada módulo ahora indica a qué CAPA pertenece — la arquitectura
+// de 7 capas que organiza VotoTech por función real de campaña, no
+// solo una lista plana de botones. "mi-avance" y "dashboard" quedan
+// fuera de las capas — son pantallas de inicio, no una función
+// operativa específica.
+const CAPAS = [
+  { id: 'territorio', label: '🗺️ Territorio' },
+  { id: 'inteligencia', label: '🧠 Inteligencia Electoral' },
+  { id: 'estructura', label: '🗂️ Estructura y Organización' },
+  { id: 'operacion', label: '🚶 Movilización y Operación' },
+  { id: 'comunicacion', label: '📢 Comunicación' },
+  { id: 'administracion', label: '💼 Administración y Cumplimiento' },
+  { id: 'dia_e', label: '🗳️ Día E y Centro de Comando' },
+];
+
 const MODULOS = [
   { ruta: '/mi-avance', ic: '🗳️', label: 'Mi Avance', clave: 'mi-avance' },
   { ruta: '/dashboard', ic: '⚡', label: 'Dashboard', clave: 'dashboard' },
-  { ruta: '/centro-mando', ic: '🎯', label: 'Centro de Mando', clave: 'centro-mando' },
-  { ruta: '/mapa', ic: '🗺️', label: 'Mapa', clave: 'mapa' },
-  { ruta: '/promovidos', ic: '🤝', label: 'Promovidos', clave: 'promovidos' },
-  { ruta: '/reportes', ic: '📊', label: 'Reportes', clave: 'reportes' },
-  { ruta: '/marketing', ic: '📢', label: 'Comunicación y Marketing', clave: 'marketing' },
-  { ruta: '/juridico', ic: '⚖️', label: 'Jurídico', clave: 'juridico' },
-  { ruta: '/priorizacion', ic: '🎯', label: 'Priorización', clave: 'priorizacion' },
-  { ruta: '/estructura', ic: '🗂️', label: 'Estructura', clave: 'estructura' },
-  { ruta: '/agenda', ic: '📅', label: 'Agenda', clave: 'agenda' },
-  { ruta: '/logistica', ic: '🚚', label: 'Logística', clave: 'logistica' },
-  { ruta: '/dia-eleccion', ic: '🗳️', label: 'Día D', clave: 'dia-eleccion' },
-  { ruta: '/incidencias', ic: '🚨', label: 'Incidencias', clave: 'incidencias' },
+  { ruta: '/centro-mando', ic: '🎯', label: 'Centro de Mando', clave: 'centro-mando', capa: 'dia_e' },
+  { ruta: '/mapa', ic: '🗺️', label: 'Mapa', clave: 'mapa', capa: 'territorio' },
+  { ruta: '/promovidos', ic: '🤝', label: 'Promovidos', clave: 'promovidos', capa: 'operacion' },
+  { ruta: '/reportes', ic: '📊', label: 'Reportes', clave: 'reportes', capa: 'inteligencia' },
+  { ruta: '/marketing', ic: '📢', label: 'Comunicación y Marketing', clave: 'marketing', capa: 'comunicacion' },
+  { ruta: '/juridico', ic: '⚖️', label: 'Jurídico', clave: 'juridico', capa: 'administracion' },
+  { ruta: '/priorizacion', ic: '🎯', label: 'Priorización', clave: 'priorizacion', capa: 'inteligencia' },
+  { ruta: '/estructura', ic: '🗂️', label: 'Estructura', clave: 'estructura', capa: 'estructura' },
+  { ruta: '/agenda', ic: '📅', label: 'Agenda', clave: 'agenda', capa: 'operacion' },
+  { ruta: '/logistica', ic: '🚚', label: 'Logística', clave: 'logistica', capa: 'operacion' },
+  { ruta: '/dia-eleccion', ic: '🗳️', label: 'Día D', clave: 'dia-eleccion', capa: 'dia_e' },
+  { ruta: '/incidencias', ic: '🚨', label: 'Incidencias', clave: 'incidencias', capa: 'operacion' },
   // 🆕 "Activos" ya no es un botón propio — su contenido vive ahora
   // como una pestaña MÁS dentro de Administración (junto a Gastos,
   // Ingresos, Bodega, Tope y Exportar), un solo lugar para todo lo
   // administrativo de la campaña.
-  { ruta: '/finanzas', ic: '💼', label: 'Administración', clave: 'finanzas' },
-  { ruta: '/respaldos', ic: '📦', label: 'Respaldos', clave: 'respaldos' },
+  { ruta: '/finanzas', ic: '💼', label: 'Administración', clave: 'finanzas', capa: 'administracion' },
+  { ruta: '/respaldos', ic: '📦', label: 'Respaldos', clave: 'respaldos', capa: 'administracion' },
 ];
 
 const TODOS = MODULOS.map((m) => m.clave).filter((c) => c !== 'mi-avance');
@@ -89,19 +104,38 @@ function modulosDeCoordGeneral(puesto) {
 
 /** Contenido de navegación compartido entre el riel de escritorio y el cajón móvil. */
 function ListaModulos({ modulos, onNavegar }) {
+  const enlaceModulo = (m) => (
+    <NavLink key={m.ruta} to={m.ruta} onClick={onNavegar}
+      className={({ isActive }) =>
+        `flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-bold transition ${
+          isActive ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+        }`
+      }>
+      <span className="text-base flex-shrink-0">{m.ic}</span>
+      <span>{m.label}</span>
+    </NavLink>
+  );
+
+  // 🆕 Dashboard y Mi Avance no pertenecen a ninguna capa — son
+  // pantallas de inicio, siempre arriba de todo sin agrupar.
+  const sinCapa = modulos.filter((m) => !m.capa);
+  const conCapa = modulos.filter((m) => m.capa);
+
   return (
-    <div className="space-y-0.5">
-      {modulos.map((m) => (
-        <NavLink key={m.ruta} to={m.ruta} onClick={onNavegar}
-          className={({ isActive }) =>
-            `flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-bold transition ${
-              isActive ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-            }`
-          }>
-          <span className="text-base flex-shrink-0">{m.ic}</span>
-          <span>{m.label}</span>
-        </NavLink>
-      ))}
+    <div className="space-y-3">
+      {sinCapa.length > 0 && (
+        <div className="space-y-0.5">{sinCapa.map(enlaceModulo)}</div>
+      )}
+      {CAPAS.map((capa) => {
+        const modulosDeEstaCapa = conCapa.filter((m) => m.capa === capa.id);
+        if (modulosDeEstaCapa.length === 0) return null; // no mostrar capas vacías para este rol
+        return (
+          <div key={capa.id}>
+            <div className="text-[9px] font-bold text-slate-600 uppercase px-3 mb-1">{capa.label}</div>
+            <div className="space-y-0.5">{modulosDeEstaCapa.map(enlaceModulo)}</div>
+          </div>
+        );
+      })}
     </div>
   );
 }
