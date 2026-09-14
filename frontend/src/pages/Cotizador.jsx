@@ -3,9 +3,6 @@ import axios from 'axios';
 
 const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : '/api';
 
-// 🆕 Lista fija de los 32 estados — dato estático, no necesita
-// pedirse al servidor cada vez (y esta pantalla es pública, sin
-// sesión, así que evita depender de un endpoint con autenticación).
 const ESTADOS = [
   { id: 1, nombre: 'Aguascalientes' }, { id: 2, nombre: 'Baja California' }, { id: 3, nombre: 'Baja California Sur' },
   { id: 4, nombre: 'Campeche' }, { id: 5, nombre: 'Coahuila' }, { id: 6, nombre: 'Colima' }, { id: 7, nombre: 'Chiapas' },
@@ -28,16 +25,19 @@ const TIPOS = [
   { id: 'judicial', label: '⚖️ Juez / Magistrado (Judicial)' },
 ];
 
-/** Página pública — sin cuenta, sin contraseña. El prospecto elige
- * su tipo de elección, da un dato aproximado, y ve un rango de
- * precio de inmediato — con opción de pedir que le contacten. */
+const CARACTERISTICAS = {
+  basico: ['Mapa Electoral de tu territorio', 'CRM de Promovidos (con lectura de credencial IA)', 'Estructura de equipo', 'Agenda', 'Incidencias', 'Funciona sin internet en campo'],
+  premium: ['Todo lo del plan Básico', 'Reportes: Estadística, Priorización, Ficha de Sección', 'Marketing: WhatsApp segmentado, imágenes, reparto entre voluntarios', 'Logística + Día de la Elección completo', 'Centro de Mando', 'Jurídico + Administración + Respaldos', 'Soporte prioritario'],
+};
+
 export default function Cotizador() {
   const [paso, setPaso] = useState(1);
   const [tipoEleccion, setTipoEleccion] = useState('');
   const [estadoId, setEstadoId] = useState('');
-  const [poblacion, setPoblacion] = useState('');
+  const [electores, setElectores] = useState('');
   const [cargoJudicial, setCargoJudicial] = useState('juez');
   const [resultado, setResultado] = useState(null);
+  const [planElegido, setPlanElegido] = useState('basico');
   const [cargando, setCargando] = useState(false);
 
   const [nombre, setNombre] = useState('');
@@ -51,7 +51,7 @@ export default function Cotizador() {
     setCargando(true);
     try {
       const { data } = await axios.post(`${API_URL}/publico/cotizar`, {
-        tipo_eleccion: tipoEleccion, estado_id: estadoId, poblacion_aproximada: poblacion, cargo_judicial: cargoJudicial,
+        tipo_eleccion: tipoEleccion, estado_id: estadoId, electores_aproximados: electores, cargo_judicial: cargoJudicial,
       });
       setResultado(data.data);
       setPaso(3);
@@ -64,8 +64,8 @@ export default function Cotizador() {
     try {
       await axios.post(`${API_URL}/publico/solicitar-contacto`, {
         nombre, telefono, email, tipo_eleccion: tipoEleccion, estado_id: estadoId,
-        poblacion_aproximada: poblacion, cargo_judicial: cargoJudicial,
-        precio_min: resultado.precio_min, precio_max: resultado.precio_max,
+        electores_aproximados: electores, cargo_judicial: cargoJudicial,
+        basico: resultado.basico, premium: resultado.premium, plan_de_interes: planElegido,
       });
       setEnviado(true);
     } catch { /* el botón se queda disponible para reintentar */ }
@@ -73,11 +73,11 @@ export default function Cotizador() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-950 via-slate-950 to-purple-950 p-4 flex items-center justify-center">
-      <div className="max-w-md w-full space-y-4">
+      <div className="max-w-lg w-full space-y-4">
         <div className="text-center">
           <div className="text-3xl mb-1">🗳️</div>
           <h1 className="text-xl font-black text-white">Cotiza tu campaña con VotoTech</h1>
-          <p className="text-xs text-slate-400 mt-1">3 preguntas rápidas, precio al instante</p>
+          <p className="text-xs text-slate-400 mt-1">Suscripción mensual — cancela cuando termine tu campaña</p>
         </div>
 
         <div className="bg-slate-900/80 border border-slate-700 rounded-2xl p-5 space-y-4">
@@ -106,10 +106,10 @@ export default function Cotizador() {
 
               {esMunicipal && (
                 <>
-                  <label className="text-xs font-bold text-slate-400 uppercase block mb-1">¿Cuántos habitantes tiene tu municipio, aproximadamente?</label>
-                  <input type="number" placeholder="Ej: 45000" value={poblacion} onChange={(e) => setPoblacion(e.target.value)}
-                    className="w-full px-4 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-white text-sm mb-3" />
-                  <p className="text-[10px] text-slate-500 mb-3">No hace falta el dato exacto — un aproximado basta para darte un rango.</p>
+                  <label className="text-xs font-bold text-slate-400 uppercase block mb-1">¿Cuántos electores tiene tu municipio? (lista nominal)</label>
+                  <input type="number" placeholder="Ej: 28000" value={electores} onChange={(e) => setElectores(e.target.value)}
+                    className="w-full px-4 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-white text-sm mb-1" />
+                  <p className="text-[10px] text-slate-500 mb-3">Este dato es público — lo puedes checar en la página del INE de tu municipio. Un aproximado también sirve.</p>
                 </>
               )}
 
@@ -129,9 +129,9 @@ export default function Cotizador() {
 
               <div className="flex gap-2 pt-2">
                 <button onClick={() => setPaso(1)} className="flex-1 py-2.5 rounded-xl bg-slate-800 text-slate-300 font-bold text-sm">← Atrás</button>
-                <button onClick={calcular} disabled={cargando || !estadoId || (esMunicipal && !poblacion)}
+                <button onClick={calcular} disabled={cargando || !estadoId || (esMunicipal && !electores)}
                   className="flex-[2] py-2.5 rounded-xl bg-indigo-600 text-white font-bold text-sm disabled:opacity-40">
-                  {cargando ? '⏳...' : 'Ver mi precio →'}
+                  {cargando ? '⏳...' : 'Ver mis planes →'}
                 </button>
               </div>
             </>
@@ -139,15 +139,32 @@ export default function Cotizador() {
 
           {paso === 3 && resultado && !enviado && (
             <>
-              <div className="text-center py-2">
-                <div className="text-[10px] text-slate-500 uppercase font-bold">Tu rango estimado</div>
-                <div className="text-3xl font-black text-white mt-1">
-                  ${resultado.precio_min.toLocaleString()} – ${resultado.precio_max.toLocaleString()}
-                </div>
-                <div className="text-[10px] text-slate-500 mt-1">pesos mexicanos</div>
+              <p className="text-[11px] text-slate-400 bg-slate-800/60 rounded-lg p-3 text-center">{resultado.nota}</p>
+
+              <div className="grid grid-cols-2 gap-2">
+                <button onClick={() => setPlanElegido('basico')}
+                  className={`rounded-xl p-3 border-2 text-left ${planElegido === 'basico' ? 'border-indigo-500 bg-indigo-500/10' : 'border-slate-700 bg-slate-800/40'}`}>
+                  <div className="text-[10px] font-bold text-slate-400 uppercase">Básico</div>
+                  <div className="text-xl font-black text-white">${resultado.basico.toLocaleString()}</div>
+                  <div className="text-[9px] text-slate-500">al mes</div>
+                </button>
+                <button onClick={() => setPlanElegido('premium')}
+                  className={`rounded-xl p-3 border-2 text-left ${planElegido === 'premium' ? 'border-purple-500 bg-purple-500/10' : 'border-slate-700 bg-slate-800/40'}`}>
+                  <div className="text-[10px] font-bold text-purple-400 uppercase">⭐ Premium</div>
+                  <div className="text-xl font-black text-white">${resultado.premium.toLocaleString()}</div>
+                  <div className="text-[9px] text-slate-500">al mes</div>
+                </button>
               </div>
-              <p className="text-[11px] text-slate-400 bg-slate-800/60 rounded-lg p-3">{resultado.nota}</p>
-              <p className="text-xs text-slate-300 text-center pt-1">¿Te late? Déjanos tus datos y te contactamos para confirmar el precio exacto y armar tu demo.</p>
+
+              <div className="bg-slate-800/40 rounded-xl p-3 space-y-1">
+                {CARACTERISTICAS[planElegido].map((c) => (
+                  <div key={c} className="text-[11px] text-slate-300 flex items-start gap-1.5">
+                    <span className="text-emerald-400">✓</span> {c}
+                  </div>
+                ))}
+              </div>
+
+              <p className="text-xs text-slate-300 text-center pt-1">¿Te late el plan {planElegido === 'basico' ? 'Básico' : 'Premium'}? Déjanos tus datos y te contactamos.</p>
 
               <input placeholder="Tu nombre completo" value={nombre} onChange={(e) => setNombre(e.target.value)}
                 className="w-full px-4 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-white text-sm" />
@@ -158,7 +175,7 @@ export default function Cotizador() {
 
               <button onClick={solicitarContacto} disabled={!nombre || !telefono}
                 className="w-full py-3 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-black text-sm disabled:opacity-40">
-                ✅ Quiero que me contacten
+                ✅ Quiero el plan {planElegido === 'basico' ? 'Básico' : 'Premium'}
               </button>
             </>
           )}
@@ -167,7 +184,7 @@ export default function Cotizador() {
             <div className="text-center py-4 space-y-2">
               <div className="text-4xl">🎉</div>
               <h2 className="text-lg font-black text-white">¡Listo, {nombre.split(' ')[0]}!</h2>
-              <p className="text-sm text-slate-400">Te contactaremos pronto para mostrarte VotoTech funcionando de verdad.</p>
+              <p className="text-sm text-slate-400">Te contactaremos pronto para confirmar todo y armar tu demo.</p>
             </div>
           )}
         </div>
