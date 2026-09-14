@@ -57,6 +57,23 @@ export default function Reportes() {
   const [tendencia, setTendencia] = useState([]);
   const [estadisticas, setEstadisticas] = useState(null);
   const [fichaEstado, setFichaEstado] = useState(null);
+  // 🆕 Ficha Inteligente de Sección — a diferencia de la del estado,
+  // esta se busca por número (no tiene sentido cargar las 634 de
+  // una vez).
+  const [numeroBuscado, setNumeroBuscado] = useState('');
+  const [fichaSeccion, setFichaSeccion] = useState(null);
+  const [buscandoFicha, setBuscandoFicha] = useState(false);
+  const [errorFicha, setErrorFicha] = useState('');
+  const buscarFichaSeccion = async () => {
+    if (!numeroBuscado) return;
+    setBuscandoFicha(true);
+    setErrorFicha('');
+    try {
+      const { data } = await api.get(`/reportes/ficha-seccion/${numeroBuscado}`);
+      setFichaSeccion(data.data);
+    } catch (e) { setErrorFicha(e.response?.data?.error || 'No se pudo cargar'); setFichaSeccion(null); }
+    setBuscandoFicha(false);
+  };
   const [tipoAgregado, setTipoAgregado] = useState('dip_federal');
   const [agregados, setAgregados] = useState(null);
   const [probabilidad, setProbabilidad] = useState(null);
@@ -129,6 +146,7 @@ export default function Reportes() {
           <button onClick={() => setTab('tendencia')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'tendencia' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📈 Tendencia</button>
           <button onClick={() => setTab('estadisticas')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'estadisticas' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🗺️ Análisis histórico</button>
           <button onClick={() => setTab('ficha-estado')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'ficha-estado' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🏛️ Ficha del Estado</button>
+          <button onClick={() => setTab('ficha-seccion')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'ficha-seccion' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📍 Ficha de Sección</button>
           <button onClick={() => setTab('otros-cargos')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'otros-cargos' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🗳️ Senado / Dip. Federal / Dip. Local</button>
           <button onClick={() => setTab('probabilidad')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'probabilidad' ? 'bg-purple-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🎲 Estadística y Probabilidad</button>
           <button onClick={() => setTab('actividad')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'actividad' ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🎯 Actividad de Campo</button>
@@ -572,6 +590,119 @@ export default function Reportes() {
               📊 Tu campaña lleva {fichaEstado.tus_promovidos_totales} promovidos capturados en tu territorio.
             </div>
             <p className="text-[9px] text-slate-600">Fuentes de referencia: INE, ITE Tlaxcala. Los porcentajes de demografía/participación son de contexto general del estado, no se recalculan en vivo desde nuestra base de datos.</p>
+          </div>
+        )}
+
+        {tab === 'ficha-seccion' && (
+          <div className="space-y-3">
+            <div className="flex gap-2">
+              <input type="number" placeholder="Número de sección (ej: 178)" value={numeroBuscado} onChange={(e) => setNumeroBuscado(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && buscarFichaSeccion()}
+                className="flex-1 px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+              <button onClick={buscarFichaSeccion} disabled={buscandoFicha || !numeroBuscado}
+                className="px-4 py-2.5 rounded-lg bg-indigo-600 text-white text-xs font-bold disabled:opacity-40">
+                {buscandoFicha ? '⏳' : '🔍 Buscar'}
+              </button>
+            </div>
+            {errorFicha && <p className="text-xs text-red-400">{errorFicha}</p>}
+
+            {fichaSeccion && (
+              <div className="space-y-3">
+                {/* Identificación */}
+                <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+                  <div className="text-lg font-black text-white">Sección {fichaSeccion.identificacion.numero}</div>
+                  <div className="text-xs text-slate-400">
+                    {fichaSeccion.identificacion.municipio} · Distrito Local {fichaSeccion.identificacion.distrito_local} · Distrito Federal {fichaSeccion.identificacion.distrito_federal}
+                  </div>
+                  <div className="text-xs text-slate-500 mt-1">Lista nominal: {fichaSeccion.identificacion.lista_nominal?.toLocaleString() || 'N/D'}</div>
+                </div>
+
+                {/* Score Territorial explicable */}
+                {fichaSeccion.score_territorial !== null && (
+                  <div className="bg-gradient-to-br from-indigo-500/10 to-purple-500/10 border border-indigo-500/30 rounded-xl p-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-bold text-indigo-300">🎯 Score Territorial</span>
+                      <span className="text-2xl font-black text-white">{fichaSeccion.score_territorial}<span className="text-sm text-slate-500">/100</span></span>
+                    </div>
+                    <div className="space-y-2">
+                      {fichaSeccion.score_componentes.map((c) => (
+                        <div key={c.nombre}>
+                          <div className="flex justify-between text-[10px] mb-0.5">
+                            <span className="text-slate-300">{c.nombre}</span>
+                            <span className="text-slate-400 font-bold">{c.puntos !== null ? `${c.puntos}/${c.de}` : 'Sin dato'}</span>
+                          </div>
+                          {c.puntos !== null && (
+                            <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                              <div className="h-full bg-indigo-500" style={{ width: `${(c.puntos / c.de) * 100}%` }} />
+                            </div>
+                          )}
+                          <p className="text-[9px] text-slate-500 mt-0.5">📎 {c.fuente}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Histórico + tendencia */}
+                {fichaSeccion.historico.length > 0 && (
+                  <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+                    <div className="text-xs font-bold text-slate-400 uppercase mb-2">📈 Histórico electoral</div>
+                    {fichaSeccion.tendencia && (
+                      <div className={`text-[11px] font-bold mb-2 ${fichaSeccion.tendencia.direccion === 'subiendo' ? 'text-emerald-400' : fichaSeccion.tendencia.direccion === 'bajando' ? 'text-red-400' : 'text-slate-400'}`}>
+                        {fichaSeccion.tendencia.direccion === 'subiendo' ? '📈' : fichaSeccion.tendencia.direccion === 'bajando' ? '📉' : '➡️'} Tendencia: {fichaSeccion.tendencia.direccion} ({fichaSeccion.tendencia.diferencia_pct > 0 ? '+' : ''}{fichaSeccion.tendencia.diferencia_pct} pts)
+                      </div>
+                    )}
+                    {fichaSeccion.historico.map((h) => (
+                      <div key={h.anio} className="mb-2">
+                        <div className="text-[10px] text-slate-500 mb-1">{h.anio}</div>
+                        {Object.entries(h.por_partido).sort((a, b) => b[1] - a[1]).map(([p, v]) => (
+                          <div key={p} className="flex justify-between text-[10px] text-slate-300">
+                            <span>{p.toUpperCase()}</span><span>{v.toLocaleString()} ({h.total > 0 ? Math.round((v / h.total) * 100) : 0}%)</span>
+                          </div>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Estructura + cobertura */}
+                <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+                  <div className="text-xs font-bold text-slate-400 uppercase mb-2">🗂️ Estructura y cobertura</div>
+                  {fichaSeccion.estructura.length === 0 ? (
+                    <p className="text-[11px] text-amber-400">⚠️ Sin coordinador asignado a esta sección</p>
+                  ) : fichaSeccion.estructura.map((e) => (
+                    <p key={e.id} className="text-[11px] text-slate-300">👤 {e.nombre} — {e.puesto || e.rol}</p>
+                  ))}
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    🗳️ Casillas: {fichaSeccion.cobertura_casillas.con_representante}/{fichaSeccion.cobertura_casillas.total} con representante asignado
+                  </p>
+                </div>
+
+                {/* Actividad */}
+                <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+                  <div className="text-xs font-bold text-slate-400 uppercase mb-2">🤝 Actividad</div>
+                  <p className="text-[11px] text-slate-300">{fichaSeccion.actividad.total_promovidos} promovidos totales ({fichaSeccion.actividad.comprometidos} comprometidos) — {fichaSeccion.actividad.ultimos_30_dias} nuevos en los últimos 30 días</p>
+                </div>
+
+                {/* Riesgo de llenado */}
+                {fichaSeccion.riesgo_llenado && (
+                  <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+                    <div className="text-xs font-bold text-slate-400 uppercase mb-1">⚠️ Riesgo de llenado de actas (ITE, por distrito)</div>
+                    <p className="text-[11px] text-slate-300">{fichaSeccion.riesgo_llenado.porcentaje_consistente}% de actas consistentes — nivel: {fichaSeccion.riesgo_llenado.nivel_riesgo}</p>
+                  </div>
+                )}
+
+                {/* Incidencias */}
+                {fichaSeccion.incidencias.length > 0 && (
+                  <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+                    <div className="text-xs font-bold text-slate-400 uppercase mb-2">🚨 Incidencias recientes</div>
+                    {fichaSeccion.incidencias.map((i) => (
+                      <p key={i.id} className="text-[11px] text-slate-300">{i.tipo} — {i.urgencia} ({i.estado})</p>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 
