@@ -550,6 +550,118 @@ function PanelGeneracionIA() {
   );
 }
 
+/**
+ * 🆕 DEMO — "Redes Sociales". Sube una foto, la IA sugiere 3 textos,
+ * eliges/ajustas uno, y compartes con el menú nativo del celular
+ * (Facebook, Instagram, X, TikTok, lo que tengas instalado) — sin
+ * necesitar conectar ninguna cuenta oficial todavía. Es el primer
+ * paso hacia un "equipo de marketing" automatizado.
+ */
+function PanelRedesSociales() {
+  const [imagen, setImagen] = useState(null);
+  const [imagenPreview, setImagenPreview] = useState(null);
+  const [tema, setTema] = useState('');
+  const [tono, setTono] = useState('');
+  const [generando, setGenerando] = useState(false);
+  const [opciones, setOpciones] = useState([]);
+  const [textoElegido, setTextoElegido] = useState('');
+  const [error, setError] = useState('');
+  const [compartidoSoportado, setCompartidoSoportado] = useState(true);
+
+  const elegirImagen = (archivo) => {
+    setImagen(archivo);
+    setImagenPreview(URL.createObjectURL(archivo));
+  };
+
+  const generarTextos = async () => {
+    if (!tema.trim()) return;
+    setGenerando(true);
+    setError('');
+    setOpciones([]);
+    try {
+      const { data } = await api.post('/marketing/generar-post-social', { tema, tono: tono || undefined });
+      setOpciones(data.data.opciones);
+    } catch (e) { setError(e.response?.data?.error || 'No se pudo generar el texto'); }
+    setGenerando(false);
+  };
+
+  const compartir = async () => {
+    if (!navigator.share) { setCompartidoSoportado(false); return; }
+    try {
+      const datosCompartir = { text: textoElegido };
+      // Compartir la imagen real requiere que el navegador soporte
+      // "Web Share API Level 2" (archivos) — funciona en la mayoría
+      // de celulares modernos, no en todas las computadoras.
+      if (imagen && navigator.canShare && navigator.canShare({ files: [imagen] })) {
+        datosCompartir.files = [imagen];
+      }
+      await navigator.share(datosCompartir);
+    } catch (e) { /* la persona canceló el menú de compartir — no es un error real */ }
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="bg-purple-500/10 border border-purple-500/30 rounded-xl p-3 text-[11px] text-purple-300">
+        🧪 Esto es una DEMO — genera el texto con IA y te ayuda a compartir con lo que ya tienes instalado en tu celular.
+        Publicar 100% automático en cada red (sin tocar nada) es un proyecto más grande, aparte de esto.
+      </div>
+
+      <label className="block rounded-xl p-4 cursor-pointer bg-gradient-to-r from-indigo-600 to-purple-600 shadow-lg shadow-indigo-500/30 transition-transform active:scale-[0.98]">
+        <div className="flex items-center justify-center gap-3">
+          <span className="text-3xl">📷</span>
+          <div className="text-left">
+            <div className="text-sm font-black text-white">{imagen ? imagen.name : 'Subir foto'}</div>
+            <div className="text-[10px] text-indigo-100">{imagen ? 'Toca para cambiarla' : 'La foto que quieres publicar'}</div>
+          </div>
+        </div>
+        <input type="file" accept="image/*" className="hidden" onChange={(e) => e.target.files[0] && elegirImagen(e.target.files[0])} />
+      </label>
+      {imagenPreview && <img src={imagenPreview} alt="" className="w-full max-h-48 object-cover rounded-xl" />}
+
+      <textarea placeholder="¿De qué es la publicación? (ej: recorrido en la colonia Centro, entrega de despensas)" value={tema} onChange={(e) => setTema(e.target.value)}
+        className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm min-h-16" />
+      <input placeholder="Tono (opcional, ej: cercano, enérgico)" value={tono} onChange={(e) => setTono(e.target.value)}
+        className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+
+      <button onClick={generarTextos} disabled={!tema.trim() || generando}
+        className="w-full py-3 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 text-white text-sm font-bold disabled:opacity-40">
+        {generando ? '⏳ Generando...' : '✨ Generar 3 textos con IA'}
+      </button>
+      {error && <div className="bg-red-500/10 text-red-400 text-xs rounded-lg px-3 py-2">{error}</div>}
+
+      {opciones.length > 0 && (
+        <div className="space-y-2">
+          <div className="text-[10px] font-bold text-slate-500 uppercase">Elige el que más te guste (puedes editarlo)</div>
+          {opciones.map((op, i) => (
+            <label key={i} className={`block rounded-xl p-3 cursor-pointer border ${textoElegido === op ? 'bg-purple-500/20 border-purple-500' : 'bg-slate-900/60 border-slate-800'}`}>
+              <div className="flex items-start gap-2">
+                <input type="radio" checked={textoElegido === op} onChange={() => setTextoElegido(op)} className="mt-1" />
+                <p className="text-xs text-slate-200 whitespace-pre-wrap">{op}</p>
+              </div>
+            </label>
+          ))}
+        </div>
+      )}
+
+      {textoElegido && (
+        <>
+          <textarea value={textoElegido} onChange={(e) => setTextoElegido(e.target.value)}
+            className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm min-h-20" />
+          {compartidoSoportado ? (
+            <button onClick={compartir} className="w-full py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white text-sm font-bold">
+              📤 Compartir en mis redes
+            </button>
+          ) : (
+            <div className="bg-amber-500/10 text-amber-300 text-[11px] rounded-lg px-3 py-2">
+              Tu navegador no soporta el menú de compartir directo — copia el texto de arriba y descarga la foto para subirlos a mano.
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function Marketing() {
   const [tab, setTab] = useState('nuevo');
   const [envios, setEnvios] = useState([]);
@@ -563,6 +675,7 @@ export default function Marketing() {
     { id: 'historial', ic: '📜', label: 'Historial' },
     { id: 'plantillas', ic: '📝', label: 'Plantillas' },
     { id: 'ia', ic: '✨', label: 'Discursos con IA' },
+    { id: 'redes-sociales', ic: '📱', label: 'Redes Sociales' },
     { id: 'biblioteca', ic: '📚', label: 'Biblioteca' },
   ];
 
@@ -585,6 +698,7 @@ export default function Marketing() {
         {tab === 'nuevo' && <PanelNuevoEnvio onEnviado={cargarEnvios} />}
         {tab === 'plantillas' && <PanelPlantillas />}
         {tab === 'ia' && <PanelGeneracionIA />}
+        {tab === 'redes-sociales' && <PanelRedesSociales />}
         {tab === 'biblioteca' && <PanelBiblioteca />}
 
         {tab === 'historial' && (
