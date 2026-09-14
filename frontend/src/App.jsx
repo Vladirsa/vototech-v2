@@ -31,6 +31,8 @@ const Juridico = lazy(() => import('./pages/Juridico'));
 const Respaldos = lazy(() => import('./pages/Respaldos'));
 const EncuestaPublica = lazy(() => import('./pages/EncuestaPublica'));
 const AfiliacionPublica = lazy(() => import('./pages/AfiliacionPublica'));
+const Cotizador = lazy(() => import('./pages/Cotizador'));
+const Landing = lazy(() => import('./pages/Landing'));
 const TerminosPublico = lazy(() => import('./pages/TerminosPublico'));
 const ContratoPublico = lazy(() => import('./pages/ContratoPublico'));
 const PosturaLegal = lazy(() => import('./pages/PosturaLegal'));
@@ -83,6 +85,7 @@ export default function App() {
             <Route path="/evento/:agendaId/:promovidoId" element={<ConfirmarEvento />} />
             <Route path="/encuesta/:id" element={<EncuestaPublica />} />
             <Route path="/afiliate/:subdominio" element={<AfiliacionPublica />} />
+            <Route path="/cotizar" element={<Cotizador />} />
             <Route path="/terminos" element={<TerminosPublico />} />
             <Route path="/contrato" element={<ContratoPublico />} />
             <Route path="/postura-legal" element={<PosturaLegal />} />
@@ -96,6 +99,7 @@ export default function App() {
               }
             />
             <Route path="/login" element={<Login />} />
+            <Route path="/" element={<Landing />} />
             <Route path="/registro" element={<RegistroCampana />} />
             <Route path="/registro-invitacion" element={<RegistroInvitacion />} />
             <Route path="/vt-admin-plataforma" element={<AdminPlataforma />} />
