@@ -396,6 +396,45 @@ Reglas importantes:
   }
 });
 
+/**
+ * 🆕 POST /api/marketing/generar-post-social
+ * DEMO — genera 3 opciones de texto para acompañar una foto en
+ * redes sociales. No publica nada solo (eso requeriría conectar la
+ * cuenta oficial de cada red social, un proceso mucho más grande) —
+ * el candidato revisa, elige, y comparte él mismo con el menú nativo
+ * de su celular.
+ */
+router.post('/generar-post-social', async (req, res) => {
+  const { tema, tono } = req.body;
+  if (!tema || tema.trim().length < 3) return res.status(400).json({ ok: false, error: 'Cuéntanos brevemente de qué es la publicación' });
+
+  try {
+    const respuesta = await anthropic.messages.create({
+      model: 'claude-sonnet-5',
+      max_tokens: 800,
+      messages: [{
+        role: 'user',
+        content: `Eres el equipo de redes sociales de una campaña política municipal/estatal en México. Te acaban de compartir una foto y este contexto: "${tema.trim()}".
+${tono ? `Tono deseado: ${tono}` : ''}
+
+Escribe EXACTAMENTE 3 opciones de texto para acompañar esa foto en redes sociales (tipo Facebook/Instagram) — cortas (máximo 3-4 líneas cada una), con 2-3 hashtags relevantes al final de cada una.
+
+Reglas importantes:
+- Nunca inventes cifras, nombres de lugares, ni promesas específicas que no te dieron — usa lenguaje genérico donde falte información concreta.
+- No ataques a nadie por nombre.
+- Español de México, natural y cercano, no acartonado.
+- Responde SOLO con las 3 opciones, separadas por "---", sin numerarlas ni explicar nada más.`,
+      }],
+    });
+    const texto = respuesta.content[0]?.text || '';
+    const opciones = texto.split('---').map((t) => t.trim()).filter(Boolean);
+    res.json({ ok: true, data: { opciones } });
+  } catch (e) {
+    console.error('Error generando post social:', e);
+    res.status(500).json({ ok: false, error: 'No se pudo generar el texto. Intenta de nuevo.' });
+  }
+});
+
 // ═══════════════════════════════════════════════════════════════
 // 🆕 MONITOREO DE REDES SOCIALES — reporte manual de tus propios
 // encargados de redes, no escucha automática. Sencillo a propósito:
