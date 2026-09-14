@@ -590,5 +590,24 @@ router.post('/importar-cartografia-estado', upload.single('geojson'), async (req
   });
 });
 
+/**
+ * 🆕 GET /api/admin/leads-comerciales
+ * Prospectos que usaron el Cotizador público — con el precio EXACTO
+ * que ya vieron, para que cuando te escriban por WhatsApp sepas de
+ * inmediato qué les mostraste, sin tener que adivinar ni preguntar.
+ */
+router.get('/leads-comerciales', async (req, res) => {
+  const resultado = await query(
+    `SELECT l.*, e.nombre as estado_nombre FROM leads_comerciales l
+     LEFT JOIN estados e ON e.id = l.estado_id
+     ORDER BY l.contactado ASC, l.creado_en DESC`
+  );
+  res.json({ ok: true, data: resultado.rows });
+});
+
+router.patch('/leads-comerciales/:id/contactado', async (req, res) => {
+  await query('UPDATE leads_comerciales SET contactado=true WHERE id=$1', [req.params.id]);
+  res.json({ ok: true });
+});
 
 export default router;
