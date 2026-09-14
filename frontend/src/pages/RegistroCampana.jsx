@@ -25,6 +25,12 @@ const TIPOS_ELECCION = [
   { id: 'dip_federal', label: '🏢 Diputado Federal', desc: 'Un distrito federal' },
   { id: 'senador', label: '🏦 Senador', desc: 'Todo el estado (fórmula de mayoría)' },
   { id: 'gobernador', label: '🎖️ Gobernador', desc: 'Todo el estado' },
+  // 🆕 Elección judicial (jueces, magistrados) — reforma judicial
+  // 2024-2025. Reglas MUY distintas: sin partido, sin publicidad
+  // pagada, campañas cortas (~60 días), solo redes orgánicas y
+  // recorridos — coincide justo con el modo de Marketing que ya
+  // tiene VotoTech (enlaces de WhatsApp, nunca anuncios pagados).
+  { id: 'judicial', label: '⚖️ Juez / Magistrado (Judicial)', desc: 'Sin partido — solo campaña orgánica, por ley' },
 ];
 
 export default function RegistroCampana() {
@@ -129,10 +135,16 @@ export default function RegistroCampana() {
               </div>
               <div>
                 <label className="block text-xs font-semibold text-slate-400 mb-1.5">Partido con el que contiendes</label>
-                <select value={form.partido} onChange={(e) => actualizar('partido', e.target.value)}
-                  className="w-full px-4 py-2.5 rounded-xl bg-slate-800/80 border border-slate-700 text-white text-sm focus:outline-none focus:border-indigo-500">
-                  {PARTIDOS_MEXICO.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
-                </select>
+                {form.tipo_eleccion === 'judicial' ? (
+                  <div className="px-4 py-2.5 rounded-xl bg-slate-800/40 border border-slate-700 text-slate-400 text-sm">
+                    🔒 Sin partido — por ley, los candidatos judiciales no pueden tener uno
+                  </div>
+                ) : (
+                  <select value={form.partido} onChange={(e) => actualizar('partido', e.target.value)}
+                    className="w-full px-4 py-2.5 rounded-xl bg-slate-800/80 border border-slate-700 text-white text-sm focus:outline-none focus:border-indigo-500">
+                    {PARTIDOS_MEXICO.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+                  </select>
+                )}
               </div>
               <div>
                 <label className="block text-xs font-semibold text-slate-400 mb-1.5">Correo (será tu usuario)</label>
@@ -166,9 +178,14 @@ export default function RegistroCampana() {
                   <button key={t.id} onClick={() => {
                     actualizar('tipo_eleccion', t.id);
                     const tt = t.id === 'dip_local' ? 'distrito_local' : t.id === 'dip_federal' ? 'distrito_federal'
-                      : (t.id === 'gobernador' || t.id === 'senador') ? 'estatal' : 'municipio';
+                      : (t.id === 'gobernador' || t.id === 'senador' || t.id === 'judicial') ? 'estatal' : 'municipio';
                     actualizar('territorio_tipo', tt);
                     actualizar('territorio_id', '');
+                    // 🆕 Por ley, los candidatos judiciales no pueden
+                    // tener partido — se ajusta solo, sin depender de
+                    // que alguien se acuerde de elegir "independiente"
+                    // a mano en el paso siguiente.
+                    if (t.id === 'judicial') actualizar('partido', 'independiente');
                   }}
                     className={`w-full text-left px-4 py-3 rounded-xl border transition ${
                       form.tipo_eleccion === t.id ? 'bg-indigo-500/20 border-indigo-500' : 'bg-slate-800/50 border-slate-700'
