@@ -98,6 +98,19 @@ router.get('/secciones-de-municipio/:claveMunicipio', async (req, res) => {
  * Devuelve el árbol completo de la campaña, CON el semáforo de salud
  * calculado para cada coordinador (no solo el organigrama plano).
  */
+/**
+ * 🆕 GET /api/estructura/mi-coordinador
+ * Para el botón "Contactar coordinador" de la pantalla del promotor
+ * — encuentra a su superior directo (parent_id) y da su teléfono,
+ * para que le hable directo por WhatsApp sin tener que buscarlo.
+ */
+router.get('/mi-coordinador', async (req, res) => {
+  const yo = await query('SELECT parent_id FROM usuarios WHERE id=$1', [req.usuario.sub]);
+  if (!yo.rows[0]?.parent_id) return res.json({ ok: true, data: null });
+  const coordinador = await query('SELECT nombre, telefono, rol FROM usuarios WHERE id=$1', [yo.rows[0].parent_id]);
+  res.json({ ok: true, data: coordinador.rows[0] || null });
+});
+
 router.get('/', async (req, res) => {
   const esRamaLimitada = req.usuario.rol === 'coord_seccional';
   const resultado = await query(
