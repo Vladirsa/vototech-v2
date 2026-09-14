@@ -285,6 +285,136 @@ router.get('/ficha-estado', async (req, res) => {
  * cargos no se reportan a nivel sección de la misma forma que
  * Ayuntamiento/Pdte. Comunidad).
  */
+/**
+ * 🆕 GET /api/reportes/ficha-seccion/:numero
+ * La Ficha Inteligente de Sección — junta en un solo lugar TODO lo
+ * que ya existe disperso (histórico, estructura, cobertura,
+ * actividad, incidencias, riesgo) más un Score Territorial
+ * EXPLICABLE — cada parte del score dice de dónde sale, nunca es
+ * una caja negra ni un número inventado.
+ */
+router.get('/ficha-seccion/:numero', async (req, res) => {
+  const campanaId = req.usuario.campana_id;
+  const estadoId = req.usuario.estado_id;
+  const numero = parseInt(req.params.numero);
+
+  const seccionRes = await query(
+    `SELECT s.id, s.numero, s.distrito_local, s.distrito_federal, s.lista_nominal, m.nombre as municipio
+     FROM secciones s JOIN municipios m ON m.id = s.municipio_id
+     WHERE s.estado_id=$1 AND s.numero=$2`,
+    [estadoId, numero]
+  );
+  if (!seccionRes.rows[0]) return res.status(404).json({ ok: false, error: 'Sección no encontrada' });
+  const seccion = seccionRes.rows[0];
+
+  const campanaRes = await query('SELECT partido, tipo_eleccion FROM campanas WHERE id=$1', [campanaId]);
+  const partidoPropio = campanaRes.rows[0]?.partido;
+  const tipoEleccion = campanaRes.rows[0]?.tipo_eleccion;
+
+  const [historico, estructura, casillas, actividad30d, incidencias, riesgo, eventos] = await Promise.all([
+    // Histórico electoral REAL de esta sección, por año — fuente: resultados_historicos
+    query(`SELECT anio, partido, votos FROM resultados_historicos WHERE seccion_id=$1 ORDER BY anio DESC, votos DESC`, [seccion.id]),
+    // Estructura asignada — fuente: usuarios.territorio_tipo/territorio_id
+    query(`SELECT id, nombre, rol, puesto, meta_diaria FROM usuarios WHERE campana_id=$1 AND territorio_tipo='seccion' AND territorio_id=$2`, [campanaId, numero]),
+    // Cobertura de casillas — fuente: casillas
+    query(`SELECT id, numero, representante_id FROM casillas WHERE campana_id=$1 AND seccion_id=$2`, [campanaId, seccion.id]),
+    // Actividad reciente — fuente: promovidos.creado_en (últimos 30 días)
+    query(`SELECT COUNT(*) as total FROM promovidos WHERE campana_id=$1 AND seccion_id=$2 AND creado_en > now() - interval '30 days'`, [campanaId, seccion.id]),
+    // Incidencias — fuente: incidencias
+    query(`SELECT id, tipo, urgencia, estado, creado_en FROM incidencias WHERE campana_id=$1 AND seccion_id=$2 ORDER BY creado_en DESC LIMIT 10`, [campanaId, seccion.id]).catch(() => ({ rows: [] })),
+    // Riesgo de llenado de actas — fuente: riesgo_llenado_distrito (ITE, por distrito local)
+    query(`SELECT porcentaje_consistente, nivel_riesgo FROM riesgo_llenado_distrito WHERE distrito_local=$1`, [seccion.distrito_local]).catch(() => ({ rows: [] })),
+    // Eventos ligados — fuente: caminatas (tienen seccion_id directo)
+    query(`SELECT id, titulo, fecha FROM caminatas WHERE campana_id=$1 AND seccion_id=$2 ORDER BY fecha DESC LIMIT 5`, [campanaId, seccion.id]).catch(() => ({ rows: [] })),
+  ]);
+
+  // Total de promovidos propios en esta sección (para actividad total, no solo 30 días)
+  const promovidosTotal = await query(`SELECT COUNT(*) as total, COUNT(*) FILTER (WHERE comprometido=true) as comprometidos FROM promovidos WHERE campana_id=$1 AND seccion_id=$2`, [campanaId, seccion.id]);
+
+  // ── Histórico agrupado por año ──
+  const aniosMap = {};
+  historico.rows.forEach((r) => {
+    if (!aniosMap[r.anio]) aniosMap[r.anio] = { anio: r.anio, total: 0, por_partido: {} };
+    aniosMap[r.anio].por_partido[r.partido] = parseInt(r.votos);
+    aniosMap[r.anio].total += parseInt(r.votos);
+  });
+  const historicoPorAnio = Object.values(aniosMap).sort((a, b) => b.anio - a.anio);
+  const anioMasReciente = historicoPorAnio[0];
+  const votosPartidoPropioReciente = anioMasReciente?.por_partido[partidoPropio] || 0;
+  const pctPartidoPropioReciente = anioMasReciente && anioMasReciente.total > 0 ? +((votosPartidoPropioReciente / anioMasReciente.total) * 100).toFixed(1) : null;
+
+  // ── Tendencia — comparar los 2 años más recientes disponibles ──
+  let tendencia = null;
+  if (historicoPorAnio.length >= 2) {
+    const actual = historicoPorAnio[0].por_partido[partidoPropio] || 0;
+    const actualTotal = historicoPorAnio[0].total;
+    const anterior = historicoPorAnio[1].por_partido[partidoPropio] || 0;
+    const anteriorTotal = historicoPorAnio[1].total;
+    const pctActual = actualTotal > 0 ? (actual / actualTotal) * 100 : 0;
+    const pctAnterior = anteriorTotal > 0 ? (anterior / anteriorTotal) * 100 : 0;
+    tendencia = { direccion: pctActual > pctAnterior ? 'subiendo' : pctActual < pctAnterior ? 'bajando' : 'estable', diferencia_pct: +(pctActual - pctAnterior).toFixed(1) };
+  }
+
+  // ── SCORE TERRITORIAL — explicable, 4 componentes con su fuente ──
+  const componentes = [];
+
+  // 1) Fuerza histórica (0-40 pts) — fuente: resultados_historicos
+  const puntosHistorico = pctPartidoPropioReciente !== null ? Math.round((pctPartidoPropioReciente / 100) * 40) : null;
+  componentes.push({
+    nombre: 'Fuerza histórica del partido', puntos: puntosHistorico, de: 40,
+    fuente: pctPartidoPropioReciente !== null ? `${pctPartidoPropioReciente}% de los votos en ${anioMasReciente.anio} (resultados_historicos)` : 'Sin resultados históricos cargados para esta sección',
+  });
+
+  // 2) Cobertura de estructura (0-25 pts) — fuente: usuarios + casillas
+  const tieneCoordinador = estructura.rows.length > 0;
+  const casillasConRepresentante = casillas.rows.filter((c) => c.representante_id).length;
+  const pctCasillasCubiertas = casillas.rows.length > 0 ? casillasConRepresentante / casillas.rows.length : 0;
+  const puntosEstructura = Math.round((tieneCoordinador ? 12.5 : 0) + (pctCasillasCubiertas * 12.5));
+  componentes.push({
+    nombre: 'Cobertura de estructura', puntos: puntosEstructura, de: 25,
+    fuente: `${tieneCoordinador ? 'Sí' : 'No'} tiene coordinador asignado · ${casillasConRepresentante}/${casillas.rows.length} casillas con representante (usuarios + casillas)`,
+  });
+
+  // 3) Actividad reciente (0-20 pts) — fuente: promovidos, normalizado contra lista nominal
+  const totalPromovidos = parseInt(promovidosTotal.rows[0].total);
+  const actividad30 = parseInt(actividad30d.rows[0].total);
+  // Normalizado: 1 promovido nuevo por cada 100 electores en 30 días = puntaje completo
+  const puntosActividad = Math.min(20, Math.round((actividad30 / Math.max(1, seccion.lista_nominal / 100)) * 20));
+  componentes.push({
+    nombre: 'Actividad reciente de campo', puntos: puntosActividad, de: 20,
+    fuente: `${actividad30} promovidos nuevos en los últimos 30 días, de ${totalPromovidos} en total (tabla promovidos)`,
+  });
+
+  // 4) Riesgo de llenado de actas (0-15 pts, INVERSO — menos riesgo = más puntos) — fuente: ITE
+  const nivelRiesgo = riesgo.rows[0]?.nivel_riesgo;
+  const puntosRiesgo = nivelRiesgo === 'bajo' ? 15 : nivelRiesgo === 'medio' ? 9 : nivelRiesgo === 'alto' || nivelRiesgo === 'muy_alto' ? 3 : null;
+  componentes.push({
+    nombre: 'Riesgo de llenado de actas (invertido)', puntos: puntosRiesgo, de: 15,
+    fuente: riesgo.rows[0] ? `${riesgo.rows[0].porcentaje_consistente}% de actas consistentes en este distrito en 2024 (ITE, riesgo_llenado_distrito)` : 'Sin dato de riesgo para este distrito',
+  });
+
+  const scoreTotal = componentes.reduce((s, c) => s + (c.puntos || 0), 0);
+  const scoreMaximoPosible = componentes.reduce((s, c) => s + (c.puntos !== null ? c.de : 0), 0);
+  const scoreTerritorial = scoreMaximoPosible > 0 ? Math.round((scoreTotal / scoreMaximoPosible) * 100) : null;
+
+  res.json({
+    ok: true,
+    data: {
+      identificacion: { numero: seccion.numero, municipio: seccion.municipio, distrito_local: seccion.distrito_local, distrito_federal: seccion.distrito_federal, lista_nominal: seccion.lista_nominal },
+      historico: historicoPorAnio,
+      tendencia,
+      estructura: estructura.rows,
+      cobertura_casillas: { total: casillas.rows.length, con_representante: casillasConRepresentante },
+      actividad: { ultimos_30_dias: actividad30, total_promovidos: totalPromovidos, comprometidos: parseInt(promovidosTotal.rows[0].comprometidos) },
+      incidencias: incidencias.rows,
+      eventos: eventos.rows,
+      riesgo_llenado: riesgo.rows[0] || null,
+      score_territorial: scoreTerritorial,
+      score_componentes: componentes,
+    },
+  });
+});
+
 router.get('/agregados/:tipo', async (req, res) => {
   const resultado = await query(
     `SELECT * FROM resultados_agregados WHERE estado_id=$1 AND tipo_eleccion=$2 ORDER BY anio DESC, nivel, distrito_numero NULLS FIRST, votos DESC NULLS LAST, porcentaje DESC NULLS LAST`,
