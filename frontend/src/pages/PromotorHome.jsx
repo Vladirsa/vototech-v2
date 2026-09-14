@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import api from '../lib/api';
 import { useAuth } from '../lib/authStore';
 import { ModalAgregar } from './Promovidos';
@@ -13,8 +14,16 @@ import { ModalAgregar } from './Promovidos';
  */
 export default function PromotorHome() {
   const usuario = useAuth((s) => s.usuario);
+  const navigate = useNavigate();
   const [resumen, setResumen] = useState(null);
   const [mostrarAgregar, setMostrarAgregar] = useState(false);
+  // 🆕 "¿Qué necesitas hacer?" — antes solo había un botón grande de
+  // "Agregar persona"; el resto de acciones (reportar algo, ver el
+  // mapa, hablarle a tu coordinador) requerían salir a buscar el
+  // módulo correcto en el menú, algo que un promotor sin experiencia
+  // técnica no siempre encuentra solo.
+  const [coordinador, setCoordinador] = useState(null);
+  useEffect(() => { api.get('/estructura/mi-coordinador').then((r) => setCoordinador(r.data.data)).catch(() => {}); }, []);
 
   const cargar = () => api.get('/promovidos/mi-resumen').then((r) => setResumen(r.data.data)).catch(() => {});
   useEffect(cargar, []);
@@ -28,6 +37,38 @@ export default function PromotorHome() {
           <div className="text-3xl">🗳️</div>
           <h1 className="text-xl font-black text-white">¡Vota por tu candidato!</h1>
           <p className="text-xs text-slate-500">Hola, {usuario?.nombre?.split(' ')[0]} — este es tu avance</p>
+        </div>
+
+        {/* 🆕 "¿Qué necesitas hacer?" — 4 botones grandes, directo a
+            la acción, sin tener que navegar ningún menú. */}
+        <div className="grid grid-cols-2 gap-3">
+          <button onClick={() => setMostrarAgregar(true)}
+            className="bg-gradient-to-br from-indigo-600 to-purple-600 rounded-2xl p-4 text-center shadow-lg active:scale-95 transition-transform">
+            <div className="text-3xl mb-1">➕</div>
+            <div className="text-xs font-black text-white">Agregar persona</div>
+          </button>
+          <button onClick={() => navigate('/incidencias')}
+            className="bg-gradient-to-br from-red-600 to-orange-600 rounded-2xl p-4 text-center shadow-lg active:scale-95 transition-transform">
+            <div className="text-3xl mb-1">🚨</div>
+            <div className="text-xs font-black text-white">Reportar algo</div>
+          </button>
+          <button onClick={() => navigate('/mapa')}
+            className="bg-gradient-to-br from-emerald-600 to-teal-600 rounded-2xl p-4 text-center shadow-lg active:scale-95 transition-transform">
+            <div className="text-3xl mb-1">🗺️</div>
+            <div className="text-xs font-black text-white">Ver el mapa</div>
+          </button>
+          {coordinador?.telefono ? (
+            <a href={`https://wa.me/52${coordinador.telefono.replace(/\D/g, '')}`} target="_blank" rel="noreferrer"
+              className="bg-gradient-to-br from-sky-600 to-blue-600 rounded-2xl p-4 text-center shadow-lg active:scale-95 transition-transform">
+              <div className="text-3xl mb-1">📞</div>
+              <div className="text-xs font-black text-white">Hablarle a {coordinador.nombre?.split(' ')[0]}</div>
+            </a>
+          ) : (
+            <div className="bg-slate-800/60 rounded-2xl p-4 text-center opacity-50">
+              <div className="text-3xl mb-1">📞</div>
+              <div className="text-xs font-black text-slate-400">Sin coordinador asignado</div>
+            </div>
+          )}
         </div>
 
         {/* Medidor grande hacia la meta mínima */}
@@ -78,11 +119,6 @@ export default function PromotorHome() {
             ))}
           </div>
         )}
-
-        <button onClick={() => setMostrarAgregar(true)}
-          className="w-full py-4 rounded-2xl bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-black text-base shadow-xl">
-          + Agregar persona
-        </button>
       </div>
 
       {mostrarAgregar && <ModalAgregar onCerrar={() => setMostrarAgregar(false)} onGuardado={() => { setMostrarAgregar(false); cargar(); }} />}
