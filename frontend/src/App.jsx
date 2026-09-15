@@ -25,10 +25,14 @@ const Incidencias = lazy(() => import('./pages/Incidencias'));
 // Administración, con todo por pestañas (Gastos, Ingresos, Activos,
 // Bodega, Tope, Exportar).
 const Administracion = lazy(() => import('./pages/Administracion'));
+// 🆕 "Administración y Cumplimiento" ahora es una sola pantalla con
+// pestañas — Jurídico, Administración y Respaldos dejaron de ser
+// 3 entradas sueltas del menú.
+const AdministracionCumplimiento = lazy(() => import('./pages/AdministracionCumplimiento'));
 const Reportes = lazy(() => import('./pages/Reportes'));
 const Marketing = lazy(() => import('./pages/Marketing'));
-const Juridico = lazy(() => import('./pages/Juridico'));
-const Respaldos = lazy(() => import('./pages/Respaldos'));
+// 🆕 Ya no se importan directamente aquí — ahora viven como pestañas
+// dentro de AdministracionCumplimiento.jsx.
 const EncuestaPublica = lazy(() => import('./pages/EncuestaPublica'));
 const AfiliacionPublica = lazy(() => import('./pages/AfiliacionPublica'));
 const Cotizador = lazy(() => import('./pages/Cotizador'));
@@ -113,13 +117,16 @@ export default function App() {
             <Route path="/logistica" element={<RutaProtegida><Logistica /></RutaProtegida>} />
             <Route path="/dia-eleccion" element={<RutaProtegida><DiaEleccion /></RutaProtegida>} />
             <Route path="/incidencias" element={<RutaProtegida><Incidencias /></RutaProtegida>} />
-            <Route path="/finanzas" element={<RutaProtegida><Administracion /></RutaProtegida>} />
+            <Route path="/administracion" element={<RutaProtegida><AdministracionCumplimiento /></RutaProtegida>} />
+            {/* 🆕 Redirecciones — por si algún enlace viejo o marcador
+                todavía apunta a las rutas separadas de antes. */}
+            <Route path="/finanzas" element={<Navigate to="/administracion" replace />} />
             {/* Por si alguien tiene guardado el link viejo de /activos */}
             <Route path="/activos" element={<Navigate to="/finanzas" replace />} />
             <Route path="/reportes" element={<RutaProtegida><Reportes /></RutaProtegida>} />
             <Route path="/marketing" element={<RutaProtegida><Marketing /></RutaProtegida>} />
-            <Route path="/juridico" element={<RutaProtegida><Juridico /></RutaProtegida>} />
-            <Route path="/respaldos" element={<RutaProtegida><Respaldos /></RutaProtegida>} />
+            <Route path="/juridico" element={<Navigate to="/administracion" replace />} />
+            <Route path="/respaldos" element={<Navigate to="/administracion" replace />} />
             <Route
               path="/mapa"
               element={
