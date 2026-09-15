@@ -9,10 +9,21 @@ const PARTIDOS_COLOR = {
   rsp: '#7c3aed', fxm: '#0891b2', panalt: '#64748b',
 };
 
+// 🆕 Etiquetas legibles por rol — para el filtro "por estructura" de
+// Bitácora diaria y Actividad de Campo.
+const ROL_LABEL = {
+  candidato: 'Candidato', jefe_campana: 'Jefe de Campaña', coord_general: 'Coord. General',
+  coord_distrital: 'Coord. Distrital', coord_municipal: 'Coord. Municipal', coord_seccional: 'Coord. Seccional',
+  promotor: 'Promotor', representante_casilla: 'Repres. de Casilla',
+  encargado_juridico: 'Encargado Jurídico', encargado_finanzas: 'Encargado Finanzas', voluntario: 'Voluntario',
+};
+const ROL_ES_LIDER = ['candidato', 'jefe_campana', 'coord_general', 'coord_distrital', 'coord_municipal', 'coord_seccional'];
+
 /** 🆕 Resumen ejecutivo con IA — junta varias señales (avance, ritmo, estructura, finanzas) en una sola narrativa. */
 function PanelResumenEjecutivoIA() {
   const [cargando, setCargando] = useState(false);
   const [resumen, setResumen] = useState('');
+  const [datos, setDatos] = useState(null);
   const [error, setError] = useState('');
   const [generadoEn, setGeneradoEn] = useState(null);
 
@@ -22,6 +33,7 @@ function PanelResumenEjecutivoIA() {
     try {
       const { data } = await api.get('/reportes/resumen-ejecutivo-ia');
       setResumen(data.data.resumen);
+      setDatos(data.data.datos_usados);
       setGeneradoEn(new Date());
     } catch (e) { setError(e.response?.data?.error || 'No se pudo generar el resumen'); }
     setCargando(false);
@@ -32,12 +44,63 @@ function PanelResumenEjecutivoIA() {
   return (
     <div className="space-y-3">
       <div className="bg-purple-500/10 border border-purple-500/30 rounded-xl p-3 text-[11px] text-purple-300">
-        🤖 Junta tu avance, ritmo, estructura, y finanzas en una sola narrativa clara — usando SOLO los números reales de tu campaña, sin inventar nada.
+        🤖 Junta tu avance, ritmo, TODA tu estructura, cobertura territorial, finanzas y alertas en una sola narrativa — usando SOLO los números reales de tu campaña, sin inventar nada.
       </div>
       <button onClick={generar} disabled={cargando} className="w-full py-3 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 text-white text-sm font-bold disabled:opacity-40">
         {cargando ? '⏳ Analizando tu campaña...' : resumen ? '🔄 Generar de nuevo' : '✨ Generar resumen ejecutivo'}
       </button>
       {error && <div className="bg-red-500/10 text-red-400 text-xs rounded-lg px-3 py-2">{error}</div>}
+
+      {datos && (
+        <>
+          {/* 🆕 Alertas — antes solo vivían dentro del texto de la IA;
+              ahora se ven aparte, claras y directas. */}
+          {datos.alertas.length > 0 && (
+            <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 space-y-1.5">
+              <div className="text-[10px] font-bold text-amber-300 uppercase">⚠️ Alertas activas</div>
+              {datos.alertas.map((a, i) => <p key={i} className="text-xs text-amber-200">• {a}</p>)}
+            </div>
+          )}
+
+          {/* 🆕 Gráficas reales de los mismos datos que usó la IA —
+              antes solo se leían en el párrafo de texto. */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3">
+              <div className="text-[9px] text-slate-500 uppercase font-bold mb-1">Estructura total</div>
+              <div className="text-xl font-black text-white">{datos.total_estructura}</div>
+              <div className="text-[9px] text-slate-500">personas en {Object.keys(datos.estructura_por_rol).length} roles distintos</div>
+            </div>
+            <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3">
+              <div className="text-[9px] text-slate-500 uppercase font-bold mb-1">Cobertura territorial</div>
+              <div className="text-xl font-black text-white">{datos.cobertura_secciones}</div>
+              <div className="text-[9px] text-slate-500">secciones con al menos 1 promovido</div>
+            </div>
+          </div>
+
+          <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+            <h3 className="text-xs font-bold text-slate-400 uppercase mb-2">Estructura por rol</h3>
+            <div className="space-y-1.5">
+              {Object.entries(datos.estructura_por_rol).sort((a, b) => b[1] - a[1]).map(([rol, total]) => {
+                const max = Math.max(...Object.values(datos.estructura_por_rol));
+                return (
+                  <div key={rol}>
+                    <div className="flex justify-between text-[10px] mb-0.5"><span className="text-slate-300">{ROL_LABEL[rol] || rol}</span><span className="text-slate-400 font-bold">{total}</span></div>
+                    <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden"><div className="h-full bg-purple-500" style={{ width: `${(total / max) * 100}%` }} /></div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {datos.tope_gasto && (
+            <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+              <div className="flex justify-between text-xs mb-1"><span className="text-slate-400">Gasto usado</span><span className="text-white font-bold">{datos.porcentaje_gasto_usado}%</span></div>
+              <div className="h-2 bg-slate-800 rounded-full overflow-hidden"><div className={`h-full ${datos.porcentaje_gasto_usado > 80 ? 'bg-red-500' : 'bg-emerald-500'}`} style={{ width: `${Math.min(100, datos.porcentaje_gasto_usado)}%` }} /></div>
+            </div>
+          )}
+        </>
+      )}
+
       {resumen && (
         <div className="bg-slate-900/60 border border-purple-500/30 rounded-xl p-4 space-y-3">
           {generadoEn && <p className="text-[9px] text-slate-500">Generado {generadoEn.toLocaleString('es-MX')}</p>}
@@ -55,6 +118,12 @@ export default function Reportes() {
   const [fecha, setFecha] = useState(new Date().toISOString().slice(0, 10));
   const [diario, setDiario] = useState([]);
   const [tendencia, setTendencia] = useState([]);
+  // 🆕 Filtro por estructura — antes "Bitácora diaria" solo mostraba
+  // promotores; ahora se puede filtrar por cualquier nivel (líderes,
+  // coordinadores, etc.) o ver todos juntos.
+  const [filtroRolDiario, setFiltroRolDiario] = useState('todos');
+  const [metaObjetivoDia, setMetaObjetivoDia] = useState(0);
+  const [logradoHoy, setLogradoHoy] = useState(0);
   const [estadisticas, setEstadisticas] = useState(null);
   const [fichaEstado, setFichaEstado] = useState(null);
   // 🆕 Ficha Inteligente de Sección — a diferencia de la del estado,
@@ -83,6 +152,11 @@ export default function Reportes() {
   const [actividadResumen, setActividadResumen] = useState(null);
   const [actividadPromotores, setActividadPromotores] = useState([]);
   const [actividadSecciones, setActividadSecciones] = useState([]);
+  // 🆕 Mismo tratamiento que Bitácora diaria — filtro por estructura,
+  // y agrupación territorial (sección/municipio/distrito) en vez de
+  // solo ver sección por sección.
+  const [filtroRolActividad, setFiltroRolActividad] = useState('todos');
+  const [agruparTerritorioPor, setAgruparTerritorioPor] = useState('seccion');
   const [encuestasResumen, setEncuestasResumen] = useState(null);
   const [cargando, setCargando] = useState(true);
 
@@ -92,7 +166,11 @@ export default function Reportes() {
 
   useEffect(() => {
     setCargando(true);
-    api.get(`/reportes/diario?fecha=${fecha}`).then((r) => setDiario(r.data.data)).finally(() => setCargando(false));
+    api.get(`/reportes/diario?fecha=${fecha}`).then((r) => {
+      setDiario(r.data.data);
+      setMetaObjetivoDia(r.data.meta_objetivo_dia || 0);
+      setLogradoHoy(r.data.logrado_hoy || 0);
+    }).finally(() => setCargando(false));
   }, [fecha]);
 
   useEffect(() => {
@@ -112,6 +190,46 @@ export default function Reportes() {
   const maxTendencia = Math.max(1, ...tendencia.map((t) => t.promovidos));
   const totalHoy = diario.reduce((s, d) => s + parseInt(d.promovidos_nuevos), 0);
   const totalContactosHoy = diario.reduce((s, d) => s + parseInt(d.contactos_hechos), 0);
+
+  // 🆕 Filtro por estructura — "todos", "lideres" (candidato hasta
+  // coord. seccional), o un rol específico.
+  const diarioFiltrado = diario.filter((d) => {
+    if (filtroRolDiario === 'todos') return true;
+    if (filtroRolDiario === 'lideres') return ROL_ES_LIDER.includes(d.rol);
+    return d.rol === filtroRolDiario;
+  });
+  // Gráfica de barras — promovidos capturados HOY, agrupados por rol
+  const porRolHoy = {};
+  diario.forEach((d) => {
+    const clave = ROL_LABEL[d.rol] || d.rol;
+    porRolHoy[clave] = (porRolHoy[clave] || 0) + parseInt(d.promovidos_nuevos);
+  });
+  const maxPorRol = Math.max(1, ...Object.values(porRolHoy));
+  const rolesConDatos = [...new Set(diario.map((d) => d.rol))].filter(Boolean);
+
+  // 🆕 Actividad de Campo — filtro por rol (misma lógica que Bitácora)
+  const actividadPromotoresFiltrada = actividadPromotores.filter((p) => {
+    if (filtroRolActividad === 'todos') return true;
+    if (filtroRolActividad === 'lideres') return ROL_ES_LIDER.includes(p.rol);
+    return p.rol === filtroRolActividad;
+  });
+  const rolesConDatosActividad = [...new Set(actividadPromotores.map((p) => p.rol))].filter(Boolean);
+
+  // 🆕 Agrupar la actividad territorial por sección, municipio, o
+  // distrito — antes solo se podía ver sección por sección.
+  const actividadAgrupada = (() => {
+    if (agruparTerritorioPor === 'seccion') return actividadSecciones;
+    const clave = agruparTerritorioPor === 'municipio' ? 'municipio' : agruparTerritorioPor === 'distrito_local' ? 'distrito_local' : 'distrito_federal';
+    const grupos = {};
+    actividadSecciones.forEach((s) => {
+      const k = s[clave] ?? 'Sin dato';
+      if (!grupos[k]) grupos[k] = { etiqueta: k, total_promovidos: 0, comprometidos: 0, promotores_set: new Set() };
+      grupos[k].total_promovidos += parseInt(s.total_promovidos);
+      grupos[k].comprometidos += parseInt(s.comprometidos);
+    });
+    return Object.values(grupos).sort((a, b) => b.total_promovidos - a.total_promovidos);
+  })();
+  const maxActividadAgrupada = Math.max(1, ...actividadAgrupada.map((a) => parseInt(a.total_promovidos)));
 
   return (
     <div className="space-y-5">
@@ -144,7 +262,6 @@ export default function Reportes() {
         </div>
 
         <div className="flex gap-2 flex-wrap">          <button onClick={() => setTab('diario')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'diario' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📋 Bitácora diaria</button>
-          <button onClick={() => setTab('tendencia')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'tendencia' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📈 Tendencia</button>
           <button onClick={() => setTab('estadisticas')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'estadisticas' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🗺️ Análisis histórico</button>
           <button onClick={() => setTab('ficha-estado')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'ficha-estado' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🏛️ Ficha del Estado</button>
           <button onClick={() => setTab('ficha-seccion')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'ficha-seccion' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📍 Ficha de Sección</button>
@@ -297,34 +414,105 @@ export default function Reportes() {
         )}
 
         {tab === 'diario' && (
-          <div className="space-y-3">
-            <div className="flex items-center gap-3">
+          <div className="space-y-4">
+            {/* 🆕 Meta objetivo del día vs. logrado — antes no existía
+                esta comparación, solo se veía el total capturado sin
+                saber si eso era "bueno" o no. */}
+            <div className="bg-gradient-to-br from-indigo-500/10 to-purple-500/10 border border-indigo-500/30 rounded-xl p-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-bold text-indigo-300">🎯 Meta del día — toda la estructura</span>
+                <span className="text-lg font-black text-white">{logradoHoy} <span className="text-sm text-slate-500">/ {metaObjetivoDia}</span></span>
+              </div>
+              <div className="h-2.5 bg-slate-800 rounded-full overflow-hidden">
+                <div className="h-full bg-indigo-500" style={{ width: `${metaObjetivoDia > 0 ? Math.min(100, (logradoHoy / metaObjetivoDia) * 100) : 0}%` }} />
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3 flex-wrap">
               <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)}
                 className="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
-              <div className="flex gap-3 text-xs">
-                <span className="text-slate-400">Total del día: <strong className="text-white">{totalHoy}</strong> promovidos, <strong className="text-white">{totalContactosHoy}</strong> contactos</span>
+              {/* 🆕 Filtro por estructura — el pedido principal: ya no
+                  solo se ve "promotor", se puede ver por líderes, por
+                  coordinador específico, o todos juntos. */}
+              <select value={filtroRolDiario} onChange={(e) => setFiltroRolDiario(e.target.value)}
+                className="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
+                <option value="todos">Todos los niveles</option>
+                <option value="lideres">Solo líderes/coordinadores</option>
+                {rolesConDatos.map((r) => <option key={r} value={r}>{ROL_LABEL[r] || r}</option>)}
+              </select>
+              <span className="text-xs text-slate-400">Total del día: <strong className="text-white">{totalHoy}</strong> promovidos, <strong className="text-white">{totalContactosHoy}</strong> contactos</span>
+            </div>
+
+            {/* 🆕 Gráfica por rol — para ver de un vistazo qué nivel
+                de la estructura está aportando más hoy. */}
+            {rolesConDatos.length > 1 && (
+              <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+                <h3 className="text-xs font-bold text-slate-400 uppercase mb-3">Promovidos de hoy, por nivel de estructura</h3>
+                <div className="space-y-2">
+                  {Object.entries(porRolHoy).sort((a, b) => b[1] - a[1]).map(([rol, total]) => (
+                    <div key={rol}>
+                      <div className="flex justify-between text-[10px] mb-0.5">
+                        <span className="text-slate-300">{rol}</span>
+                        <span className="text-slate-400 font-bold">{total}</span>
+                      </div>
+                      <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
+                        <div className="h-full bg-emerald-500" style={{ width: `${(total / maxPorRol) * 100}%` }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
+            )}
+
+            {/* 🆕 Tendencia — antes era una pestaña aparte, ahora vive
+                junto a la bitácora del día (mismo tema: ritmo de
+                campaña, solo distinta ventana de tiempo). */}
+            <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+              <h3 className="text-xs font-bold text-slate-400 uppercase mb-3">📈 Tendencia — últimos 14 días</h3>
+              {tendencia.length === 0 ? (
+                <div className="text-xs text-slate-500 text-center py-6">Aún no hay suficiente actividad para mostrar tendencia</div>
+              ) : (
+                <div className="flex items-end gap-2 h-40">
+                  {tendencia.map((t) => (
+                    <div key={t.fecha} className="flex-1 flex flex-col items-center gap-1 group relative">
+                      <div className="w-full flex flex-col justify-end" style={{ height: '140px' }}>
+                        <div className="w-full bg-indigo-500 rounded-t hover:bg-indigo-400 transition-all relative"
+                          style={{ height: `${Math.max(4, (t.promovidos / maxTendencia) * 100)}%` }}>
+                          <div className="absolute -top-6 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 text-[9px] bg-slate-800 px-1.5 py-0.5 rounded text-white whitespace-nowrap transition-opacity">
+                            {t.promovidos} ({t.comprometidos} comp.)
+                          </div>
+                        </div>
+                      </div>
+                      <span className="text-[8px] text-slate-500">{new Date(t.fecha).toLocaleDateString('es-MX', { day: 'numeric', month: 'short' })}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             {cargando ? (
               <div className="text-center text-slate-500 py-10">⏳ Cargando...</div>
-            ) : diario.every((d) => parseInt(d.promovidos_nuevos) === 0 && parseInt(d.contactos_hechos) === 0) ? (
-              <div className="text-center text-slate-500 py-10">Sin actividad registrada este día</div>
+            ) : diarioFiltrado.every((d) => parseInt(d.promovidos_nuevos) === 0 && parseInt(d.contactos_hechos) === 0) ? (
+              <div className="text-center text-slate-500 py-10">Sin actividad registrada este día para este filtro</div>
             ) : (
               <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden">
                 <table className="w-full text-xs">
                   <thead className="bg-slate-800/60">
                     <tr>
-                      <th className="text-left px-3 py-2 text-slate-400 font-bold">Promotor</th>
+                      <th className="text-left px-3 py-2 text-slate-400 font-bold">Nombre</th>
+                      <th className="text-left px-3 py-2 text-slate-400 font-bold">Rol</th>
+                      <th className="text-center px-3 py-2 text-slate-400 font-bold">Meta diaria</th>
                       <th className="text-center px-3 py-2 text-slate-400 font-bold">Promovidos</th>
                       <th className="text-center px-3 py-2 text-slate-400 font-bold">Comprometidos</th>
                       <th className="text-center px-3 py-2 text-slate-400 font-bold">Contactos</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {diario.filter((d) => parseInt(d.promovidos_nuevos) > 0 || parseInt(d.contactos_hechos) > 0).map((d) => (
+                    {diarioFiltrado.filter((d) => parseInt(d.promovidos_nuevos) > 0 || parseInt(d.contactos_hechos) > 0).map((d) => (
                       <tr key={d.usuario_id} className="border-t border-slate-800">
                         <td className="px-3 py-2 text-white font-bold">{d.nombre}</td>
+                        <td className="px-3 py-2 text-slate-400">{ROL_LABEL[d.rol] || d.rol}{d.puesto ? ` · ${d.puesto}` : ''}</td>
+                        <td className="px-3 py-2 text-center text-slate-500">{d.meta_diaria || '—'}</td>
                         <td className="px-3 py-2 text-center text-emerald-400">{d.promovidos_nuevos}</td>
                         <td className="px-3 py-2 text-center text-amber-400">{d.comprometidos_nuevos}</td>
                         <td className="px-3 py-2 text-center text-indigo-400">{d.contactos_hechos}</td>
@@ -332,31 +520,6 @@ export default function Reportes() {
                     ))}
                   </tbody>
                 </table>
-              </div>
-            )}
-          </div>
-        )}
-
-        {tab === 'tendencia' && (
-          <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
-            <h3 className="text-xs font-bold text-slate-400 uppercase mb-3">Últimos 14 días</h3>
-            {tendencia.length === 0 ? (
-              <div className="text-xs text-slate-500 text-center py-6">Aún no hay suficiente actividad para mostrar tendencia</div>
-            ) : (
-              <div className="flex items-end gap-2 h-40">
-                {tendencia.map((t) => (
-                  <div key={t.fecha} className="flex-1 flex flex-col items-center gap-1 group relative">
-                    <div className="w-full flex flex-col justify-end" style={{ height: '140px' }}>
-                      <div className="w-full bg-indigo-500 rounded-t hover:bg-indigo-400 transition-all relative"
-                        style={{ height: `${Math.max(4, (t.promovidos / maxTendencia) * 100)}%` }}>
-                        <div className="absolute -top-6 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 text-[9px] bg-slate-800 px-1.5 py-0.5 rounded text-white whitespace-nowrap transition-opacity">
-                          {t.promovidos} ({t.comprometidos} comp.)
-                        </div>
-                      </div>
-                    </div>
-                    <span className="text-[8px] text-slate-500">{new Date(t.fecha).toLocaleDateString('es-MX', { day: 'numeric', month: 'short' })}</span>
-                  </div>
-                ))}
               </div>
             )}
           </div>
@@ -756,8 +919,8 @@ export default function Reportes() {
           <div className="space-y-4">
             <div className="flex gap-2">
               <button onClick={() => setSubTabActividad('resumen')} className={`px-3 py-1.5 rounded-full text-[11px] font-bold ${subTabActividad === 'resumen' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>Resumen</button>
-              <button onClick={() => setSubTabActividad('promotor')} className={`px-3 py-1.5 rounded-full text-[11px] font-bold ${subTabActividad === 'promotor' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>Por promotor</button>
-              <button onClick={() => setSubTabActividad('seccion')} className={`px-3 py-1.5 rounded-full text-[11px] font-bold ${subTabActividad === 'seccion' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>Por sección</button>
+              <button onClick={() => setSubTabActividad('promotor')} className={`px-3 py-1.5 rounded-full text-[11px] font-bold ${subTabActividad === 'promotor' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>Por estructura</button>
+              <button onClick={() => setSubTabActividad('seccion')} className={`px-3 py-1.5 rounded-full text-[11px] font-bold ${subTabActividad === 'seccion' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>Por territorio</button>
             </div>
 
             {subTabActividad === 'resumen' && actividadResumen && (
@@ -822,56 +985,99 @@ export default function Reportes() {
             )}
 
             {subTabActividad === 'promotor' && (
-              <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden">
-                <table className="w-full text-xs">
-                  <thead className="bg-slate-800/60">
-                    <tr>
-                      <th className="text-left px-3 py-2 text-slate-400 font-bold">Promotor</th>
-                      <th className="text-center px-3 py-2 text-slate-400 font-bold">Total</th>
-                      <th className="text-center px-3 py-2 text-slate-400 font-bold">Comprometidos</th>
-                      <th className="text-center px-3 py-2 text-slate-400 font-bold">Últimos 7 días</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {actividadPromotores.length === 0 ? (
-                      <tr><td colSpan={4} className="text-center text-slate-500 py-6">Sin promotores registrados</td></tr>
-                    ) : actividadPromotores.map((p) => (
-                      <tr key={p.id} className="border-t border-slate-800">
-                        <td className="px-3 py-2 text-white font-bold">{p.nombre}{p.puesto && <span className="text-slate-500 font-normal"> · {p.puesto}</span>}</td>
-                        <td className="px-3 py-2 text-center text-slate-300">{p.total_promovidos}</td>
-                        <td className="px-3 py-2 text-center text-purple-400">{p.comprometidos}</td>
-                        <td className="px-3 py-2 text-center text-emerald-400">{p.ultimos_7_dias}</td>
+              <div className="space-y-3">
+                {/* 🆕 Filtro por rol — mismo criterio que Bitácora diaria */}
+                <select value={filtroRolActividad} onChange={(e) => setFiltroRolActividad(e.target.value)}
+                  className="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
+                  <option value="todos">Todos los niveles</option>
+                  <option value="lideres">Solo líderes/coordinadores</option>
+                  {rolesConDatosActividad.map((r) => <option key={r} value={r}>{ROL_LABEL[r] || r}</option>)}
+                </select>
+
+                <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden">
+                  <table className="w-full text-xs">
+                    <thead className="bg-slate-800/60">
+                      <tr>
+                        <th className="text-left px-3 py-2 text-slate-400 font-bold">Nombre</th>
+                        <th className="text-left px-3 py-2 text-slate-400 font-bold">Rol</th>
+                        <th className="text-center px-3 py-2 text-slate-400 font-bold">Total</th>
+                        <th className="text-center px-3 py-2 text-slate-400 font-bold">Comprometidos</th>
+                        <th className="text-center px-3 py-2 text-slate-400 font-bold">Últimos 7 días</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {actividadPromotoresFiltrada.length === 0 ? (
+                        <tr><td colSpan={5} className="text-center text-slate-500 py-6">Sin actividad para este filtro</td></tr>
+                      ) : actividadPromotoresFiltrada.map((p) => (
+                        <tr key={p.id} className="border-t border-slate-800">
+                          <td className="px-3 py-2 text-white font-bold">{p.nombre}{p.puesto && <span className="text-slate-500 font-normal"> · {p.puesto}</span>}</td>
+                          <td className="px-3 py-2 text-slate-400">{ROL_LABEL[p.rol] || p.rol}</td>
+                          <td className="px-3 py-2 text-center text-slate-300">{p.total_promovidos}</td>
+                          <td className="px-3 py-2 text-center text-purple-400">{p.comprometidos}</td>
+                          <td className="px-3 py-2 text-center text-emerald-400">{p.ultimos_7_dias}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
 
             {subTabActividad === 'seccion' && (
-              <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden">
-                <table className="w-full text-xs">
-                  <thead className="bg-slate-800/60">
-                    <tr>
-                      <th className="text-left px-3 py-2 text-slate-400 font-bold">Sección</th>
-                      <th className="text-center px-3 py-2 text-slate-400 font-bold">Promovidos</th>
-                      <th className="text-center px-3 py-2 text-slate-400 font-bold">Comprometidos</th>
-                      <th className="text-center px-3 py-2 text-slate-400 font-bold">Promotores</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {actividadSecciones.length === 0 ? (
-                      <tr><td colSpan={4} className="text-center text-slate-500 py-6">Sin secciones con actividad</td></tr>
-                    ) : actividadSecciones.map((s) => (
-                      <tr key={s.seccion_numero} className="border-t border-slate-800">
-                        <td className="px-3 py-2 text-white font-bold">{String(s.seccion_numero).padStart(3, '0')}</td>
-                        <td className="px-3 py-2 text-center text-slate-300">{s.total_promovidos}</td>
-                        <td className="px-3 py-2 text-center text-purple-400">{s.comprometidos}</td>
-                        <td className="px-3 py-2 text-center text-emerald-400">{s.promotores_activos}</td>
-                      </tr>
+              <div className="space-y-3">
+                {/* 🆕 Agrupar por sección, municipio, distrito local o
+                    federal — antes solo se veía sección por sección. */}
+                <div className="flex gap-2 flex-wrap">
+                  {[['seccion', 'Sección'], ['municipio', 'Municipio'], ['distrito_local', 'Distrito Local'], ['distrito_federal', 'Distrito Federal']].map(([id, label]) => (
+                    <button key={id} onClick={() => setAgruparTerritorioPor(id)}
+                      className={`px-3 py-1.5 rounded-full text-[11px] font-bold ${agruparTerritorioPor === id ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* 🆕 Gráfica de barras — top territorios por actividad */}
+                <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+                  <h3 className="text-xs font-bold text-slate-400 uppercase mb-3">Top 10 — promovidos por {agruparTerritorioPor === 'seccion' ? 'sección' : agruparTerritorioPor === 'municipio' ? 'municipio' : agruparTerritorioPor === 'distrito_local' ? 'distrito local' : 'distrito federal'}</h3>
+                  <div className="space-y-2">
+                    {actividadAgrupada.slice(0, 10).map((a) => (
+                      <div key={a.seccion_numero || a.etiqueta}>
+                        <div className="flex justify-between text-[10px] mb-0.5">
+                          <span className="text-slate-300">{agruparTerritorioPor === 'seccion' ? String(a.seccion_numero).padStart(3, '0') : a.etiqueta}</span>
+                          <span className="text-slate-400 font-bold">{a.total_promovidos}</span>
+                        </div>
+                        <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
+                          <div className="h-full bg-indigo-500" style={{ width: `${(a.total_promovidos / maxActividadAgrupada) * 100}%` }} />
+                        </div>
+                      </div>
                     ))}
-                  </tbody>
-                </table>
+                  </div>
+                </div>
+
+                <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden">
+                  <table className="w-full text-xs">
+                    <thead className="bg-slate-800/60">
+                      <tr>
+                        <th className="text-left px-3 py-2 text-slate-400 font-bold">{agruparTerritorioPor === 'seccion' ? 'Sección' : agruparTerritorioPor === 'municipio' ? 'Municipio' : agruparTerritorioPor === 'distrito_local' ? 'Distrito Local' : 'Distrito Federal'}</th>
+                        <th className="text-center px-3 py-2 text-slate-400 font-bold">Promovidos</th>
+                        <th className="text-center px-3 py-2 text-slate-400 font-bold">Comprometidos</th>
+                        {agruparTerritorioPor === 'seccion' && <th className="text-center px-3 py-2 text-slate-400 font-bold">Promotores</th>}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {actividadAgrupada.length === 0 ? (
+                        <tr><td colSpan={4} className="text-center text-slate-500 py-6">Sin actividad todavía</td></tr>
+                      ) : actividadAgrupada.map((s) => (
+                        <tr key={s.seccion_numero || s.etiqueta} className="border-t border-slate-800">
+                          <td className="px-3 py-2 text-white font-bold">{agruparTerritorioPor === 'seccion' ? String(s.seccion_numero).padStart(3, '0') : s.etiqueta}</td>
+                          <td className="px-3 py-2 text-center text-slate-300">{s.total_promovidos}</td>
+                          <td className="px-3 py-2 text-center text-purple-400">{s.comprometidos}</td>
+                          {agruparTerritorioPor === 'seccion' && <td className="px-3 py-2 text-center text-emerald-400">{s.promotores_activos}</td>}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
           </div>
