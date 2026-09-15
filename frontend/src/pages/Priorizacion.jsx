@@ -109,10 +109,61 @@ export default function Priorizacion() {
           </div>
         </details>
 
+        {/* 🆕 Gráfica de distribución — visual, no solo números en
+            tarjetas, para entender de un vistazo cómo está repartido
+            tu territorio. */}
+        <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+          <h3 className="text-xs font-bold text-slate-400 uppercase mb-3">Distribución de tu territorio</h3>
+          <div className="space-y-2">
+            {Object.entries(ESTILO_PRIORIDAD).map(([key, est]) => {
+              const total = datos.resumen[CLAVE_RESUMEN[key]];
+              return (
+                <div key={key}>
+                  <div className="flex justify-between text-[10px] mb-0.5">
+                    <span className={est.texto}>{est.label}</span>
+                    <span className="text-slate-400 font-bold">{total}</span>
+                  </div>
+                  <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
+                    <div className={`h-full ${est.barra}`} style={{ width: `${(total / datos.data.length) * 100}%` }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* 🆕 Top 10 — mayor déficit entre las que sí se pueden
+            voltear, para decidir dónde meter esfuerzo primero. */}
+        <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+          <h3 className="text-xs font-bold text-slate-400 uppercase mb-3">Top 10 — mayor déficit de votos (críticas + recuperables)</h3>
+          {(() => {
+            const top10 = [...datos.data].filter((f) => f.deficit_votos > 0 && (f.prioridad === 'critica' || f.prioridad === 'recuperable'))
+              .sort((a, b) => b.deficit_votos - a.deficit_votos).slice(0, 10);
+            const maxDeficit = Math.max(1, ...top10.map((f) => f.deficit_votos));
+            return top10.length === 0 ? (
+              <p className="text-[11px] text-slate-500">Sin secciones críticas/recuperables con déficit pendiente</p>
+            ) : (
+              <div className="space-y-2">
+                {top10.map((f) => (
+                  <div key={f.seccion}>
+                    <div className="flex justify-between text-[10px] mb-0.5">
+                      <span className="text-slate-300">Sección {String(f.seccion).padStart(3, '0')}</span>
+                      <span className="text-slate-400 font-bold">{f.deficit_votos.toLocaleString()}</span>
+                    </div>
+                    <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
+                      <div className="h-full bg-red-500" style={{ width: `${(f.deficit_votos / maxDeficit) * 100}%` }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+        </div>
+
         {/* Controles */}
         <div className="flex flex-wrap items-center gap-2">
-          <input placeholder="🔍 Buscar sección..." value={busqueda} onChange={(e) => setBusqueda(e.target.value)}
-            className="px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs w-40" />
+          <input placeholder="🔍 Buscar por número de sección..." value={busqueda} onChange={(e) => setBusqueda(e.target.value)}
+            className="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs w-64" />
           <button onClick={() => setOrden('deficit')} className={`px-3 py-1.5 rounded-full text-[10px] font-bold ${orden === 'deficit' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>Más fáciles primero</button>
           <button onClick={() => setOrden('seccion')} className={`px-3 py-1.5 rounded-full text-[10px] font-bold ${orden === 'seccion' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>Por número</button>
           {filtro !== 'todas' && <button onClick={() => setFiltro('todas')} className="text-[10px] text-slate-500 font-bold">✕ Quitar filtro</button>}
