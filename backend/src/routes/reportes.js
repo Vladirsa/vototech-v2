@@ -21,24 +21,36 @@ const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
  * Actividad real del día de hoy (o de la fecha que se pida) por
  * cada promotor de la campaña — contactos + promovidos nuevos.
  */
+/**
+ * 🆕 GET /api/reportes/diario — CORREGIDO
+ * Antes solo mostraba promotores — ahora incluye TODA la estructura
+ * (líderes, coordinadores, promotores), con su meta diaria real y su
+ * territorio, para poder filtrar y agrupar por cualquier nivel.
+ */
 router.get('/diario', async (req, res) => {
   const fecha = req.query.fecha || new Date().toISOString().slice(0, 10);
 
   const resultado = await query(
-    `SELECT u.id as usuario_id, u.nombre,
+    `SELECT u.id as usuario_id, u.nombre, u.rol, u.puesto, u.meta_diaria,
+       u.territorio_tipo, u.territorio_id,
        COUNT(DISTINCT p.id) FILTER (WHERE p.creado_en::date = $2) as promovidos_nuevos,
        COUNT(DISTINCT p.id) FILTER (WHERE p.creado_en::date = $2 AND p.comprometido) as comprometidos_nuevos,
        COUNT(DISTINCT c.id) FILTER (WHERE c.creado_en::date = $2) as contactos_hechos
      FROM usuarios u
      LEFT JOIN promovidos p ON p.registrado_por = u.id AND p.campana_id = $1
      LEFT JOIN contactos c ON c.usuario_id = u.id AND c.campana_id = $1
-     WHERE u.campana_id = $1 AND u.rol = 'promotor'
-     GROUP BY u.id, u.nombre
+     WHERE u.campana_id = $1 AND u.activo != false
+     GROUP BY u.id, u.nombre, u.rol, u.puesto, u.meta_diaria, u.territorio_tipo, u.territorio_id
      ORDER BY promovidos_nuevos DESC`,
     [req.usuario.campana_id, fecha]
   );
 
-  res.json({ ok: true, data: resultado.rows, fecha });
+  // 🆕 Meta objetivo del día — suma de la meta_diaria de todos los
+  // que sí tienen una meta puesta (no todos los roles necesitan una).
+  const metaObjetivoDia = resultado.rows.reduce((s, r) => s + (parseInt(r.meta_diaria) || 0), 0);
+  const logradoHoy = resultado.rows.reduce((s, r) => s + parseInt(r.promovidos_nuevos), 0);
+
+  res.json({ ok: true, data: resultado.rows, fecha, meta_objetivo_dia: metaObjetivoDia, logrado_hoy: logradoHoy });
 });
 
 /**
@@ -942,16 +954,22 @@ router.get('/actividad-resumen', async (req, res) => {
  * GET /api/reportes/actividad-por-promotor
  * Desglose individual — quién ha hecho qué.
  */
+/**
+ * 🆕 GET /api/reportes/actividad-por-promotor — CORREGIDO
+ * Antes solo mostraba promotores — ahora toda la estructura, con
+ * territorio y meta, para filtrar/agrupar por líder, coordinador,
+ * sección, municipio o distrito.
+ */
 router.get('/actividad-por-promotor', async (req, res) => {
   const resultado = await query(
-    `SELECT u.id, u.nombre, u.puesto,
+    `SELECT u.id, u.nombre, u.rol, u.puesto, u.meta_diaria, u.territorio_tipo, u.territorio_id,
             COUNT(p.id) as total_promovidos,
             COUNT(p.id) FILTER (WHERE p.comprometido) as comprometidos,
             COUNT(p.id) FILTER (WHERE p.creado_en > now() - interval '7 days') as ultimos_7_dias,
             MAX(p.creado_en) as ultima_actividad
      FROM usuarios u LEFT JOIN promovidos p ON p.registrado_por = u.id AND p.campana_id=$1
-     WHERE u.campana_id=$1 AND u.rol='promotor'
-     GROUP BY u.id, u.nombre, u.puesto ORDER BY total_promovidos DESC`,
+     WHERE u.campana_id=$1 AND u.activo != false
+     GROUP BY u.id, u.nombre, u.rol, u.puesto, u.meta_diaria, u.territorio_tipo, u.territorio_id ORDER BY total_promovidos DESC`,
     [req.usuario.campana_id]
   );
   res.json({ ok: true, data: resultado.rows });
@@ -961,15 +979,22 @@ router.get('/actividad-por-promotor', async (req, res) => {
  * GET /api/reportes/actividad-por-seccion
  * Desglose territorial — dónde se está trabajando y dónde no.
  */
+/**
+ * 🆕 GET /api/reportes/actividad-por-seccion — CORREGIDO
+ * Se agregó municipio y distrito de cada sección, para poder
+ * agrupar la actividad por esos niveles también, no solo por
+ * sección individual.
+ */
 router.get('/actividad-por-seccion', async (req, res) => {
   const resultado = await query(
-    `SELECT s.numero as seccion_numero,
+    `SELECT s.numero as seccion_numero, m.nombre as municipio, s.distrito_local, s.distrito_federal,
             COUNT(p.id) as total_promovidos,
             COUNT(p.id) FILTER (WHERE p.comprometido) as comprometidos,
             COUNT(DISTINCT p.registrado_por) as promotores_activos
      FROM promovidos p JOIN secciones s ON s.id = p.seccion_id
+     JOIN municipios m ON m.id = s.municipio_id
      WHERE p.campana_id=$1
-     GROUP BY s.numero ORDER BY total_promovidos DESC`,
+     GROUP BY s.numero, m.nombre, s.distrito_local, s.distrito_federal ORDER BY total_promovidos DESC`,
     [req.usuario.campana_id]
   );
   res.json({ ok: true, data: resultado.rows });
