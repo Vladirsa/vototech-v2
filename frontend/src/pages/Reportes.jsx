@@ -128,16 +128,22 @@ export default function Reportes() {
           </div>
         </div>
 
-        {/* Descargas rápidas de PDF por módulo */}
-        <div className="flex gap-2 flex-wrap">
-          <button onClick={() => descargarArchivo('/reportes/pdf/juridico', 'reporte_juridico.pdf')} className="text-[10px] font-bold text-slate-400 hover:text-white bg-slate-800/60 px-2.5 py-1.5 rounded-lg">📄 Jurídico</button>
-          <button onClick={() => descargarArchivo('/reportes/pdf/estructura', 'reporte_estructura.pdf')} className="text-[10px] font-bold text-slate-400 hover:text-white bg-slate-800/60 px-2.5 py-1.5 rounded-lg">📄 Estructura</button>
-          <button onClick={() => descargarArchivo('/reportes/pdf/incidencias', 'reporte_incidencias.pdf')} className="text-[10px] font-bold text-slate-400 hover:text-white bg-slate-800/60 px-2.5 py-1.5 rounded-lg">📄 Incidencias</button>
-          <button onClick={() => descargarArchivo('/reportes/pdf/encuestas', 'reporte_encuestas.pdf')} className="text-[10px] font-bold text-slate-400 hover:text-white bg-slate-800/60 px-2.5 py-1.5 rounded-lg">📄 Encuestas</button>
+        {/* 🆕 Antes esto se veía casi igual que las pestañas de abajo
+            — por eso no quedaba claro que son botones para DESCARGAR
+            un PDF, no para navegar. Ahora tienen su propio bloque,
+            con etiqueta clara y estilo de "botón de acción", no de
+            pestaña. */}
+        <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-3">
+          <div className="text-[10px] font-bold text-slate-500 uppercase mb-2">📥 Descargar reporte en PDF</div>
+          <div className="flex gap-2 flex-wrap">
+            <button onClick={() => descargarArchivo('/reportes/pdf/juridico', 'reporte_juridico.pdf')} className="flex items-center gap-1.5 text-xs font-bold text-indigo-300 bg-indigo-500/10 hover:bg-indigo-500/20 px-3 py-2 rounded-lg border border-indigo-500/20">⬇️ Jurídico</button>
+            <button onClick={() => descargarArchivo('/reportes/pdf/estructura', 'reporte_estructura.pdf')} className="flex items-center gap-1.5 text-xs font-bold text-indigo-300 bg-indigo-500/10 hover:bg-indigo-500/20 px-3 py-2 rounded-lg border border-indigo-500/20">⬇️ Estructura</button>
+            <button onClick={() => descargarArchivo('/reportes/pdf/incidencias', 'reporte_incidencias.pdf')} className="flex items-center gap-1.5 text-xs font-bold text-indigo-300 bg-indigo-500/10 hover:bg-indigo-500/20 px-3 py-2 rounded-lg border border-indigo-500/20">⬇️ Incidencias</button>
+            <button onClick={() => descargarArchivo('/reportes/pdf/encuestas', 'reporte_encuestas.pdf')} className="flex items-center gap-1.5 text-xs font-bold text-indigo-300 bg-indigo-500/10 hover:bg-indigo-500/20 px-3 py-2 rounded-lg border border-indigo-500/20">⬇️ Encuestas</button>
+          </div>
         </div>
 
-        <div className="flex gap-2">
-          <button onClick={() => setTab('diario')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'diario' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📋 Bitácora diaria</button>
+        <div className="flex gap-2 flex-wrap">          <button onClick={() => setTab('diario')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'diario' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📋 Bitácora diaria</button>
           <button onClick={() => setTab('tendencia')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'tendencia' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📈 Tendencia</button>
           <button onClick={() => setTab('estadisticas')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'estadisticas' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🗺️ Análisis histórico</button>
           <button onClick={() => setTab('ficha-estado')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'ficha-estado' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🏛️ Ficha del Estado</button>
