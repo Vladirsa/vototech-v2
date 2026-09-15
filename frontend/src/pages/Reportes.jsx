@@ -856,6 +856,64 @@ export default function Reportes() {
                   </div>
                 )}
 
+                {/* 🆕 Promotores por estructura — quién ha trabajado
+                    esta sección de verdad, y de qué coordinador
+                    depende cada uno. */}
+                {fichaSeccion.promotores_por_estructura?.length > 0 && (
+                  <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+                    <div className="text-xs font-bold text-slate-400 uppercase mb-2">👥 Promotores que han trabajado aquí — {fichaSeccion.promotores_por_estructura.length}</div>
+                    <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                      {fichaSeccion.promotores_por_estructura.map((p) => (
+                        <div key={p.id} className="flex justify-between items-center text-[11px] border-b border-slate-800 last:border-0 py-1">
+                          <div>
+                            <span className="text-slate-200 font-bold">{p.nombre}</span>
+                            <span className="text-slate-500"> · {p.jefe_directo ? `depende de ${p.jefe_directo}` : 'sin jefe directo'}</span>
+                          </div>
+                          <span className="text-emerald-400 font-bold">{p.promovidos_aqui}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* 🆕 Reuniones realizadas en esta sección */}
+                {fichaSeccion.reuniones && (
+                  <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+                    <div className="text-xs font-bold text-slate-400 uppercase mb-1">📅 Reuniones</div>
+                    <p className="text-[11px] text-slate-300">{fichaSeccion.reuniones.realizadas} de {fichaSeccion.reuniones.total} realizadas en esta sección</p>
+                  </div>
+                )}
+
+                {/* 🆕 Inversión y rentabilidad — cuánto se le ha
+                    puesto a esta sección, y si eso se refleja en
+                    resultados reales (comprometidos). */}
+                {fichaSeccion.inversion && (
+                  <div className="bg-gradient-to-br from-amber-500/10 to-orange-500/10 border border-amber-500/30 rounded-xl p-4">
+                    <div className="text-xs font-bold text-amber-300 uppercase mb-2">💰 Inversión y rentabilidad</div>
+                    <div className="grid grid-cols-2 gap-3 mb-2">
+                      <div>
+                        <div className="text-lg font-black text-white">${fichaSeccion.inversion.inversion_total_materiales.toLocaleString()}</div>
+                        <div className="text-[9px] text-slate-500">Invertido en materiales aquí</div>
+                      </div>
+                      <div>
+                        <div className="text-lg font-black text-white">{fichaSeccion.inversion.costo_por_comprometido !== null ? `$${fichaSeccion.inversion.costo_por_comprometido}` : 'N/D'}</div>
+                        <div className="text-[9px] text-slate-500">Costo por comprometido</div>
+                      </div>
+                    </div>
+                    {fichaSeccion.inversion.materiales.length > 0 && (
+                      <div className="space-y-1 mb-2">
+                        {fichaSeccion.inversion.materiales.map((m, i) => (
+                          <div key={i} className="flex justify-between text-[10px] text-slate-300">
+                            <span>{m.tipo}{m.subtipo ? ` — ${m.subtipo}` : ''} (x{m.cantidad || 1})</span>
+                            <span>${parseFloat(m.costo || 0).toLocaleString()}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <p className="text-[9px] text-slate-500">{fichaSeccion.inversion.nota}</p>
+                  </div>
+                )}
+
                 {/* Incidencias */}
                 {fichaSeccion.incidencias.length > 0 && (
                   <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
