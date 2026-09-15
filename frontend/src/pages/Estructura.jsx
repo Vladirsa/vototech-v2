@@ -1309,6 +1309,22 @@ export default function Estructura() {
   const [vacantes, setVacantes] = useState([]);
   const [alertasRama, setAlertasRama] = useState([]);
   const [ranking, setRanking] = useState([]);
+  // 🆕 Ficha de Persona — buscar a cualquiera del equipo y ver todo
+  // lo que ha hecho: avance, duplicados, secciones trabajadas,
+  // reuniones, materiales, y si es coordinador, cada subordinado.
+  const [buscarPersonaTexto, setBuscarPersonaTexto] = useState('');
+  const [personaFichaId, setPersonaFichaId] = useState(null);
+  const [fichaPersona, setFichaPersona] = useState(null);
+  const [cargandoFichaPersona, setCargandoFichaPersona] = useState(false);
+  const verFichaPersona = async (id) => {
+    setPersonaFichaId(id);
+    setCargandoFichaPersona(true);
+    try {
+      const { data } = await api.get(`/estructura/ficha-persona/${id}`);
+      setFichaPersona(data.data);
+    } catch (e) { setFichaPersona(null); }
+    setCargandoFichaPersona(false);
+  };
   const { usuario } = useAuth();
   // 🆕 Estos 2 paneles muestran quién está asignado en CADA casilla —
   // información sensible de estructura. Solo Candidato, Jefe de
@@ -1454,6 +1470,7 @@ export default function Estructura() {
         )}
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <div className="flex gap-2 flex-wrap">
+            <button onClick={() => setVista('ficha-persona')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'ficha-persona' ? 'bg-teal-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🔍 Ficha de Persona</button>
             <button onClick={() => setVista('organigrama')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'organigrama' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🌳 Organigrama</button>
             <button onClick={() => setVista('lista')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'lista' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📋 Lista</button>
             <button onClick={() => setVista('ranking')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'ranking' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🏆 Ranking</button>
@@ -1473,6 +1490,129 @@ export default function Estructura() {
             <button onClick={() => setVista('permisos')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'permisos' ? 'bg-purple-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🔐 Permisos por Rol</button>
             <button onClick={() => setVista('duplicados')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'duplicados' ? 'bg-orange-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🔁 Duplicados</button>
           </div>
+          {vista === 'ficha-persona' && (
+            <div className="space-y-4">
+              <div className="relative">
+                <input placeholder="🔍 Busca por nombre..." value={buscarPersonaTexto} onChange={(e) => setBuscarPersonaTexto(e.target.value)}
+                  className="w-full px-4 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-white text-sm" />
+                {buscarPersonaTexto && !personaFichaId && (
+                  <div className="mt-1 bg-slate-900 border border-slate-700 rounded-xl overflow-hidden max-h-60 overflow-y-auto">
+                    {miembros.filter((m) => m.nombre?.toLowerCase().includes(buscarPersonaTexto.toLowerCase())).slice(0, 15).map((m) => (
+                      <button key={m.id} onClick={() => { verFichaPersona(m.id); setBuscarPersonaTexto(m.nombre); }}
+                        className="w-full text-left px-4 py-2 text-sm text-slate-300 hover:bg-slate-800 border-b border-slate-800 last:border-0">
+                        {m.nombre} <span className="text-slate-500 text-xs">— {m.rol}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {personaFichaId && (
+                <button onClick={() => { setPersonaFichaId(null); setFichaPersona(null); setBuscarPersonaTexto(''); }} className="text-xs font-bold text-slate-500">← Buscar otra persona</button>
+              )}
+
+              {cargandoFichaPersona && <div className="text-center text-slate-500 py-10">⏳ Cargando...</div>}
+
+              {fichaPersona && !cargandoFichaPersona && (
+                <div className="space-y-3">
+                  <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+                    <div className="text-lg font-black text-white">{fichaPersona.persona.nombre}</div>
+                    <div className="text-xs text-slate-500">{fichaPersona.persona.rol}{fichaPersona.persona.puesto ? ` · ${fichaPersona.persona.puesto}` : ''}</div>
+                  </div>
+
+                  {/* Avance y meta */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                    <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 text-center">
+                      <div className="text-lg font-black text-white">{fichaPersona.avance.total_promovidos}</div>
+                      <div className="text-[9px] text-slate-500">Promovidos totales</div>
+                    </div>
+                    <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 text-center">
+                      <div className="text-lg font-black text-purple-400">{fichaPersona.avance.comprometidos}</div>
+                      <div className="text-[9px] text-slate-500">Comprometidos</div>
+                    </div>
+                    <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 text-center">
+                      <div className={`text-lg font-black ${fichaPersona.avance.cumple_meta_hoy === true ? 'text-emerald-400' : fichaPersona.avance.cumple_meta_hoy === false ? 'text-red-400' : 'text-slate-400'}`}>
+                        {fichaPersona.avance.capturados_hoy}{fichaPersona.persona.meta_diaria ? ` / ${fichaPersona.persona.meta_diaria}` : ''}
+                      </div>
+                      <div className="text-[9px] text-slate-500">Hoy {fichaPersona.avance.cumple_meta_hoy === true ? '✅ cumplió meta' : fichaPersona.avance.cumple_meta_hoy === false ? '⚠️ no cumplió' : ''}</div>
+                    </div>
+                    <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 text-center">
+                      <div className={`text-lg font-black ${fichaPersona.avance.duplicados > 0 ? 'text-amber-400' : 'text-slate-500'}`}>{fichaPersona.avance.duplicados}</div>
+                      <div className="text-[9px] text-slate-500">Duplicados detectados</div>
+                    </div>
+                  </div>
+
+                  {/* Secciones trabajadas */}
+                  {fichaPersona.secciones_trabajadas.length > 0 && (
+                    <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+                      <h3 className="text-xs font-bold text-slate-400 uppercase mb-2">📍 Secciones donde ha trabajado</h3>
+                      <div className="flex gap-1.5 flex-wrap">
+                        {fichaPersona.secciones_trabajadas.map((s) => (
+                          <span key={s.seccion_numero} className="text-[10px] font-bold bg-slate-800 text-slate-300 px-2.5 py-1 rounded-full">
+                            {String(s.seccion_numero).padStart(3, '0')} ({s.total})
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Subordinados — si es coordinador */}
+                  {fichaPersona.subordinados.length > 0 && (
+                    <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden">
+                      <h3 className="text-xs font-bold text-slate-400 uppercase p-4 pb-2">👥 Su equipo — {fichaPersona.total_subordinados} personas a su cargo</h3>
+                      <table className="w-full text-xs">
+                        <thead className="bg-slate-800/60">
+                          <tr>
+                            <th className="text-left px-3 py-2 text-slate-400 font-bold">Nombre</th>
+                            <th className="text-center px-3 py-2 text-slate-400 font-bold">Meta</th>
+                            <th className="text-center px-3 py-2 text-slate-400 font-bold">Promovidos</th>
+                            <th className="text-center px-3 py-2 text-slate-400 font-bold">Comprometidos</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {fichaPersona.subordinados.map((s) => (
+                            <tr key={s.id} className="border-t border-slate-800 cursor-pointer hover:bg-slate-800/40" onClick={() => { verFichaPersona(s.id); setBuscarPersonaTexto(s.nombre); }}>
+                              <td className="px-3 py-2 text-white font-bold">{s.nombre}{s.puesto ? <span className="text-slate-500 font-normal"> · {s.puesto}</span> : ''}</td>
+                              <td className="px-3 py-2 text-center text-slate-500">{s.meta_diaria || '—'}</td>
+                              <td className="px-3 py-2 text-center text-slate-300">{s.total_promovidos}</td>
+                              <td className="px-3 py-2 text-center text-purple-400">{s.comprometidos}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
+                  {/* Reuniones */}
+                  <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+                    <h3 className="text-xs font-bold text-slate-400 uppercase mb-2">📅 Reuniones — {fichaPersona.reuniones.realizadas} de {fichaPersona.reuniones.total} realizadas</h3>
+                    {fichaPersona.reuniones.detalle.length === 0 ? (
+                      <p className="text-[11px] text-slate-500">Sin reuniones organizadas todavía</p>
+                    ) : fichaPersona.reuniones.detalle.slice(0, 5).map((r) => (
+                      <div key={r.id} className="flex justify-between text-[11px] py-1 border-b border-slate-800 last:border-0">
+                        <span className="text-slate-300">{r.titulo}</span>
+                        <span className={r.realizado ? 'text-emerald-400' : 'text-slate-500'}>{r.realizado ? '✅ Realizada' : '⏳ Pendiente'}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Materiales */}
+                  <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+                    <h3 className="text-xs font-bold text-slate-400 uppercase mb-2">📦 Materiales asignados — {fichaPersona.materiales.total_items} items (${fichaPersona.materiales.costo_total.toLocaleString()})</h3>
+                    {fichaPersona.materiales.detalle.length === 0 ? (
+                      <p className="text-[11px] text-slate-500">Sin materiales asignados</p>
+                    ) : fichaPersona.materiales.detalle.map((m) => (
+                      <div key={m.id} className="flex justify-between text-[11px] py-1 border-b border-slate-800 last:border-0">
+                        <span className="text-slate-300">{m.tipo}{m.subtipo ? ` — ${m.subtipo}` : ''} (x{m.cantidad || 1})</span>
+                        <span className="text-slate-400">${parseFloat(m.costo || 0).toLocaleString()}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {vista === 'organigrama' && (
             <div className="flex gap-2 items-center">
               <input placeholder="🔍 Buscar por nombre o puesto..." value={busqueda} onChange={(e) => setBusqueda(e.target.value)}
