@@ -31,7 +31,9 @@ const MODULOS = [
   { ruta: '/promovidos', ic: '🤝', label: 'Promovidos', clave: 'promovidos', capa: 'operacion' },
   { ruta: '/reportes', ic: '📊', label: 'Reportes', clave: 'reportes', capa: 'inteligencia' },
   { ruta: '/marketing', ic: '📢', label: 'Comunicación y Marketing', clave: 'marketing', capa: 'comunicacion' },
-  { ruta: '/juridico', ic: '⚖️', label: 'Jurídico', clave: 'juridico', capa: 'administracion' },
+  // 🆕 Los 3 se combinaron en 1 sola entrada — la pantalla misma
+  // filtra qué pestañas ve cada rol (ver AdministracionCumplimiento.jsx).
+  { ruta: '/administracion', ic: '💼', label: 'Administración y Cumplimiento', clave: 'administracion', capa: 'administracion' },
   { ruta: '/priorizacion', ic: '🎯', label: 'Priorización', clave: 'priorizacion', capa: 'inteligencia' },
   { ruta: '/estructura', ic: '🗂️', label: 'Estructura', clave: 'estructura', capa: 'estructura' },
   { ruta: '/agenda', ic: '📅', label: 'Agenda', clave: 'agenda', capa: 'operacion' },
@@ -42,8 +44,6 @@ const MODULOS = [
   // como una pestaña MÁS dentro de Administración (junto a Gastos,
   // Ingresos, Bodega, Tope y Exportar), un solo lugar para todo lo
   // administrativo de la campaña.
-  { ruta: '/finanzas', ic: '💼', label: 'Administración', clave: 'finanzas', capa: 'administracion' },
-  { ruta: '/respaldos', ic: '📦', label: 'Respaldos', clave: 'respaldos', capa: 'administracion' },
 ];
 
 const TODOS = MODULOS.map((m) => m.clave).filter((c) => c !== 'mi-avance');
@@ -55,15 +55,15 @@ const MODULOS_POR_ROL = {
   // bloque en campañas grandes (Gobernador, Dip. Federal), por eso
   // sí ve el Centro de Mando, a diferencia de un coordinador de un
   // solo municipio/distrito.
-  coord_regional: TODOS.filter((c) => !['finanzas', 'juridico', 'respaldos'].includes(c)),
-  coord_distrital: TODOS.filter((c) => !['finanzas', 'juridico', 'respaldos', 'centro-mando'].includes(c)),
-  coord_municipal: TODOS.filter((c) => !['finanzas', 'juridico', 'respaldos', 'centro-mando'].includes(c)),
+  coord_regional: TODOS.filter((c) => !['administracion'].includes(c)),
+  coord_distrital: TODOS.filter((c) => !['administracion', 'centro-mando'].includes(c)),
+  coord_municipal: TODOS.filter((c) => !['administracion', 'centro-mando'].includes(c)),
   coord_seccional: ['dashboard', 'mapa', 'promovidos', 'estructura', 'dia-eleccion', 'incidencias', 'logistica'],
   promotor: ['mi-avance', 'dia-eleccion', 'incidencias'],
   // Encargado de Jurídico: su área, más lo que necesita para sustentar
   // quejas/recursos — Activos ahora vive dentro de Administración.
-  encargado_juridico: ['dashboard', 'juridico', 'finanzas', 'incidencias', 'promovidos'],
-  encargado_finanzas: ['dashboard', 'finanzas', 'promovidos', 'incidencias'],
+  encargado_juridico: ['dashboard', 'administracion', 'incidencias', 'promovidos'], // 🆕 'administracion' internamente solo le muestra la pestaña Jurídico a este rol
+  encargado_finanzas: ['dashboard', 'administracion', 'promovidos', 'incidencias'], // 🆕 'administracion' internamente solo le muestra la pestaña Administrativo a este rol
 };
 const MODULOS_EXTRA_POR_PUESTO_VOLUNTARIO = [
   { patron: /marketing|redes sociales|whatsapp|difusi[oó]n/i, modulos: ['marketing'] },
@@ -86,15 +86,15 @@ function modulosDeVoluntario(puesto) {
  */
 const MODULOS_POR_PUESTO_COORD_GENERAL = [
   { patron: /secretari[oa] particular/i, modulos: ['agenda'] },
-  { patron: /log[íi]stica|avanzada|seguridad/i, modulos: ['agenda', 'logistica', 'finanzas'] },
+  { patron: /log[íi]stica|avanzada|seguridad/i, modulos: ['agenda', 'logistica', 'administracion'] },
   { patron: /movilizaci[oó]n/i, modulos: ['dia-eleccion', 'promovidos', 'logistica'] },
-  { patron: /comunicaci[oó]n|prensa/i, modulos: ['marketing', 'juridico'] },
+  { patron: /comunicaci[oó]n|prensa/i, modulos: ['marketing', 'administracion'] },
   { patron: /digital|redes sociales/i, modulos: ['marketing', 'reportes'] },
   { patron: /contenido|discurso/i, modulos: ['marketing'] },
   { patron: /representantes? de casilla/i, modulos: ['dia-eleccion', 'estructura'] },
   { patron: /estrategia/i, modulos: ['priorizacion', 'reportes'] },
-  { patron: /finanzas|administraci[oó]n/i, modulos: ['finanzas'] },
-  { patron: /jur[íi]dico/i, modulos: ['juridico'] },
+  { patron: /finanzas|administraci[oó]n/i, modulos: ['administracion'] },
+  { patron: /jur[íi]dico/i, modulos: ['administracion'] },
 ];
 function modulosDeCoordGeneral(puesto) {
   if (!puesto) return TODOS;
