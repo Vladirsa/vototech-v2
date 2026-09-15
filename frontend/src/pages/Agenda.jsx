@@ -646,12 +646,11 @@ export default function Agenda() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 p-4 md:p-8">
-      <div className="max-w-7xl mx-auto space-y-4">
+    <>
+    <div className="space-y-4">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <div>
-            <h1 className="text-2xl font-black text-white">📅 Agenda</h1>
-            <Link to="/dashboard" className="text-xs text-indigo-400">← Dashboard</Link>
+            <h1 className="text-lg font-black text-white">📅 Agenda</h1>
           </div>
           <div className="flex gap-2">
             <button onClick={() => descargarArchivo('/agenda/exportar-ine', 'agenda_ine.xlsx')}
@@ -741,6 +740,6 @@ export default function Agenda() {
       </div>
       {verFichaId && <ModalFicha eventoId={verFichaId} onCerrar={() => setVerFichaId(null)} />}
       {gestionandoEvento && <ModalGestion evento={gestionandoEvento} onCerrar={() => setGestionandoEvento(null)} onActualizado={cargar} />}
-    </div>
+    </>
   );
 }

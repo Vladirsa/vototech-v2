@@ -266,12 +266,10 @@ export default function DiaEleccion() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 p-4 md:p-8">
-      <div className="max-w-7xl mx-auto space-y-4">
+    <div className="space-y-4">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-black text-white">🗳️ Día de la Elección</h1>
-            <Link to="/dashboard" className="text-xs text-indigo-400">← Dashboard</Link>
+            <h1 className="text-lg font-black text-white">🗳️ Día de la Elección</h1>
           </div>
           <button onClick={reportarPanico} className="px-4 py-2.5 rounded-xl bg-red-600 text-white text-sm font-bold animate-pulse">🚨 Pánico</button>
         </div>
@@ -466,7 +464,6 @@ export default function DiaEleccion() {
             ))}
           </div>
         )}
-      </div>
     </div>
   );
 }

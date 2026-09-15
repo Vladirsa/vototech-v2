@@ -690,12 +690,11 @@ export default function Promovidos() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 p-4 md:p-8">
-      <div className="max-w-7xl mx-auto space-y-4">
+    <>
+    <div className="space-y-4">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-black text-white">🤝 Promovidos</h1>
-            <Link to="/dashboard" className="text-xs text-indigo-400">← Dashboard</Link>
+            <h1 className="text-lg font-black text-white">🤝 Promovidos</h1>
           </div>
           <div className="flex gap-2">
             <button onClick={() => descargarArchivo('/exportar/promovidos', 'promovidos.xlsx')}
@@ -833,6 +832,6 @@ export default function Promovidos() {
       {mostrarModal && <ModalAgregar seccionInicial={seccionFiltro} onCerrar={() => setMostrarModal(false)} onGuardado={() => { setMostrarModal(false); cargar(); }} />}
       {detalleId && <ModalDetalle promovidoId={detalleId} onCerrar={() => setDetalleId(null)} onActualizado={cargar} />}
       {mostrarImportar && <ModalImportar onCerrar={() => { setMostrarImportar(false); cargar(); }} onImportado={cargar} />}
-    </div>
+    </>
   );
 }

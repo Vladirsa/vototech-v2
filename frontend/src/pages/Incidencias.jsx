@@ -116,8 +116,7 @@ export default function Incidencias() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 p-4 md:p-8">
-      <div className="max-w-7xl mx-auto space-y-4">
+    <div className="space-y-4">
         {alertaUrgente && (
           <div className="fixed top-4 right-4 z-50 bg-red-600 text-white rounded-xl p-4 shadow-2xl max-w-xs animate-pulse">
             <div className="font-black text-sm">🚨 INCIDENCIA URGENTE</div>
@@ -127,8 +126,7 @@ export default function Incidencias() {
 
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-black text-white">🚨 Incidencias</h1>
-            <Link to="/dashboard" className="text-xs text-indigo-400">← Dashboard</Link>
+            <h1 className="text-lg font-black text-white">🚨 Incidencias</h1>
           </div>
           <div className="flex gap-2">
             <button onClick={() => descargarArchivo('/exportar/incidencias', 'incidencias.xlsx')}
@@ -183,7 +181,6 @@ export default function Incidencias() {
             <div className="text-center text-slate-500 py-10">Sin incidencias en este filtro</div>
           ) : lista.map((i) => <TarjetaIncidencia key={i.id} i={i} onCambio={cargar} />)}
         </div>
-      </div>
     </div>
   );
 }

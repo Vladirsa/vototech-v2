@@ -320,11 +320,9 @@ export default function Logistica() {
   ];
 
   return (
-    <div className="min-h-screen bg-slate-950 p-4 md:p-8">
-      <div className="max-w-7xl mx-auto space-y-4">
+    <div className="space-y-4">
         <div>
-          <h1 className="text-2xl font-black text-white">🚚 Logística</h1>
-          <Link to="/dashboard" className="text-xs text-indigo-400">← Dashboard</Link>
+          <h1 className="text-lg font-black text-white">🚚 Logística</h1>
         </div>
         <div className="flex gap-2 flex-wrap">
           {TABS.map((t) => (
@@ -337,7 +335,6 @@ export default function Logistica() {
         {tab === 'vehiculos' && <PanelVehiculos />}
         {tab === 'choferes' && <PanelChoferes />}
         {tab === 'checklist' && <PanelChecklist />}
-      </div>
     </div>
   );
 }

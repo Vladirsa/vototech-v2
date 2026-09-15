@@ -23,10 +23,10 @@ export default function Priorizacion() {
     api.get('/priorizacion').then((r) => { setDatos(r.data); setCargando(false); });
   }, []);
 
-  if (cargando) return <div className="min-h-screen bg-slate-950 flex items-center justify-center text-slate-500">⏳ Calculando estrategia...</div>;
+  if (cargando) return <div className="min-h-[300px] flex items-center justify-center text-slate-500">⏳ Calculando estrategia...</div>;
   if (!datos?.data?.length) {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-8 text-center">
+      <div className="min-h-[300px] flex items-center justify-center p-8 text-center">
         <div>
           <div className="text-4xl mb-3">📊</div>
           <p className="text-slate-400">{datos?.mensaje || 'Sin datos suficientes todavía'}</p>
@@ -50,16 +50,14 @@ export default function Priorizacion() {
   const totalCubiertos = datos.data.filter((f) => f.deficit_votos <= 0).length;
 
   return (
-    <div className="min-h-screen bg-slate-950 p-4 md:p-8">
-      <div className="max-w-7xl mx-auto space-y-5">
+    <div className="space-y-5">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-black text-white">🎯 Motor de Priorización</h1>
+            <h1 className="text-lg font-black text-white">🎯 Motor de Priorización</h1>
             <p className="text-xs text-slate-500">
               {datos.dias_restantes} días para la elección · {datos.resumen.promovidos_necesarios_total.toLocaleString()} promovidos necesarios en total
             </p>
           </div>
-          <Link to="/dashboard" className="text-xs text-indigo-400">← Dashboard</Link>
         </div>
 
         {/* KPIs resumen — mismo lenguaje visual que el resto del sistema */}
@@ -188,7 +186,6 @@ export default function Priorizacion() {
             );
           })}
         </div>
-      </div>
     </div>
   );
 }

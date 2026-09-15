@@ -50,7 +50,7 @@ export default function CentroMando() {
   }, []);
 
   if (!datos) {
-    return <div className="min-h-screen bg-slate-950 flex items-center justify-center text-slate-500">⏳ Cargando Centro de Mando...</div>;
+    return <div className="min-h-[300px] flex items-center justify-center text-slate-500">⏳ Cargando Centro de Mando...</div>;
   }
 
   const datosDistribucion = [
@@ -65,7 +65,7 @@ export default function CentroMando() {
   }));
 
   return (
-    <div className="min-h-screen bg-slate-950 p-4 md:p-8">
+    <div>
       <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
         <div>
           <h1 className="text-2xl md:text-3xl font-black text-white flex items-center gap-3">

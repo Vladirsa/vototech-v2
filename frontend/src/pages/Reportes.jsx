@@ -114,12 +114,10 @@ export default function Reportes() {
   const totalContactosHoy = diario.reduce((s, d) => s + parseInt(d.contactos_hechos), 0);
 
   return (
-    <div className="min-h-screen bg-slate-950 p-4 md:p-8">
-      <div className="max-w-7xl mx-auto space-y-5">
+    <div className="space-y-5">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-black text-white">📊 Reportes y Estadísticas</h1>
-            <Link to="/dashboard" className="text-xs text-indigo-400">← Dashboard</Link>
+            <h1 className="text-lg font-black text-white">📊 Reportes y Estadísticas</h1>
           </div>
           <div className="flex gap-2">
             <button onClick={() => descargarArchivo('/exportar/promovidos', 'reporte_promovidos.xlsx')}
@@ -930,7 +928,6 @@ export default function Reportes() {
         )}
 
         {tab === 'resumen-ia' && <PanelResumenEjecutivoIA />}
-      </div>
     </div>
   );
 }
