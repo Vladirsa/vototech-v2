@@ -104,6 +104,84 @@ router.get('/secciones-de-municipio/:claveMunicipio', async (req, res) => {
  * — encuentra a su superior directo (parent_id) y da su teléfono,
  * para que le hable directo por WhatsApp sin tener que buscarlo.
  */
+/**
+ * 🆕 GET /api/estructura/ficha-persona/:usuarioId
+ * Todo lo que hace UNA persona de tu estructura — no el total del
+ * equipo, sino específicamente esa persona: cuánto ha promovido,
+ * si cumple su meta, sus duplicados, en qué secciones ha trabajado,
+ * sus reuniones, sus materiales asignados, y — si es coordinador —
+ * cada uno de sus subordinados con su propio desglose individual.
+ */
+router.get('/ficha-persona/:usuarioId', async (req, res) => {
+  const campanaId = req.usuario.campana_id;
+  const usuarioId = req.params.usuarioId;
+
+  const personaRes = await query(
+    `SELECT id, nombre, rol, puesto, meta_diaria, territorio_tipo, territorio_id, telefono, parent_id
+     FROM usuarios WHERE id=$1 AND campana_id=$2`,
+    [usuarioId, campanaId]
+  );
+  if (!personaRes.rows[0]) return res.status(404).json({ ok: false, error: 'Persona no encontrada' });
+  const persona = personaRes.rows[0];
+
+  const [promovidos, secciones, subordinados, reuniones, materiales] = await Promise.all([
+    // Todos los promovidos capturados por ESTA persona — fuente para avance, comprometidos y duplicados
+    query(`SELECT id, nombre, telefono, comprometido, creado_en, seccion_id FROM promovidos WHERE campana_id=$1 AND registrado_por=$2`, [campanaId, usuarioId]),
+    // En qué secciones ha trabajado
+    query(
+      `SELECT s.numero as seccion_numero, COUNT(p.id) as total
+       FROM promovidos p JOIN secciones s ON s.id = p.seccion_id
+       WHERE p.campana_id=$1 AND p.registrado_por=$2 GROUP BY s.numero ORDER BY total DESC`,
+      [campanaId, usuarioId]
+    ),
+    // 🆕 Si es coordinador — sus subordinados directos (parent_id),
+    // cada uno con su propio total. Así se ve el desglose de todo su
+    // equipo, no solo el total agregado.
+    query(
+      `SELECT u.id, u.nombre, u.rol, u.puesto, u.meta_diaria,
+              COUNT(p.id) as total_promovidos, COUNT(p.id) FILTER (WHERE p.comprometido) as comprometidos
+       FROM usuarios u LEFT JOIN promovidos p ON p.registrado_por = u.id AND p.campana_id=$1
+       WHERE u.campana_id=$1 AND u.parent_id=$2 AND u.activo != false
+       GROUP BY u.id, u.nombre, u.rol, u.puesto, u.meta_diaria ORDER BY total_promovidos DESC`,
+      [campanaId, usuarioId]
+    ),
+    // Reuniones — eventos de Agenda que esta persona organizó
+    query(`SELECT id, titulo, fecha_inicio, seccion_id, realizado FROM agenda WHERE campana_id=$1 AND creado_por=$2 ORDER BY fecha_inicio DESC`, [campanaId, usuarioId]).catch(() => ({ rows: [] })),
+    // Materiales/utilitarios que tiene asignados (activos.responsable_id)
+    query(`SELECT id, tipo, subtipo, cantidad, costo, estado FROM activos WHERE campana_id=$1 AND responsable_id=$2`, [campanaId, usuarioId]).catch(() => ({ rows: [] })),
+  ]);
+
+  // Duplicados — mismo teléfono repetido dentro de SUS PROPIOS registros
+  const porTelefono = {};
+  promovidos.rows.forEach((p) => {
+    if (!p.telefono) return;
+    porTelefono[p.telefono] = (porTelefono[p.telefono] || 0) + 1;
+  });
+  const duplicados = Object.entries(porTelefono).filter(([, n]) => n > 1).length;
+
+  const totalPromovidos = promovidos.rows.length;
+  const comprometidos = promovidos.rows.filter((p) => p.comprometido).length;
+  const hoy = new Date().toISOString().slice(0, 10);
+  const capturadosHoy = promovidos.rows.filter((p) => p.creado_en?.slice?.(0, 10) === hoy || new Date(p.creado_en).toISOString().slice(0, 10) === hoy).length;
+
+  res.json({
+    ok: true,
+    data: {
+      persona: { id: persona.id, nombre: persona.nombre, rol: persona.rol, puesto: persona.puesto, meta_diaria: persona.meta_diaria },
+      avance: {
+        total_promovidos: totalPromovidos, comprometidos, capturados_hoy: capturadosHoy,
+        cumple_meta_hoy: persona.meta_diaria ? capturadosHoy >= persona.meta_diaria : null,
+        duplicados,
+      },
+      secciones_trabajadas: secciones.rows,
+      subordinados: subordinados.rows,
+      total_subordinados: subordinados.rows.length,
+      reuniones: { total: reuniones.rows.length, realizadas: reuniones.rows.filter((r) => r.realizado).length, detalle: reuniones.rows },
+      materiales: { total_items: materiales.rows.length, costo_total: materiales.rows.reduce((s, m) => s + (parseFloat(m.costo) || 0), 0), detalle: materiales.rows },
+    },
+  });
+});
+
 router.get('/mi-coordinador', async (req, res) => {
   const yo = await query('SELECT parent_id FROM usuarios WHERE id=$1', [req.usuario.sub]);
   if (!yo.rows[0]?.parent_id) return res.json({ ok: true, data: null });
