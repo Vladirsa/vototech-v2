@@ -60,10 +60,6 @@ export default function Respaldos() {
 
   return (
     <div className="space-y-5">
-        <div>
-          <h1 className="text-lg font-black text-white mb-3">📦 Mis Respaldos</h1>
-        </div>
-
         <p className="text-xs text-slate-500 bg-slate-900/60 border border-slate-800 rounded-xl p-3">
           Cada día se guarda una copia completa de tu campaña — estructura, promovidos, agenda, incidencias, finanzas, activos, casillas, encuestas. Se conservan los últimos <strong className="text-slate-300">90 días</strong>; después se borran solos.
         </p>

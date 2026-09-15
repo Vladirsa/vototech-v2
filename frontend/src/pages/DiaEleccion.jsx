@@ -267,10 +267,7 @@ export default function DiaEleccion() {
 
   return (
     <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-lg font-black text-white">🗳️ Día de la Elección</h1>
-          </div>
+        <div className="flex items-center justify-end">
           <button onClick={reportarPanico} className="px-4 py-2.5 rounded-xl bg-red-600 text-white text-sm font-bold animate-pulse">🚨 Pánico</button>
         </div>
 

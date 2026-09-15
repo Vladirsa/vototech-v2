@@ -321,9 +321,6 @@ export default function Logistica() {
 
   return (
     <div className="space-y-4">
-        <div>
-          <h1 className="text-lg font-black text-white">🚚 Logística</h1>
-        </div>
         <div className="flex gap-2 flex-wrap">
           {TABS.map((t) => (
             <button key={t.id} onClick={() => setTab(t.id)} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === t.id ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>

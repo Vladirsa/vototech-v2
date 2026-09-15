@@ -692,10 +692,7 @@ export default function Promovidos() {
   return (
     <>
     <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-lg font-black text-white">🤝 Promovidos</h1>
-          </div>
+        <div className="flex items-center justify-end">
           <div className="flex gap-2">
             <button onClick={() => descargarArchivo('/exportar/promovidos', 'promovidos.xlsx')}
               className="px-3 py-2.5 rounded-xl bg-emerald-700/50 text-emerald-300 text-sm font-bold" title="Descargar Excel">

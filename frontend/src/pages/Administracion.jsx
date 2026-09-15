@@ -472,10 +472,6 @@ export default function Administracion() {
   return (
     <>
     <div className="space-y-4">
-        <div>
-          <h1 className="text-lg font-black text-white mb-3">💼 Administración de Campaña</h1>
-        </div>
-
         {/* Balance general — siempre visible arriba, sin importar la pestaña */}
         <div className="grid grid-cols-3 gap-2">
           <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 text-center">

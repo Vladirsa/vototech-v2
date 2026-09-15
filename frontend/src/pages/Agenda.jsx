@@ -648,10 +648,7 @@ export default function Agenda() {
   return (
     <>
     <div className="space-y-4">
-        <div className="flex items-center justify-between flex-wrap gap-2">
-          <div>
-            <h1 className="text-lg font-black text-white">📅 Agenda</h1>
-          </div>
+        <div className="flex items-center justify-end flex-wrap gap-2">
           <div className="flex gap-2">
             <button onClick={() => descargarArchivo('/agenda/exportar-ine', 'agenda_ine.xlsx')}
               className="px-3 py-2.5 rounded-xl bg-emerald-700/50 text-emerald-300 text-sm font-bold" title="Excel con el formato exacto del INE">

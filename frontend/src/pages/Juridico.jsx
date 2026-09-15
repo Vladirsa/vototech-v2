@@ -233,10 +233,6 @@ export default function Juridico() {
 
   return (
     <div className="space-y-4">
-        <div>
-          <h1 className="text-lg font-black text-white mb-3">⚖️ Área Jurídica</h1>
-        </div>
-
         <div className="flex gap-2 flex-wrap">
           <button onClick={() => setTab('resumen')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'resumen' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📊 Resumen</button>
           <button onClick={() => setTab('calendario')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'calendario' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📅 Calendario Electoral</button>

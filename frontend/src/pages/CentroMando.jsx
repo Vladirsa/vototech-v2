@@ -68,12 +68,9 @@ export default function CentroMando() {
     <div>
       <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl md:text-3xl font-black text-white flex items-center gap-3">
-            🗳️ Centro de Mando
-            <span className="flex items-center gap-1.5 text-xs font-bold text-emerald-400 bg-emerald-500/10 px-3 py-1 rounded-full">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" /> EN VIVO
-            </span>
-          </h1>
+          <span className="flex items-center gap-1.5 text-xs font-bold text-emerald-400 bg-emerald-500/10 px-3 py-1 rounded-full w-fit">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" /> EN VIVO
+          </span>
           <p className="text-slate-500 text-sm mt-1">Actualizado {horaActual.toLocaleTimeString('es-MX')} · se refresca solo cada minuto</p>
         </div>
       </div>

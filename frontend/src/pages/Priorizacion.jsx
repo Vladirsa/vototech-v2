@@ -51,14 +51,9 @@ export default function Priorizacion() {
 
   return (
     <div className="space-y-5">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-lg font-black text-white">🎯 Motor de Priorización</h1>
-            <p className="text-xs text-slate-500">
-              {datos.dias_restantes} días para la elección · {datos.resumen.promovidos_necesarios_total.toLocaleString()} promovidos necesarios en total
-            </p>
-          </div>
-        </div>
+        <p className="text-xs text-slate-500">
+          {datos.dias_restantes} días para la elección · {datos.resumen.promovidos_necesarios_total.toLocaleString()} promovidos necesarios en total
+        </p>
 
         {/* KPIs resumen — mismo lenguaje visual que el resto del sistema */}
         <div className="grid grid-cols-3 md:grid-cols-6 gap-2">
