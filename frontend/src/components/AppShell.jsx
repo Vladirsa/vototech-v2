@@ -26,20 +26,15 @@ const CAPAS = [
 const MODULOS = [
   { ruta: '/mi-avance', ic: '🗳️', label: 'Mi Avance', clave: 'mi-avance' },
   { ruta: '/dashboard', ic: '⚡', label: 'Dashboard', clave: 'dashboard' },
-  { ruta: '/centro-mando', ic: '🎯', label: 'Centro de Mando', clave: 'centro-mando', capa: 'dia_e' },
   { ruta: '/mapa', ic: '🗺️', label: 'Mapa', clave: 'mapa', capa: 'territorio' },
-  { ruta: '/promovidos', ic: '🤝', label: 'Promovidos', clave: 'promovidos', capa: 'operacion' },
-  { ruta: '/reportes', ic: '📊', label: 'Reportes', clave: 'reportes', capa: 'inteligencia' },
   { ruta: '/marketing', ic: '📢', label: 'Comunicación y Marketing', clave: 'marketing', capa: 'comunicacion' },
   // 🆕 Los 3 se combinaron en 1 sola entrada — la pantalla misma
   // filtra qué pestañas ve cada rol (ver AdministracionCumplimiento.jsx).
+  { ruta: '/inteligencia-electoral', ic: '🧠', label: 'Inteligencia Electoral', clave: 'inteligencia-electoral', capa: 'inteligencia' },
+  { ruta: '/movilizacion-operacion', ic: '🚶', label: 'Movilización y Operación', clave: 'movilizacion-operacion', capa: 'operacion' },
+  { ruta: '/dia-e-comando', ic: '🗳️', label: 'Día E y Centro de Comando', clave: 'dia-e-comando', capa: 'dia_e' },
   { ruta: '/administracion', ic: '💼', label: 'Administración y Cumplimiento', clave: 'administracion', capa: 'administracion' },
-  { ruta: '/priorizacion', ic: '🎯', label: 'Priorización', clave: 'priorizacion', capa: 'inteligencia' },
   { ruta: '/estructura', ic: '🗂️', label: 'Estructura', clave: 'estructura', capa: 'estructura' },
-  { ruta: '/agenda', ic: '📅', label: 'Agenda', clave: 'agenda', capa: 'operacion' },
-  { ruta: '/logistica', ic: '🚚', label: 'Logística', clave: 'logistica', capa: 'operacion' },
-  { ruta: '/dia-eleccion', ic: '🗳️', label: 'Día D', clave: 'dia-eleccion', capa: 'dia_e' },
-  { ruta: '/incidencias', ic: '🚨', label: 'Incidencias', clave: 'incidencias', capa: 'operacion' },
   // 🆕 "Activos" ya no es un botón propio — su contenido vive ahora
   // como una pestaña MÁS dentro de Administración (junto a Gastos,
   // Ingresos, Bodega, Tope y Exportar), un solo lugar para todo lo
@@ -56,25 +51,25 @@ const MODULOS_POR_ROL = {
   // sí ve el Centro de Mando, a diferencia de un coordinador de un
   // solo municipio/distrito.
   coord_regional: TODOS.filter((c) => !['administracion'].includes(c)),
-  coord_distrital: TODOS.filter((c) => !['administracion', 'centro-mando'].includes(c)),
-  coord_municipal: TODOS.filter((c) => !['administracion', 'centro-mando'].includes(c)),
-  coord_seccional: ['dashboard', 'mapa', 'promovidos', 'estructura', 'dia-eleccion', 'incidencias', 'logistica'],
-  promotor: ['mi-avance', 'dia-eleccion', 'incidencias'],
+  coord_distrital: TODOS.filter((c) => !['administracion', 'dia-e-comando'].includes(c)),
+  coord_municipal: TODOS.filter((c) => !['administracion', 'dia-e-comando'].includes(c)),
+  coord_seccional: ['dashboard', 'mapa', 'movilizacion-operacion', 'estructura', 'dia-e-comando'],
+  promotor: ['mi-avance', 'dia-e-comando', 'movilizacion-operacion'],
   // Encargado de Jurídico: su área, más lo que necesita para sustentar
   // quejas/recursos — Activos ahora vive dentro de Administración.
-  encargado_juridico: ['dashboard', 'administracion', 'incidencias', 'promovidos'], // 🆕 'administracion' internamente solo le muestra la pestaña Jurídico a este rol
-  encargado_finanzas: ['dashboard', 'administracion', 'promovidos', 'incidencias'], // 🆕 'administracion' internamente solo le muestra la pestaña Administrativo a este rol
+  encargado_juridico: ['dashboard', 'administracion', 'movilizacion-operacion'], // 🆕 'administracion' internamente solo le muestra la pestaña Jurídico a este rol
+  encargado_finanzas: ['dashboard', 'administracion', 'movilizacion-operacion'], // 🆕 'administracion' internamente solo le muestra la pestaña Administrativo a este rol
 };
 const MODULOS_EXTRA_POR_PUESTO_VOLUNTARIO = [
   { patron: /marketing|redes sociales|whatsapp|difusi[oó]n/i, modulos: ['marketing'] },
-  { patron: /evento/i, modulos: ['agenda'] },
+  { patron: /evento/i, modulos: ['movilizacion-operacion'] },
 ];
 function modulosDeVoluntario(puesto) {
   const extra = new Set();
   MODULOS_EXTRA_POR_PUESTO_VOLUNTARIO.forEach((regla) => {
     if (regla.patron.test(puesto || '')) regla.modulos.forEach((m) => extra.add(m));
   });
-  return ['dashboard', 'promovidos', ...extra];
+  return ['dashboard', 'movilizacion-operacion', ...extra];
 }
 
 /**
@@ -85,14 +80,14 @@ function modulosDeVoluntario(puesto) {
  * siempre, para no romper coordinadores ya existentes).
  */
 const MODULOS_POR_PUESTO_COORD_GENERAL = [
-  { patron: /secretari[oa] particular/i, modulos: ['agenda'] },
-  { patron: /log[íi]stica|avanzada|seguridad/i, modulos: ['agenda', 'logistica', 'administracion'] },
-  { patron: /movilizaci[oó]n/i, modulos: ['dia-eleccion', 'promovidos', 'logistica'] },
+  { patron: /secretari[oa] particular/i, modulos: ['movilizacion-operacion'] },
+  { patron: /log[íi]stica|avanzada|seguridad/i, modulos: ['movilizacion-operacion', 'administracion'] },
+  { patron: /movilizaci[oó]n/i, modulos: ['dia-e-comando', 'movilizacion-operacion'] },
   { patron: /comunicaci[oó]n|prensa/i, modulos: ['marketing', 'administracion'] },
-  { patron: /digital|redes sociales/i, modulos: ['marketing', 'reportes'] },
+  { patron: /digital|redes sociales/i, modulos: ['marketing', 'inteligencia-electoral'] },
   { patron: /contenido|discurso/i, modulos: ['marketing'] },
-  { patron: /representantes? de casilla/i, modulos: ['dia-eleccion', 'estructura'] },
-  { patron: /estrategia/i, modulos: ['priorizacion', 'reportes'] },
+  { patron: /representantes? de casilla/i, modulos: ['dia-e-comando', 'estructura'] },
+  { patron: /estrategia/i, modulos: ['inteligencia-electoral'] },
   { patron: /finanzas|administraci[oó]n/i, modulos: ['administracion'] },
   { patron: /jur[íi]dico/i, modulos: ['administracion'] },
 ];
