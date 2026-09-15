@@ -124,11 +124,13 @@ function ListaModulos({ modulos, onNavegar }) {
       {CAPAS.map((capa) => {
         const modulosDeEstaCapa = conCapa.filter((m) => m.capa === capa.id);
         if (modulosDeEstaCapa.length === 0) return null; // no mostrar capas vacías para este rol
+        // 🆕 Se quitó la etiqueta de la capa — cuando una capa solo
+        // tiene 1 módulo (la mayoría de los casos hoy), la etiqueta
+        // repetía casi el mismo texto que el botón de abajo. Se
+        // mantiene el agrupamiento por capa (el orden), solo sin el
+        // texto visible.
         return (
-          <div key={capa.id}>
-            <div className="text-[9px] font-bold text-slate-600 uppercase px-3 mb-1">{capa.label}</div>
-            <div className="space-y-0.5">{modulosDeEstaCapa.map(enlaceModulo)}</div>
-          </div>
+          <div key={capa.id} className="space-y-0.5">{modulosDeEstaCapa.map(enlaceModulo)}</div>
         );
       })}
     </div>
