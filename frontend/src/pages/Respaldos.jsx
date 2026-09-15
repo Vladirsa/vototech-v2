@@ -59,11 +59,9 @@ export default function Respaldos() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 p-4 md:p-8">
-      <div className="max-w-4xl mx-auto space-y-5">
+    <div className="space-y-5">
         <div>
-          <h1 className="text-2xl font-black text-white">📦 Mis Respaldos</h1>
-          <Link to="/dashboard" className="text-xs text-indigo-400">← Dashboard</Link>
+          <h1 className="text-lg font-black text-white mb-3">📦 Mis Respaldos</h1>
         </div>
 
         <p className="text-xs text-slate-500 bg-slate-900/60 border border-slate-800 rounded-xl p-3">
@@ -140,7 +138,6 @@ export default function Respaldos() {
             </div>
           )}
         </div>
-      </div>
     </div>
   );
 }

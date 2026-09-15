@@ -470,11 +470,10 @@ export default function Administracion() {
   ];
 
   return (
-    <div className="min-h-screen bg-slate-950 p-4 md:p-8">
-      <div className="max-w-7xl mx-auto space-y-4">
+    <>
+    <div className="space-y-4">
         <div>
-          <h1 className="text-2xl font-black text-white">💼 Administración de Campaña</h1>
-          <Link to="/dashboard" className="text-xs text-indigo-400">← Dashboard</Link>
+          <h1 className="text-lg font-black text-white mb-3">💼 Administración de Campaña</h1>
         </div>
 
         {/* Balance general — siempre visible arriba, sin importar la pestaña */}
@@ -836,6 +835,6 @@ export default function Administracion() {
       {responsableDe && <ModalResponsable activo={responsableDe} equipo={equipo} onCerrar={() => setResponsableDe(null)} onGuardado={() => { setResponsableDe(null); cargarActivos(); }} />}
       {bajaDe && <ModalBaja activo={bajaDe} onCerrar={() => setBajaDe(null)} onGuardado={() => { setBajaDe(null); cargarActivos(); cargarResumenActivos(); }} />}
       {kardexDe && <ModalKardex activo={kardexDe} onCerrar={() => setKardexDe(null)} />}
-    </div>
+    </>
   );
 }

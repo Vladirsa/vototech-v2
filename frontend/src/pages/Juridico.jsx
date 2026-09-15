@@ -232,11 +232,9 @@ export default function Juridico() {
   const cambiarEstadoQueja = async (id, estado) => { await api.patch(`/juridico/quejas/${id}`, { estado }); cargar(); };
 
   return (
-    <div className="min-h-screen bg-slate-950 p-4 md:p-8">
-      <div className="max-w-7xl mx-auto space-y-4">
+    <div className="space-y-4">
         <div>
-          <h1 className="text-2xl font-black text-white">⚖️ Área Jurídica</h1>
-          <Link to="/dashboard" className="text-xs text-indigo-400">← Dashboard</Link>
+          <h1 className="text-lg font-black text-white mb-3">⚖️ Área Jurídica</h1>
         </div>
 
         <div className="flex gap-2 flex-wrap">
@@ -462,7 +460,6 @@ export default function Juridico() {
         )}
 
         {tab === 'redactar-ia' && <PanelRedaccionJuridicaIA />}
-      </div>
     </div>
   );
 }
