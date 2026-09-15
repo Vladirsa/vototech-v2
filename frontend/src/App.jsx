@@ -12,15 +12,8 @@ import { useSuscripcionPush } from './lib/useSuscripcionPush';
 const RegistroCampana = lazy(() => import('./pages/RegistroCampana'));
 const RegistroInvitacion = lazy(() => import('./pages/RegistroInvitacion'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
-const CentroMando = lazy(() => import('./pages/CentroMando'));
 // 🆕 Auditoria.jsx ya no se enlaza en ninguna ruta — el módulo se consideró poco útil en la práctica
-const Promovidos = lazy(() => import('./pages/Promovidos'));
-const Priorizacion = lazy(() => import('./pages/Priorizacion'));
 const Estructura = lazy(() => import('./pages/Estructura'));
-const Agenda = lazy(() => import('./pages/Agenda'));
-const Logistica = lazy(() => import('./pages/Logistica'));
-const DiaEleccion = lazy(() => import('./pages/DiaEleccion'));
-const Incidencias = lazy(() => import('./pages/Incidencias'));
 // 🆕 Finanzas.jsx y Activos.jsx se combinaron en una sola pantalla —
 // Administración, con todo por pestañas (Gastos, Ingresos, Activos,
 // Bodega, Tope, Exportar).
@@ -28,8 +21,11 @@ const Administracion = lazy(() => import('./pages/Administracion'));
 // 🆕 "Administración y Cumplimiento" ahora es una sola pantalla con
 // pestañas — Jurídico, Administración y Respaldos dejaron de ser
 // 3 entradas sueltas del menú.
+// 🆕 8 módulos combinados en 3 pantallas con pestañas.
+const InteligenciaElectoral = lazy(() => import('./pages/InteligenciaElectoral'));
+const MovilizacionOperacion = lazy(() => import('./pages/MovilizacionOperacion'));
+const DiaEComando = lazy(() => import('./pages/DiaEComando'));
 const AdministracionCumplimiento = lazy(() => import('./pages/AdministracionCumplimiento'));
-const Reportes = lazy(() => import('./pages/Reportes'));
 const Marketing = lazy(() => import('./pages/Marketing'));
 // 🆕 Ya no se importan directamente aquí — ahora viven como pestañas
 // dentro de AdministracionCumplimiento.jsx.
@@ -108,22 +104,14 @@ export default function App() {
             <Route path="/registro-invitacion" element={<RegistroInvitacion />} />
             <Route path="/vt-admin-plataforma" element={<AdminPlataforma />} />
             <Route path="/dashboard" element={<RutaProtegida><Dashboard /></RutaProtegida>} />
-            <Route path="/centro-mando" element={<RutaProtegida><CentroMando /></RutaProtegida>} />
             {/* 🆕 Ruta de Auditoría eliminada — el módulo se consideró poco funcional en la práctica */}
-            <Route path="/promovidos" element={<RutaProtegida><Promovidos /></RutaProtegida>} />
-            <Route path="/priorizacion" element={<RutaProtegida><Priorizacion /></RutaProtegida>} />
             <Route path="/estructura" element={<RutaProtegida><Estructura /></RutaProtegida>} />
-            <Route path="/agenda" element={<RutaProtegida><Agenda /></RutaProtegida>} />
-            <Route path="/logistica" element={<RutaProtegida><Logistica /></RutaProtegida>} />
-            <Route path="/dia-eleccion" element={<RutaProtegida><DiaEleccion /></RutaProtegida>} />
-            <Route path="/incidencias" element={<RutaProtegida><Incidencias /></RutaProtegida>} />
             <Route path="/administracion" element={<RutaProtegida><AdministracionCumplimiento /></RutaProtegida>} />
             {/* 🆕 Redirecciones — por si algún enlace viejo o marcador
                 todavía apunta a las rutas separadas de antes. */}
             <Route path="/finanzas" element={<Navigate to="/administracion" replace />} />
             {/* Por si alguien tiene guardado el link viejo de /activos */}
             <Route path="/activos" element={<Navigate to="/finanzas" replace />} />
-            <Route path="/reportes" element={<RutaProtegida><Reportes /></RutaProtegida>} />
             <Route path="/marketing" element={<RutaProtegida><Marketing /></RutaProtegida>} />
             <Route path="/juridico" element={<Navigate to="/administracion" replace />} />
             <Route path="/respaldos" element={<Navigate to="/administracion" replace />} />
@@ -135,6 +123,18 @@ export default function App() {
                 </RutaProtegida>
               }
             />
+            <Route path="/inteligencia-electoral" element={<RutaProtegida><InteligenciaElectoral /></RutaProtegida>} />
+            <Route path="/movilizacion-operacion" element={<RutaProtegida><MovilizacionOperacion /></RutaProtegida>} />
+            <Route path="/dia-e-comando" element={<RutaProtegida><DiaEComando /></RutaProtegida>} />
+            {/* 🆕 Redirecciones — enlaces viejos siguen funcionando */}
+            <Route path="/reportes" element={<Navigate to="/inteligencia-electoral" replace />} />
+            <Route path="/priorizacion" element={<Navigate to="/inteligencia-electoral" replace />} />
+            <Route path="/promovidos" element={<Navigate to="/movilizacion-operacion" replace />} />
+            <Route path="/agenda" element={<Navigate to="/movilizacion-operacion" replace />} />
+            <Route path="/logistica" element={<Navigate to="/movilizacion-operacion" replace />} />
+            <Route path="/incidencias" element={<Navigate to="/movilizacion-operacion" replace />} />
+            <Route path="/centro-mando" element={<Navigate to="/dia-e-comando" replace />} />
+            <Route path="/dia-eleccion" element={<Navigate to="/dia-e-comando" replace />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </Suspense>
