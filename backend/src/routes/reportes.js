@@ -1660,5 +1660,91 @@ Reglas OBLIGATORIAS:
   }
 });
 
+/**
+ * 🆕 GET /api/reportes/auditoria-inconsistencias
+ * Motor de detección de inconsistencias (skill Inteligencia
+ * Electoral, sección 9). Nunca marca "meta superada" como error —
+ * eso es un resultado bueno, solo se etiqueta. Cada hallazgo dice
+ * qué ocurre, dónde, cuándo, y de qué módulo viene.
+ */
+router.get('/auditoria-inconsistencias', async (req, res) => {
+  const campanaId = req.usuario.campana_id;
+
+  const [seccionesSinResponsable, promovidosSinSeccion, estructuraSinResponsable, seccionesSinActividad, duplicadosPorTelefono, incompletos] = await Promise.all([
+    // Secciones donde HAY estructura formal de campaña (casillas) pero NADIE de tu equipo tiene ese territorio asignado
+    query(
+      `SELECT DISTINCT s.numero, m.nombre as municipio FROM casillas c
+       JOIN secciones s ON s.id = c.seccion_id JOIN municipios m ON m.id = s.municipio_id
+       WHERE c.campana_id=$1 AND NOT EXISTS (
+         SELECT 1 FROM usuarios u WHERE u.campana_id=$1 AND u.territorio_tipo='seccion' AND u.territorio_id=s.numero AND u.activo != false
+       ) ORDER BY s.numero LIMIT 50`,
+      [campanaId]
+    ).catch(() => ({ rows: [] })),
+    query(`SELECT id, nombre, creado_en FROM promovidos WHERE campana_id=$1 AND seccion_id IS NULL ORDER BY creado_en DESC LIMIT 50`, [campanaId]),
+    // Estructura sin responsable — cualquier rol que NO sea la cima (candidato/jefe_campana) y no tenga parent_id
+    query(
+      `SELECT nombre, rol, puesto FROM usuarios WHERE campana_id=$1 AND activo != false AND parent_id IS NULL
+       AND rol NOT IN ('candidato', 'jefe_campana') ORDER BY nombre LIMIT 50`,
+      [campanaId]
+    ),
+    // Secciones con estructura asignada pero SIN actividad en los últimos 14 días
+    query(
+      `SELECT DISTINCT u.territorio_id as seccion, u.nombre as responsable
+       FROM usuarios u JOIN campanas c ON c.id = u.campana_id
+       WHERE u.campana_id=$1 AND u.territorio_tipo='seccion' AND u.activo != false
+       AND NOT EXISTS (SELECT 1 FROM promovidos p WHERE p.campana_id=$1 AND p.seccion_id = (SELECT id FROM secciones WHERE numero = u.territorio_id AND estado_id = c.estado_id LIMIT 1) AND p.creado_en > now() - interval '14 days')
+       ORDER BY u.territorio_id LIMIT 50`,
+      [campanaId]
+    ).catch(() => ({ rows: [] })),
+    // Duplicados por teléfono, a nivel de toda la campaña (no solo por persona)
+    query(
+      `SELECT telefono, COUNT(*) as total, array_agg(nombre) as nombres FROM promovidos
+       WHERE campana_id=$1 AND telefono IS NOT NULL AND telefono != '' GROUP BY telefono HAVING COUNT(*) > 1 ORDER BY total DESC LIMIT 50`,
+      [campanaId]
+    ),
+    // Registros incompletos — sin teléfono O sin nombre real
+    query(`SELECT id, nombre, creado_en FROM promovidos WHERE campana_id=$1 AND (telefono IS NULL OR telefono = '' OR nombre IS NULL OR trim(nombre) = '') LIMIT 50`, [campanaId]),
+  ]);
+
+  const hallazgos = [];
+  if (seccionesSinResponsable.rows.length > 0) {
+    hallazgos.push({
+      nivel: 'IMPORTANTE', modulo: 'Estructura', que: `${seccionesSinResponsable.rows.length} sección(es) con casillas registradas pero sin nadie de tu equipo asignado`,
+      donde: seccionesSinResponsable.rows.slice(0, 10).map((s) => `${String(s.numero).padStart(3, '0')} (${s.municipio})`).join(', '),
+    });
+  }
+  if (promovidosSinSeccion.rows.length > 0) {
+    hallazgos.push({
+      nivel: 'ATENCIÓN', modulo: 'Promovidos', que: `${promovidosSinSeccion.rows.length} promovido(s) capturados sin sección asignada`,
+      donde: promovidosSinSeccion.rows.slice(0, 5).map((p) => p.nombre).join(', '),
+    });
+  }
+  if (estructuraSinResponsable.rows.length > 0) {
+    hallazgos.push({
+      nivel: 'ATENCIÓN', modulo: 'Estructura', que: `${estructuraSinResponsable.rows.length} persona(s) de tu equipo sin un jefe directo asignado (parent_id)`,
+      donde: estructuraSinResponsable.rows.slice(0, 5).map((u) => `${u.nombre} (${u.rol})`).join(', '),
+    });
+  }
+  if (seccionesSinActividad.rows.length > 0) {
+    hallazgos.push({
+      nivel: 'ATENCIÓN', modulo: 'Promovidos', que: `${seccionesSinActividad.rows.length} sección(es) con estructura asignada pero sin ninguna captura en los últimos 14 días`,
+      donde: seccionesSinActividad.rows.slice(0, 10).map((s) => `${String(s.seccion).padStart(3, '0')} (${s.responsable})`).join(', '),
+    });
+  }
+  if (duplicadosPorTelefono.rows.length > 0) {
+    hallazgos.push({
+      nivel: 'CRÍTICA', modulo: 'Promovidos', que: `${duplicadosPorTelefono.rows.length} número(s) de teléfono repetidos entre distintos registros`,
+      donde: duplicadosPorTelefono.rows.slice(0, 5).map((d) => `${d.telefono} (${d.nombres.join(' / ')})`).join('; '),
+    });
+  }
+  if (incompletos.rows.length > 0) {
+    hallazgos.push({
+      nivel: 'INFORMATIVA', modulo: 'Promovidos', que: `${incompletos.rows.length} registro(s) sin teléfono o sin nombre completo`,
+      donde: incompletos.rows.slice(0, 5).map((p) => p.nombre || '(sin nombre)').join(', '),
+    });
+  }
+
+  res.json({ ok: true, data: { hallazgos, total: hallazgos.length, fecha_auditoria: new Date().toISOString() } });
+});
 
 export default router;
