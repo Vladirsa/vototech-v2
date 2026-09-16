@@ -20,6 +20,17 @@ export default function CentroDecisiones() {
   const [filtroEstado, setFiltroEstado] = useState('todas');
   const [mostrarForm, setMostrarForm] = useState(false);
   const [detalleId, setDetalleId] = useState(null);
+  // 🆕 Sugerencias del motor de análisis — nunca se registran solas,
+  // solo llenan el formulario para que la persona revise y decida.
+  const [sugerencias, setSugerencias] = useState([]);
+  const [cargandoSugerencias, setCargandoSugerencias] = useState(true);
+  const [sugerenciaParaUsar, setSugerenciaParaUsar] = useState(null);
+
+  useEffect(() => {
+    api.get('/centro-decisiones/sugerencias').then((r) => setSugerencias(r.data.data)).catch(() => setSugerencias([])).finally(() => setCargandoSugerencias(false));
+  }, []);
+
+  const usarSugerencia = (s) => { setSugerenciaParaUsar(s); setMostrarForm(true); };
 
   const cargar = () => {
     const query = filtroEstado !== 'todas' ? `?estado=${filtroEstado}` : '';
@@ -39,6 +50,25 @@ export default function CentroDecisiones() {
           Bitácora de Decisiones — el sistema nunca registra una decisión por su cuenta. Cada entrada aquí es porque tú (o tu equipo de coordinación) tocó explícitamente "Registrar Decisión".
         </div>
 
+        {/* 🆕 Sugerencias del motor de análisis */}
+        {!cargandoSugerencias && sugerencias.length > 0 && (
+          <div className="space-y-2">
+            <h2 className="text-xs font-bold text-amber-400 uppercase">💡 El sistema encontró esto — tú decides qué hacer</h2>
+            {sugerencias.map((s, i) => (
+              <div key={i} className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3">
+                <p className="text-sm text-white font-bold">{s.situacion_detectada}</p>
+                <p className="text-[10px] text-slate-400 mt-1">📎 {s.datos_utilizados} · Fuente: {s.fuente}</p>
+                <div className="mt-2 space-y-1">
+                  {s.opciones_consideradas.map((op, j) => <p key={j} className="text-[11px] text-slate-300">• {op}</p>)}
+                </div>
+                <button onClick={() => usarSugerencia(s)} className="mt-2 px-3 py-1.5 rounded-lg bg-amber-600 text-white text-[11px] font-bold">
+                  Revisar y decidir →
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
         <div className="flex items-center justify-between flex-wrap gap-2">
           <div className="flex gap-1.5 flex-wrap">
             {[['todas', 'Todas'], ['pendiente', 'Pendientes'], ['en_proceso', 'En Proceso'], ['completada', 'Completadas'], ['cancelada', 'Canceladas']].map(([id, label]) => (
@@ -48,7 +78,7 @@ export default function CentroDecisiones() {
               </button>
             ))}
           </div>
-          <button onClick={() => setMostrarForm(true)} className="px-4 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 text-white text-sm font-bold">
+          <button onClick={() => { setSugerenciaParaUsar(null); setMostrarForm(true); }} className="px-4 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 text-white text-sm font-bold">
             ➕ Registrar Decisión
           </button>
         </div>
@@ -74,16 +104,20 @@ export default function CentroDecisiones() {
         </div>
       </div>
 
-      {mostrarForm && <ModalRegistrarDecision onCerrar={() => setMostrarForm(false)} onGuardado={() => { setMostrarForm(false); cargar(); }} />}
+      {mostrarForm && <ModalRegistrarDecision sugerenciaInicial={sugerenciaParaUsar} onCerrar={() => setMostrarForm(false)} onGuardado={() => { setMostrarForm(false); cargar(); }} />}
       {detalleId && <ModalDetalleDecision id={detalleId} onCerrar={() => setDetalleId(null)} onActualizado={cargar} />}
     </div>
   );
 }
 
-function ModalRegistrarDecision({ onCerrar, onGuardado }) {
+function ModalRegistrarDecision({ sugerenciaInicial, onCerrar, onGuardado }) {
   const [form, setForm] = useState({
-    situacion_detectada: '', datos_utilizados: '', fuente: '', analisis: '',
-    opciones_consideradas: '', decision_tomada: '', accion: '', fecha_limite: '',
+    situacion_detectada: sugerenciaInicial?.situacion_detectada || '',
+    datos_utilizados: sugerenciaInicial?.datos_utilizados || '',
+    fuente: sugerenciaInicial?.fuente || '',
+    analisis: '',
+    opciones_consideradas: sugerenciaInicial?.opciones_consideradas?.map((o) => `• ${o}`).join('\n') || '',
+    decision_tomada: '', accion: '', fecha_limite: '',
   });
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState('');
@@ -116,6 +150,12 @@ function ModalRegistrarDecision({ onCerrar, onGuardado }) {
           <h2 className="text-lg font-black text-white">Registrar Decisión</h2>
           <button onClick={onCerrar} className="text-slate-500">✕</button>
         </div>
+
+        {sugerenciaInicial && (
+          <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2 text-[10px] text-amber-300">
+            💡 Esto viene de una sugerencia del sistema — la situación y los datos ya están llenos. Falta que tú escribas qué decidiste hacer.
+          </div>
+        )}
 
         {campo('situacion_detectada', 'Situación detectada', '¿Qué se observó? (ej: la sección 178 lleva 12 días sin actividad)', true)}
         {campo('datos_utilizados', 'Datos utilizados', '¿Qué números respaldan esto?')}
