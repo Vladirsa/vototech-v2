@@ -817,13 +817,19 @@ export default function Reportes() {
                       </div>
                     )}
                     {fichaSeccion.historico.map((h) => (
-                      <div key={h.anio} className="mb-2">
-                        <div className="text-[10px] text-slate-500 mb-1">{h.anio}</div>
-                        {Object.entries(h.por_partido).sort((a, b) => b[1] - a[1]).map(([p, v]) => (
-                          <div key={p} className="flex justify-between text-[10px] text-slate-300">
-                            <span>{p.toUpperCase()}</span><span>{v.toLocaleString()} ({h.total > 0 ? Math.round((v / h.total) * 100) : 0}%)</span>
-                          </div>
-                        ))}
+                      <div key={h.anio} className="mb-3">
+                        <div className="text-xs font-bold text-slate-400 mb-1.5">{h.anio}</div>
+                        <div className="space-y-1">
+                          {Object.entries(h.por_partido).sort((a, b) => b[1] - a[1]).map(([p, v]) => (
+                            <div key={p} className="flex items-center justify-between text-sm bg-slate-800/40 rounded-lg px-3 py-1.5">
+                              <span className="flex items-center gap-2 font-bold text-white">
+                                <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: PARTIDOS_COLOR[p] || '#64748b' }} />
+                                {p.toUpperCase()}
+                              </span>
+                              <span className="text-slate-300">{v.toLocaleString()} <span className="text-slate-500">({h.total > 0 ? Math.round((v / h.total) * 100) : 0}%)</span></span>
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     ))}
                   </div>

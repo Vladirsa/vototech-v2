@@ -1520,32 +1520,81 @@ export default function Estructura() {
                     <div className="text-xs text-slate-500">{fichaPersona.persona.rol}{fichaPersona.persona.puesto ? ` · ${fichaPersona.persona.puesto}` : ''}</div>
                   </div>
 
-                  {/* Avance y meta */}
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                    <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 text-center">
-                      <div className="text-lg font-black text-white">{fichaPersona.avance.total_promovidos}</div>
-                      <div className="text-[9px] text-slate-500">Promovidos totales</div>
-                    </div>
-                    <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 text-center">
-                      <div className="text-lg font-black text-purple-400">{fichaPersona.avance.comprometidos}</div>
-                      <div className="text-[9px] text-slate-500">Comprometidos</div>
-                    </div>
-                    <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 text-center">
-                      <div className={`text-lg font-black ${fichaPersona.avance.cumple_meta_hoy === true ? 'text-emerald-400' : fichaPersona.avance.cumple_meta_hoy === false ? 'text-red-400' : 'text-slate-400'}`}>
-                        {fichaPersona.avance.capturados_hoy}{fichaPersona.persona.meta_diaria ? ` / ${fichaPersona.persona.meta_diaria}` : ''}
+                  {/* 🆕 Total de TODA la rama — él/ella + todo su
+                      equipo hacia abajo, sin importar cuántos
+                      niveles tenga debajo. */}
+                  <div className="bg-gradient-to-br from-indigo-500/10 to-purple-500/10 border border-indigo-500/30 rounded-xl p-4">
+                    <div className="text-[10px] font-bold text-indigo-300 uppercase mb-2">🌳 Total de toda su rama ({fichaPersona.totales_rama.tamano_equipo_completo} personas debajo de él/ella)</div>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                      <div className="text-center">
+                        <div className="text-xl font-black text-white">{fichaPersona.totales_rama.total_promovidos}</div>
+                        <div className="text-[9px] text-slate-500">Promovidos (toda la rama)</div>
                       </div>
-                      <div className="text-[9px] text-slate-500">Hoy {fichaPersona.avance.cumple_meta_hoy === true ? '✅ cumplió meta' : fichaPersona.avance.cumple_meta_hoy === false ? '⚠️ no cumplió' : ''}</div>
-                    </div>
-                    <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 text-center">
-                      <div className={`text-lg font-black ${fichaPersona.avance.duplicados > 0 ? 'text-amber-400' : 'text-slate-500'}`}>{fichaPersona.avance.duplicados}</div>
-                      <div className="text-[9px] text-slate-500">Duplicados detectados</div>
+                      <div className="text-center">
+                        <div className="text-xl font-black text-purple-400">{fichaPersona.totales_rama.comprometidos}</div>
+                        <div className="text-[9px] text-slate-500">Comprometidos</div>
+                      </div>
+                      <div className="text-center">
+                        <div className={`text-xl font-black ${fichaPersona.totales_rama.cumple_meta === true ? 'text-emerald-400' : fichaPersona.totales_rama.cumple_meta === false ? 'text-red-400' : 'text-slate-400'}`}>
+                          {fichaPersona.totales_rama.total_promovidos}{fichaPersona.totales_rama.meta_total_rama > 0 ? ` / ${fichaPersona.totales_rama.meta_total_rama}` : ''}
+                        </div>
+                        <div className="text-[9px] text-slate-500">{fichaPersona.totales_rama.cumple_meta === true ? '✅ cumple meta de equipo' : fichaPersona.totales_rama.cumple_meta === false ? '⚠️ no cumple meta de equipo' : 'Sin meta configurada'}</div>
+                      </div>
+                      <div className="text-center">
+                        <div className={`text-xl font-black ${fichaPersona.totales_rama.duplicados > 0 ? 'text-amber-400' : 'text-slate-500'}`}>{fichaPersona.totales_rama.duplicados}</div>
+                        <div className="text-[9px] text-slate-500">Duplicados en la rama</div>
+                      </div>
                     </div>
                   </div>
 
-                  {/* Secciones trabajadas */}
+                  {/* 🆕 Lo que ÉL/ELLA capturó con sus propias manos
+                      — aparte del total de toda su rama, para no
+                      confundir "lo mío" con "lo de mi equipo". */}
+                  <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex items-center justify-between">
+                    <span className="text-xs text-slate-400">✋ Lo que capturó personalmente (sin contar a su equipo)</span>
+                    <span className="text-sm font-bold text-white">{fichaPersona.propio.total_promovidos} <span className="text-slate-500">({fichaPersona.propio.comprometidos} comprometidos)</span></span>
+                  </div>
+
+                  {/* 🆕 Su equipo EN PARALELO — cada rama directa,
+                      una junto a otra, con el total agregado de
+                      cada una, para comparar quién va mejor. */}
+                  {fichaPersona.equipo_en_paralelo.length > 0 && (
+                    <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden">
+                      <h3 className="text-xs font-bold text-slate-400 uppercase p-4 pb-2">👥 Su equipo, en paralelo — {fichaPersona.equipo_en_paralelo.length} ramas directas</h3>
+                      <table className="w-full text-xs">
+                        <thead className="bg-slate-800/60">
+                          <tr>
+                            <th className="text-left px-3 py-2 text-slate-400 font-bold">Nombre</th>
+                            <th className="text-center px-3 py-2 text-slate-400 font-bold">Tamaño equipo</th>
+                            <th className="text-center px-3 py-2 text-slate-400 font-bold">Total de su rama</th>
+                            <th className="text-center px-3 py-2 text-slate-400 font-bold">Comprometidos</th>
+                            <th className="text-center px-3 py-2 text-slate-400 font-bold">Meta vs logrado</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {fichaPersona.equipo_en_paralelo.map((s) => (
+                            <tr key={s.id} className="border-t border-slate-800 cursor-pointer hover:bg-slate-800/40" onClick={() => { verFichaPersona(s.id); setBuscarPersonaTexto(s.nombre); }}>
+                              <td className="px-3 py-2 text-white font-bold">{s.nombre}{s.puesto ? <span className="text-slate-500 font-normal"> · {s.puesto}</span> : ''}
+                                <div className="text-[9px] text-slate-500 font-normal">{s.rol} — {s.propio} capturados por él/ella directamente</div>
+                              </td>
+                              <td className="px-3 py-2 text-center text-slate-400">{s.tamano_equipo} pers.</td>
+                              <td className="px-3 py-2 text-center text-slate-200 font-bold">{s.total_su_equipo}</td>
+                              <td className="px-3 py-2 text-center text-purple-400">{s.comprometidos_su_equipo}</td>
+                              <td className={`px-3 py-2 text-center font-bold ${s.cumple_meta === true ? 'text-emerald-400' : s.cumple_meta === false ? 'text-red-400' : 'text-slate-500'}`}>
+                                {s.meta_su_equipo > 0 ? `${s.total_su_equipo}/${s.meta_su_equipo}` : '—'}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      <p className="text-[9px] text-slate-500 p-3">Toca cualquier fila para entrar a esa rama y ver su propio equipo, así puedes bajar nivel por nivel.</p>
+                    </div>
+                  )}
+
+                  {/* Secciones trabajadas — por TODA la rama */}
                   {fichaPersona.secciones_trabajadas.length > 0 && (
                     <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
-                      <h3 className="text-xs font-bold text-slate-400 uppercase mb-2">📍 Secciones donde ha trabajado</h3>
+                      <h3 className="text-xs font-bold text-slate-400 uppercase mb-2">📍 Secciones donde ha trabajado toda la rama</h3>
                       <div className="flex gap-1.5 flex-wrap">
                         {fichaPersona.secciones_trabajadas.map((s) => (
                           <span key={s.seccion_numero} className="text-[10px] font-bold bg-slate-800 text-slate-300 px-2.5 py-1 rounded-full">
@@ -1553,33 +1602,6 @@ export default function Estructura() {
                           </span>
                         ))}
                       </div>
-                    </div>
-                  )}
-
-                  {/* Subordinados — si es coordinador */}
-                  {fichaPersona.subordinados.length > 0 && (
-                    <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden">
-                      <h3 className="text-xs font-bold text-slate-400 uppercase p-4 pb-2">👥 Su equipo — {fichaPersona.total_subordinados} personas a su cargo</h3>
-                      <table className="w-full text-xs">
-                        <thead className="bg-slate-800/60">
-                          <tr>
-                            <th className="text-left px-3 py-2 text-slate-400 font-bold">Nombre</th>
-                            <th className="text-center px-3 py-2 text-slate-400 font-bold">Meta</th>
-                            <th className="text-center px-3 py-2 text-slate-400 font-bold">Promovidos</th>
-                            <th className="text-center px-3 py-2 text-slate-400 font-bold">Comprometidos</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {fichaPersona.subordinados.map((s) => (
-                            <tr key={s.id} className="border-t border-slate-800 cursor-pointer hover:bg-slate-800/40" onClick={() => { verFichaPersona(s.id); setBuscarPersonaTexto(s.nombre); }}>
-                              <td className="px-3 py-2 text-white font-bold">{s.nombre}{s.puesto ? <span className="text-slate-500 font-normal"> · {s.puesto}</span> : ''}</td>
-                              <td className="px-3 py-2 text-center text-slate-500">{s.meta_diaria || '—'}</td>
-                              <td className="px-3 py-2 text-center text-slate-300">{s.total_promovidos}</td>
-                              <td className="px-3 py-2 text-center text-purple-400">{s.comprometidos}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
                     </div>
                   )}
 
