@@ -59,9 +59,13 @@ const actualizarSW = registerSW({
     });
   },
   onNeedRefresh() {
-    // Ya hay una versión nueva lista — se recarga sola, sin pedirle
-    // nada a la persona (evita que alguien se quede atorado sin saber
-    // que existe un botón de actualizar).
+    // 🆕 Seguro contra ciclos — si ya se recargó por esto mismo hace
+    // menos de 30 segundos, no se fuerza otra recarga inmediata (eso
+    // es justo lo que causaba el "Actualizando..." en bucle). Se dan
+    // 30s de margen para que el Service Worker de verdad se asiente.
+    const ultimaRecarga = parseInt(sessionStorage.getItem('vt_ultima_recarga_sw') || '0');
+    if (Date.now() - ultimaRecarga < 30000) return;
+    sessionStorage.setItem('vt_ultima_recarga_sw', String(Date.now()));
     actualizarSW(true);
   },
 });
