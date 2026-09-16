@@ -21,15 +21,19 @@
 const TODOS_LOS_MODULOS = [
   'promovidos', 'priorizacion', 'estructura', 'reportes', 'agenda', 'logistica',
   'dia-eleccion', 'incidencias', 'finanzas', 'activos', 'marketing', 'juridico',
+  'centro-decisiones',
 ];
 
 const MODULOS_POR_ROL = {
   candidato: TODOS_LOS_MODULOS,
   jefe_campana: TODOS_LOS_MODULOS,
   coord_general: TODOS_LOS_MODULOS,
+  // 🆕 Centro de Decisiones — quienes tienen responsabilidad real de
+  // coordinar territorio (no promotores, representantes de casilla,
+  // voluntarios, ni encargados de un área acotada como jurídico/finanzas).
   coord_distrital: TODOS_LOS_MODULOS.filter((m) => !['finanzas', 'activos', 'juridico'].includes(m)),
   coord_municipal: TODOS_LOS_MODULOS.filter((m) => !['finanzas', 'activos', 'juridico'].includes(m)),
-  coord_seccional: ['promovidos', 'estructura', 'dia-eleccion', 'incidencias', 'logistica'],
+  coord_seccional: ['promovidos', 'estructura', 'dia-eleccion', 'incidencias', 'logistica', 'centro-decisiones'],
   promotor: ['promovidos', 'dia-eleccion', 'incidencias'],
   encargado_juridico: ['juridico', 'finanzas', 'activos', 'incidencias', 'promovidos'],
   encargado_finanzas: ['finanzas', 'activos', 'promovidos', 'incidencias'],
