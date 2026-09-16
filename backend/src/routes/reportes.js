@@ -1171,20 +1171,110 @@ router.get('/encuestas-resumen', async (req, res) => {
   });
 });
 
-/** Encabezado compartido para todos los reportes PDF — mismo estilo. */
+/** 🆕 Etiquetas legibles de rol — para los PDFs, en vez de mostrar el valor crudo de la base (ej: "coord_seccional"). */
+const ROL_LABEL_PDF = {
+  candidato: 'Candidato', jefe_campana: 'Jefe de Campaña', coord_general: 'Coord. General',
+  coord_distrital: 'Coord. Distrital', coord_municipal: 'Coord. Municipal', coord_seccional: 'Coord. Seccional',
+  promotor: 'Promotor', representante_casilla: 'Repres. de Casilla',
+  encargado_juridico: 'Encargado Jurídico', encargado_finanzas: 'Encargado Finanzas', voluntario: 'Voluntario',
+};
+
+/** 🆕 Encabezado profesional — franja de color, marca, título,
+ * candidato y fecha, en vez de solo texto centrado sin estilo. */
 function iniciarPDF(res, nombreArchivo, titulo, subtitulo) {
-  const doc = new PDFDocument({ margin: 50 });
+  const doc = new PDFDocument({ margin: 40, size: 'letter', bufferPages: true });
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename=${nombreArchivo}`);
   doc.pipe(res);
-  doc.fontSize(18).fillColor('#1e1b4b').text(titulo, { align: 'center' });
-  if (subtitulo) doc.fontSize(9).fillColor('#64748b').text(subtitulo, { align: 'center' });
-  doc.fontSize(8).fillColor('#94a3b8').text(`Generado el ${new Date().toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' })}`, { align: 'center' });
-  doc.moveDown(1.5);
+
+  doc.rect(0, 0, doc.page.width, 85).fill('#1e1b4b');
+  doc.fillColor('#ffffff').fontSize(18).font('Helvetica-Bold').text('🗳️ VotoTech', 40, 22);
+  doc.fontSize(13).font('Helvetica').text(titulo, 40, 46);
+  if (subtitulo) doc.fontSize(9).fillColor('#c7d2fe').text(subtitulo, 40, 64);
+  doc.fillColor('#a5b4fc').fontSize(8).text(
+    `Generado: ${new Date().toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' })}`,
+    doc.page.width - 240, 64, { width: 200, align: 'right' }
+  );
+
+  doc.y = 105;
+  doc.fillColor('#1e293b').font('Helvetica');
   return doc;
 }
-const seccionPDF = (doc, titulo) => { doc.moveDown(0.5); doc.fontSize(13).fillColor('#1e1b4b').text(titulo); doc.moveDown(0.3); doc.fontSize(10).fillColor('#334155'); };
-const lineaPDF = (doc, etiqueta, valor) => doc.text(`${etiqueta}: ${valor}`);
+
+/** 🆕 Encabezado de sección — con barra de acento de color, no solo texto plano. */
+function seccionPDF(doc, titulo) {
+  if (doc.y > doc.page.height - 100) doc.addPage();
+  doc.moveDown(0.8);
+  const y = doc.y;
+  doc.rect(40, y + 1, 4, 14).fill('#4f46e5');
+  doc.fillColor('#1e1b4b').fontSize(12).font('Helvetica-Bold').text(titulo, 52, y);
+  doc.moveDown(0.6);
+  doc.fillColor('#334155').fontSize(9).font('Helvetica');
+}
+
+const lineaPDF = (doc, etiqueta, valor) => doc.fontSize(9).fillColor('#334155').text(`${etiqueta}: ${valor}`);
+
+/**
+ * 🆕 Tabla real — encabezado con color, filas alternadas, en vez de
+ * líneas sueltas de texto "etiqueta: valor". `anchos` son los
+ * anchos en puntos de cada columna, deben sumar ~500 (ancho útil).
+ */
+function tablaPDF(doc, encabezados, filas, anchos) {
+  const x0 = 40;
+  const rowHeight = 18;
+  const totalWidth = anchos.reduce((a, b) => a + b, 0);
+
+  if (doc.y > doc.page.height - 100) doc.addPage();
+  let y = doc.y;
+
+  doc.rect(x0, y, totalWidth, rowHeight).fill('#4f46e5');
+  doc.fillColor('#ffffff').fontSize(8).font('Helvetica-Bold');
+  let x = x0;
+  encabezados.forEach((h, i) => { doc.text(h, x + 4, y + 5, { width: anchos[i] - 8 }); x += anchos[i]; });
+  y += rowHeight;
+
+  filas.forEach((fila, idx) => {
+    if (y > doc.page.height - 60) {
+      doc.addPage();
+      y = 50;
+      // Repetir encabezado en la página nueva
+      doc.rect(x0, y, totalWidth, rowHeight).fill('#4f46e5');
+      doc.fillColor('#ffffff').fontSize(8).font('Helvetica-Bold');
+      let xh = x0;
+      encabezados.forEach((h, i) => { doc.text(h, xh + 4, y + 5, { width: anchos[i] - 8 }); xh += anchos[i]; });
+      y += rowHeight;
+    }
+    doc.rect(x0, y, totalWidth, rowHeight).fill(idx % 2 === 0 ? '#f1f5f9' : '#ffffff');
+    doc.fillColor('#1e293b').fontSize(8).font('Helvetica');
+    x = x0;
+    fila.forEach((celda, i) => { doc.text(String(celda ?? '—'), x + 4, y + 5, { width: anchos[i] - 8 }); x += anchos[i]; });
+    y += rowHeight;
+  });
+  doc.y = y + 12;
+}
+
+/**
+ * 🆕 Gráfica de barras horizontal — para ver de un vistazo la
+ * distribución (por rol, por sección, etc.) en vez de solo números
+ * en una lista.
+ */
+function graficaBarrasPDF(doc, datos, opciones = {}) {
+  if (datos.length === 0) return;
+  if (doc.y > doc.page.height - 120) doc.addPage();
+  const anchoMax = opciones.anchoMax || 280;
+  const colorBarra = opciones.color || '#6366f1';
+  const maxValor = Math.max(...datos.map((d) => d.valor), 1);
+  let y = doc.y;
+  datos.forEach((d) => {
+    if (y > doc.page.height - 50) { doc.addPage(); y = 50; }
+    const anchoBarra = Math.max(2, (d.valor / maxValor) * anchoMax);
+    doc.fillColor('#334155').fontSize(8).font('Helvetica').text(String(d.label), 40, y + 2, { width: 140, ellipsis: true });
+    doc.rect(190, y, anchoBarra, 12).fill(colorBarra);
+    doc.fillColor('#1e293b').fontSize(8).text(String(d.valor), 190 + anchoBarra + 5, y + 2);
+    y += 18;
+  });
+  doc.y = y + 10;
+}
 
 /**
  * GET /api/reportes/pdf/juridico
@@ -1218,22 +1308,74 @@ router.get('/pdf/juridico', async (req, res) => {
 router.get('/pdf/estructura', async (req, res) => {
   const campanaId = req.usuario.campana_id;
   const campanaRes = await query('SELECT nombre_candidato FROM campanas WHERE id=$1', [campanaId]);
-  const miembros = await query(
-    `SELECT nombre, rol, puesto, (SELECT COUNT(*) FROM usuarios h WHERE h.parent_id=u.id) as reportes_directos
-     FROM usuarios u WHERE u.campana_id=$1 AND u.activo != false ORDER BY
-     CASE rol WHEN 'candidato' THEN 1 WHEN 'jefe_campana' THEN 2 WHEN 'coord_general' THEN 3
-       WHEN 'coord_distrital' THEN 4 WHEN 'coord_municipal' THEN 5 WHEN 'coord_seccional' THEN 6 ELSE 7 END`,
-    [campanaId]
-  );
-  const porRol = await query('SELECT rol, COUNT(*) as total FROM usuarios WHERE campana_id=$1 AND activo != false GROUP BY rol', [campanaId]);
 
-  const doc = iniciarPDF(res, 'reporte_estructura.pdf', 'Reporte de Estructura de Campana', campanaRes.rows[0]?.nombre_candidato);
+  const [miembros, porRol, porSeccion, porMunicipio, promotoresConDatos] = await Promise.all([
+    query(
+      `SELECT nombre, rol, puesto, (SELECT COUNT(*) FROM usuarios h WHERE h.parent_id=u.id) as reportes_directos
+       FROM usuarios u WHERE u.campana_id=$1 AND u.activo != false ORDER BY
+       CASE rol WHEN 'candidato' THEN 1 WHEN 'jefe_campana' THEN 2 WHEN 'coord_general' THEN 3
+         WHEN 'coord_distrital' THEN 4 WHEN 'coord_municipal' THEN 5 WHEN 'coord_seccional' THEN 6 ELSE 7 END`,
+      [campanaId]
+    ),
+    query('SELECT rol, COUNT(*) as total FROM usuarios WHERE campana_id=$1 AND activo != false GROUP BY rol ORDER BY total DESC', [campanaId]),
+    // 🆕 Desglose por sección — cuánta gente de la estructura tiene territorio asignado en cada una
+    query(
+      `SELECT s.numero as seccion, COUNT(*) as total FROM usuarios u JOIN secciones s ON s.numero = u.territorio_id AND u.territorio_tipo='seccion'
+       WHERE u.campana_id=$1 AND u.activo != false GROUP BY s.numero ORDER BY total DESC LIMIT 15`,
+      [campanaId]
+    ).catch(() => ({ rows: [] })),
+    // 🆕 Desglose por municipio — igual pero a nivel municipio
+    query(
+      `SELECT m.nombre as municipio, COUNT(*) as total FROM usuarios u
+       JOIN municipios m ON m.id = u.territorio_id AND u.territorio_tipo='municipio'
+       WHERE u.campana_id=$1 AND u.activo != false GROUP BY m.nombre ORDER BY total DESC`,
+      [campanaId]
+    ).catch(() => ({ rows: [] })),
+    // 🆕 Cada promotor con su propio total de promovidos capturados — desempeño real, no solo directorio
+    query(
+      `SELECT u.nombre, u.puesto, COUNT(p.id) as total_promovidos, COUNT(p.id) FILTER (WHERE p.comprometido) as comprometidos
+       FROM usuarios u LEFT JOIN promovidos p ON p.registrado_por = u.id AND p.campana_id=$1
+       WHERE u.campana_id=$1 AND u.rol='promotor' AND u.activo != false
+       GROUP BY u.id, u.nombre, u.puesto ORDER BY total_promovidos DESC`,
+      [campanaId]
+    ),
+  ]);
 
-  seccionPDF(doc, 'Resumen por Nivel');
-  porRol.rows.forEach((r) => lineaPDF(doc, r.rol, r.total));
+  const doc = iniciarPDF(res, 'reporte_estructura.pdf', 'Reporte de Estructura de Campaña', campanaRes.rows[0]?.nombre_candidato);
 
+  // Resumen por nivel — ahora como gráfica de barras, no lista de texto
+  seccionPDF(doc, 'Resumen por Nivel de Estructura');
+  graficaBarrasPDF(doc, porRol.rows.map((r) => ({ label: ROL_LABEL_PDF[r.rol] || r.rol, valor: parseInt(r.total) })));
+
+  // Directorio — tabla real
   seccionPDF(doc, `Directorio Completo (${miembros.rows.length} personas)`);
-  miembros.rows.forEach((m) => lineaPDF(doc, m.nombre, `${m.puesto || m.rol} - ${m.reportes_directos} a cargo`));
+  tablaPDF(doc,
+    ['Nombre', 'Rol', 'Puesto', 'A cargo'],
+    miembros.rows.map((m) => [m.nombre, ROL_LABEL_PDF[m.rol] || m.rol, m.puesto || '—', m.reportes_directos]),
+    [170, 110, 130, 60]
+  );
+
+  // 🆕 Desempeño por promotor — tabla real con totales
+  if (promotoresConDatos.rows.length > 0) {
+    seccionPDF(doc, 'Desempeño por Promotor');
+    tablaPDF(doc,
+      ['Nombre', 'Puesto', 'Promovidos', 'Comprometidos'],
+      promotoresConDatos.rows.map((p) => [p.nombre, p.puesto || '—', p.total_promovidos, p.comprometidos]),
+      [180, 130, 100, 100]
+    );
+  }
+
+  // 🆕 Por sección
+  if (porSeccion.rows.length > 0) {
+    seccionPDF(doc, 'Estructura Asignada por Sección (Top 15)');
+    graficaBarrasPDF(doc, porSeccion.rows.map((s) => ({ label: `Sección ${String(s.seccion).padStart(3, '0')}`, valor: parseInt(s.total) })), { color: '#059669' });
+  }
+
+  // 🆕 Por municipio
+  if (porMunicipio.rows.length > 0) {
+    seccionPDF(doc, 'Estructura Asignada por Municipio');
+    graficaBarrasPDF(doc, porMunicipio.rows.map((m) => ({ label: m.municipio, valor: parseInt(m.total) })), { color: '#d97706' });
+  }
 
   doc.end();
 });
