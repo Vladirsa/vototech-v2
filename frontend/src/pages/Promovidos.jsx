@@ -13,10 +13,12 @@ import TableroPromovidos from '../components/TableroPromovidos';
 import PanelEncuestas from '../components/PanelEncuestas';
 import PanelSeguimientoPersuadibles from '../components/PanelSeguimientoPersuadibles';
 
-const CLASIFICACION_ESTILO = {
-  base:        { color: 'text-emerald-400', bg: 'bg-emerald-500/10', label: '✅ Base' },
-  persuadible: { color: 'text-amber-400', bg: 'bg-amber-500/10', label: '🎯 Persuadible' },
-  adversario:  { color: 'text-slate-500', bg: 'bg-slate-500/10', label: '⛔ Adversario' },
+// 🆕 Ya no se usa "clasificación" (Base/Persuadible/Adversario) — un
+// solo campo real: ¿va a votar por nosotros, sí o no?
+const VA_A_VOTAR_ESTILO = {
+  true:  { color: 'text-emerald-400', bg: 'bg-emerald-500/10', label: '✅ Sí va' },
+  false: { color: 'text-slate-400', bg: 'bg-slate-500/10', label: '❌ No va' },
+  null:  { color: 'text-slate-500', bg: 'bg-slate-900/40', label: '❔ Sin definir' },
 };
 
 /**
@@ -63,7 +65,7 @@ function comprimirImagenEnNavegador(archivo, maxDimension = 1600, calidad = 0.85
 export function ModalAgregar({ onCerrar, onGuardado, seccionInicial }) {
   const [form, setForm] = useState({
     nombre: '', telefono: '', seccion_numero: seccionInicial || '', partido: '', calle: '', lat: null, lng: null,
-    comprometido: false, temperatura: 'tibio', clasificacion: 'persuadible', consentimiento: false,
+    comprometido: null, consentimiento: false,
     necesidad_principal: '', situacion_grave: '', genero: '', rango_edad: '',
   });
   const [error, setError] = useState('');
@@ -245,31 +247,23 @@ export function ModalAgregar({ onCerrar, onGuardado, seccionInicial }) {
         </div>
         <p className="text-[9px] text-slate-500">Estos 2 datos son opcionales — sirven para armar mejores estrategias de reuniones y mensajes con el tiempo. No preguntes ID, solo tu apreciación.</p>
 
-        <div className="flex gap-2">
-          {['frio','tibio','caliente'].map(t => (
-            <button key={t} onClick={() => actualizar('temperatura', t)}
-              className={`flex-1 py-2 rounded-lg text-xs font-bold border ${form.temperatura===t ? 'bg-indigo-600 border-indigo-500 text-white' : 'border-slate-700 text-slate-400'}`}>
-              {t==='frio'?'❄️':t==='tibio'?'🌡️':'🔥'} {t}
-            </button>
-          ))}
-        </div>
-
+        {/* 🆕 Un solo campo, simple y rápido — antes había 3 formas
+            distintas de decir casi lo mismo (temperatura,
+            clasificación, y esta casilla). El candidato solo quiere
+            saber si va a votar por nosotros o no. */}
         <div>
-          <p className="text-[10px] text-slate-500 mb-1">¿Cómo la clasificas? (lo que tú observaste en la plática)</p>
+          <p className="text-xs font-bold text-slate-300 mb-1.5">¿Va a votar por nosotros?</p>
           <div className="flex gap-2">
-            {[['base','✅','Base'],['persuadible','🎯','Persuadible'],['adversario','⛔','Adversario']].map(([v,ic,label]) => (
-              <button key={v} type="button" onClick={() => actualizar('clasificacion', v)}
-                className={`flex-1 py-2 rounded-lg text-xs font-bold border ${form.clasificacion===v ? 'bg-indigo-600 border-indigo-500 text-white' : 'border-slate-700 text-slate-400'}`}>
-                {ic} {label}
-              </button>
-            ))}
+            <button type="button" onClick={() => actualizar('comprometido', true)}
+              className={`flex-1 py-3 rounded-xl text-sm font-bold border-2 ${form.comprometido === true ? 'bg-emerald-600 border-emerald-500 text-white' : 'border-slate-700 text-slate-400'}`}>
+              ✅ Sí
+            </button>
+            <button type="button" onClick={() => actualizar('comprometido', false)}
+              className={`flex-1 py-3 rounded-xl text-sm font-bold border-2 ${form.comprometido === false ? 'bg-slate-600 border-slate-500 text-white' : 'border-slate-700 text-slate-400'}`}>
+              ❌ No
+            </button>
           </div>
         </div>
-
-        <label className="flex items-center gap-2 text-xs text-slate-300">
-          <input type="checkbox" checked={form.comprometido} onChange={(e) => actualizar('comprometido', e.target.checked)} />
-          Está comprometido a votar por nosotros
-        </label>
 
         {/* 🗣️ Encuesta rápida — para que el candidato llegue informado
             y empático a cada sección, no solo a pedir el voto */}
@@ -336,7 +330,7 @@ function ModalDetalle({ promovidoId, onCerrar, onActualizado }) {
   const guardar = async () => {
     await api.patch(`/promovidos/${promovidoId}`, {
       nombre: form.nombre, telefono: form.telefono, partido: form.partido,
-      comprometido: form.comprometido, temperatura: form.temperatura,
+      comprometido: form.comprometido,
       // 🆕 Antes el formulario de edición no dejaba tocar estos
       // campos, aunque el backend siempre los aceptó — se corrige
       // aquí, mandándolos igual que al crear un promovido nuevo.
@@ -350,7 +344,7 @@ function ModalDetalle({ promovidoId, onCerrar, onActualizado }) {
   };
 
   if (!detalle) return null;
-  const est = CLASIFICACION_ESTILO[detalle.clasificacion] || CLASIFICACION_ESTILO.persuadible;
+  const est = VA_A_VOTAR_ESTILO[detalle.comprometido] || VA_A_VOTAR_ESTILO.null;
   const RESULTADO_ICONO = { positivo: '👍', neutral: '😐', negativo: '👎', sin_respuesta: '📵' };
 
   return (
@@ -372,8 +366,8 @@ function ModalDetalle({ promovidoId, onCerrar, onActualizado }) {
             <div className="text-xs text-slate-400 space-y-1">
               <div>📞 {detalle.telefono || 'Sin teléfono'}</div>
               <div>📍 {detalle.seccion_numero ? `Sección ${detalle.seccion_numero}` : 'Sin sección'} {detalle.calle && `· ${detalle.calle}`}</div>
-              <div>🏛️ {detalle.partido?.toUpperCase() || 'Sin partido declarado'} {detalle.comprometido && '· ✅ Comprometido'}</div>
-              <div>🌡️ Temperatura: {detalle.temperatura}</div>
+              <div>🏛️ {detalle.partido?.toUpperCase() || 'Sin partido declarado'}</div>
+              <div>{detalle.comprometido === true ? '✅ Va a votar por nosotros' : detalle.comprometido === false ? '❌ No va a votar por nosotros' : '❔ Sin definir'}</div>
               {detalle.curp && <div>🪪 CURP: {detalle.curp}</div>}
               {(detalle.genero || detalle.rango_edad) && <div>👤 {detalle.genero || ''} {detalle.rango_edad ? `· ${detalle.rango_edad} años` : ''}</div>}
               <div className="text-slate-500">Registrado por {detalle.registrado_por_nombre} el {new Date(detalle.creado_en).toLocaleDateString('es-MX')}</div>
@@ -439,18 +433,19 @@ function ModalDetalle({ promovidoId, onCerrar, onActualizado }) {
               <option value="">Sin partido</option>
               {['morena','pan','pri','prd','mc','pvem','pt','pac','independiente'].map(p => <option key={p} value={p}>{p.toUpperCase()}</option>)}
             </select>
-            <div className="flex gap-2">
-              {['frio','tibio','caliente'].map(t => (
-                <button key={t} onClick={() => setForm({ ...form, temperatura: t })}
-                  className={`flex-1 py-2 rounded-lg text-xs font-bold border ${form.temperatura===t ? 'bg-indigo-600 border-indigo-500 text-white' : 'border-slate-700 text-slate-400'}`}>
-                  {t==='frio'?'❄️':t==='tibio'?'🌡️':'🔥'} {t}
+            <div>
+              <p className="text-xs font-bold text-slate-300 mb-1.5">¿Va a votar por nosotros?</p>
+              <div className="flex gap-2">
+                <button type="button" onClick={() => setForm({ ...form, comprometido: true })}
+                  className={`flex-1 py-2.5 rounded-xl text-sm font-bold border-2 ${form.comprometido === true ? 'bg-emerald-600 border-emerald-500 text-white' : 'border-slate-700 text-slate-400'}`}>
+                  ✅ Sí
                 </button>
-              ))}
+                <button type="button" onClick={() => setForm({ ...form, comprometido: false })}
+                  className={`flex-1 py-2.5 rounded-xl text-sm font-bold border-2 ${form.comprometido === false ? 'bg-slate-600 border-slate-500 text-white' : 'border-slate-700 text-slate-400'}`}>
+                  ❌ No
+                </button>
+              </div>
             </div>
-            <label className="flex items-center gap-2 text-xs text-slate-300">
-              <input type="checkbox" checked={form.comprometido} onChange={(e) => setForm({ ...form, comprometido: e.target.checked })} />
-              Está comprometido a votar por nosotros
-            </label>
             <div className="flex gap-2">
               <button onClick={() => setEditando(false)} className="flex-1 py-2 rounded-lg bg-slate-800 text-slate-300 text-xs font-bold">Cancelar</button>
               <button onClick={guardar} className="flex-[2] py-2 rounded-lg bg-emerald-600 text-white text-xs font-bold">Guardar cambios</button>
@@ -662,7 +657,9 @@ export default function Promovidos() {
   const [tab, setTab] = useState('lista');
   const [vista, setVista] = useState('lista'); // 'lista' | 'tablero'
   const [busqueda, setBusqueda] = useState('');
-  const [filtroTemperatura, setFiltroTemperatura] = useState('todas');
+  // 🆕 Filtro simplificado — ahora por "va a votar sí/no", ya no por
+  // temperatura (ese campo se quitó del sistema).
+  const [filtroVaAVotar, setFiltroVaAVotar] = useState('todos');
   const [detalleId, setDetalleId] = useState(null);
   const [mostrarImportar, setMostrarImportar] = useState(false);
   const [ordenarPorPuntuacion, setOrdenarPorPuntuacion] = useState(false);
@@ -681,7 +678,7 @@ export default function Promovidos() {
   // aquí" del mapa de verdad lleva a algo relevante y no a la lista completa.
   const listaFiltrada = lista
     .filter((p) => !seccionFiltro || p.seccion_numero === seccionFiltro)
-    .filter((p) => filtroTemperatura === 'todas' || p.temperatura === filtroTemperatura)
+    .filter((p) => filtroVaAVotar === 'todos' || (filtroVaAVotar === 'si' ? p.comprometido === true : p.comprometido === false))
     .filter((p) => !busqueda || p.nombre.toLowerCase().includes(busqueda.toLowerCase()) || p.telefono?.includes(busqueda));
 
   const registrarContacto = async (id, resultado) => {
@@ -750,12 +747,11 @@ export default function Promovidos() {
           <div className="flex gap-2">
             <input placeholder="🔍 Buscar por nombre o teléfono..." value={busqueda} onChange={(e) => setBusqueda(e.target.value)}
               className="flex-1 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs" />
-            <select value={filtroTemperatura} onChange={(e) => setFiltroTemperatura(e.target.value)}
+            <select value={filtroVaAVotar} onChange={(e) => setFiltroVaAVotar(e.target.value)}
               className="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs">
-              <option value="todas">Toda temperatura</option>
-              <option value="frio">❄️ Frío</option>
-              <option value="tibio">🌡️ Tibio</option>
-              <option value="caliente">🔥 Caliente</option>
+              <option value="todos">Todos</option>
+              <option value="si">✅ Sí van a votar</option>
+              <option value="no">❌ No van a votar</option>
             </select>
             {/* 🆕 Ordenar por puntuación — los más "ganados" primero */}
             <button onClick={() => setOrdenarPorPuntuacion(!ordenarPorPuntuacion)}
@@ -785,7 +781,7 @@ export default function Promovidos() {
         ) : (
           <div className="space-y-2">
             {listaFiltrada.map((p) => {
-              const est = CLASIFICACION_ESTILO[p.clasificacion] || CLASIFICACION_ESTILO.persuadible;
+              const est = VA_A_VOTAR_ESTILO[p.comprometido] || VA_A_VOTAR_ESTILO.null;
               return (
                 <div key={p.id} className={`rounded-xl border border-slate-800 ${est.bg} p-4`}>
                   <div className="flex items-center justify-between cursor-pointer" onClick={() => setDetalleId(p.id)}>
@@ -802,7 +798,7 @@ export default function Promovidos() {
                     </div>
                     <div className="flex items-center gap-2">
                       {/* 🆕 Puntuación 0-100 — combina afinidad histórica de la
-                          sección, clasificación, temperatura, compromiso, y qué
+                          sección, si va a votar por nosotros, y qué
                           tan reciente fue el contacto en un solo número. */}
                       {p.puntuacion != null && (
                         <span className={`text-[10px] font-black px-2 py-1 rounded-lg ${p.puntuacion >= 70 ? 'bg-emerald-500/20 text-emerald-400' : p.puntuacion >= 40 ? 'bg-amber-500/20 text-amber-400' : 'bg-slate-700/50 text-slate-400'}`}>
