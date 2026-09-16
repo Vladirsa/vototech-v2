@@ -113,4 +113,109 @@ router.patch('/:id', async (req, res) => {
   res.json({ ok: true, data: resultado.rows[0] });
 });
 
+/**
+ * 🆕 GET /api/centro-decisiones/sugerencias
+ * El motor de sugerencias — analiza priorización, auditoría, y
+ * metas reales, y PROPONE decisiones concretas con datos exactos.
+ * Nunca decide por ti — cada sugerencia trae sus opciones para que
+ * tú elijas y la registres (o la descartes).
+ */
+router.get('/sugerencias', async (req, res) => {
+  const campanaId = req.usuario.campana_id;
+  const estadoId = req.usuario.estado_id;
+  const sugerencias = [];
+
+  // 1) Secciones críticas/recuperables SIN NADIE de tu equipo asignado —
+  // la señal de "necesita una decisión" más fuerte que hay: territorio
+  // que sí puedes voltear, pero no tiene quién trabaje ahí.
+  const campanaRes = await query('SELECT partido, tipo_eleccion FROM campanas WHERE id=$1', [campanaId]);
+  const partido = campanaRes.rows[0]?.partido;
+  const tipoEleccion = campanaRes.rows[0]?.tipo_eleccion;
+
+  if (partido) {
+    const ultimoAnio = await query(`SELECT MAX(anio) as anio FROM resultados_historicos WHERE tipo_eleccion=$1`, [tipoEleccion]);
+    const anio = ultimoAnio.rows[0]?.anio;
+    if (anio) {
+      const seccionesSinCobertura = await query(
+        `SELECT s.numero, m.nombre as municipio,
+           SUM(r.votos) FILTER (WHERE r.partido=$3) as votos_propios, SUM(r.votos) as votos_total
+         FROM secciones s JOIN municipios m ON m.id = s.municipio_id
+         JOIN resultados_historicos r ON r.seccion_id = s.id AND r.anio=$2
+         WHERE s.estado_id=$1
+         AND NOT EXISTS (SELECT 1 FROM usuarios u WHERE u.campana_id=$4 AND u.territorio_tipo='seccion' AND u.territorio_id=s.numero AND u.activo != false)
+         GROUP BY s.numero, m.nombre
+         HAVING SUM(r.votos) > 0
+         ORDER BY (SUM(r.votos) FILTER (WHERE r.partido=$3)::float / NULLIF(SUM(r.votos), 0)) DESC LIMIT 5`,
+        [estadoId, anio, partido, campanaId]
+      ).catch(() => ({ rows: [] }));
+
+      seccionesSinCobertura.rows.forEach((s) => {
+        const pct = s.votos_total > 0 ? Math.round((s.votos_propios / s.votos_total) * 100) : 0;
+        if (pct >= 30) { // solo sugerir donde ya hay base real, no en secciones perdidas
+          sugerencias.push({
+            tipo: 'cobertura_territorial',
+            situacion_detectada: `La sección ${String(s.numero).padStart(3, '0')} (${s.municipio}) tuvo ${pct}% de votos para tu partido en ${anio}, pero no tiene a nadie de tu estructura asignado.`,
+            datos_utilizados: `${pct}% de ${s.votos_total} votos totales en ${anio} (resultados_historicos)`,
+            fuente: 'Priorización + Estructura',
+            opciones_consideradas: [
+              'Asignar un coordinador seccional a esta sección',
+              'Reasignar temporalmente a un promotor de una sección vecina ya cubierta',
+              'Dejarla sin cubrir por ahora si hay prioridades más urgentes',
+            ],
+          });
+        }
+      });
+    }
+  }
+
+  // 2) Ritmo real vs lo que se necesita para llegar a la meta en el tiempo restante
+  const campanaCompleta = await query('SELECT meta_votos, fecha_eleccion FROM campanas WHERE id=$1', [campanaId]);
+  const { meta_votos, fecha_eleccion } = campanaCompleta.rows[0] || {};
+  if (meta_votos && fecha_eleccion) {
+    const comprometidosRes = await query(`SELECT COUNT(*) FILTER (WHERE comprometido) as total FROM promovidos WHERE campana_id=$1`, [campanaId]);
+    const comprometidos = parseInt(comprometidosRes.rows[0].total);
+    const diasRestantes = Math.max(1, Math.ceil((new Date(fecha_eleccion) - new Date()) / 86400000));
+    const faltantes = meta_votos - comprometidos;
+    if (faltantes > 0) {
+      const ritmoNecesario = Math.ceil(faltantes / diasRestantes);
+      const ritmoRes = await query(`SELECT COUNT(*) as total FROM promovidos WHERE campana_id=$1 AND comprometido AND creado_en > now() - interval '7 days'`, [campanaId]);
+      const ritmoActual = Math.round(parseInt(ritmoRes.rows[0].total) / 7);
+      if (ritmoActual < ritmoNecesario) {
+        sugerencias.push({
+          tipo: 'ritmo_meta',
+          situacion_detectada: `Al ritmo actual (${ritmoActual}/día en los últimos 7 días) no se alcanza la meta de ${meta_votos.toLocaleString()} votos comprometidos en los ${diasRestantes} días que quedan — se necesitan ${ritmoNecesario}/día.`,
+          datos_utilizados: `Faltan ${faltantes.toLocaleString()} comprometidos, ${diasRestantes} días restantes, ritmo actual ${ritmoActual}/día vs ${ritmoNecesario}/día necesario`,
+          fuente: 'Bitácora diaria + Metas de campaña',
+          opciones_consideradas: [
+            'Aumentar la meta diaria de cada promotor',
+            'Sumar más gente a la estructura de campo',
+            'Enfocar el esfuerzo restante solo en secciones críticas/recuperables (no en todas por igual)',
+          ],
+        });
+      }
+    }
+  }
+
+  // 3) Reusar la auditoría de inconsistencias — cada hallazgo CRÍTICA/IMPORTANTE también es candidato a decisión
+  try {
+    const auditoriaRes = await query(`SELECT COUNT(*) as total FROM incidencias WHERE campana_id=$1 AND estado='activa'`, [campanaId]);
+    const incidenciasAbiertas = parseInt(auditoriaRes.rows[0].total);
+    if (incidenciasAbiertas > 0) {
+      sugerencias.push({
+        tipo: 'incidencias_abiertas',
+        situacion_detectada: `Hay ${incidenciasAbiertas} incidencia(s) reportada(s) que siguen sin resolver.`,
+        datos_utilizados: `${incidenciasAbiertas} incidencias con estado 'activa' (módulo Incidencias)`,
+        fuente: 'Módulo Incidencias',
+        opciones_consideradas: [
+          'Asignar a alguien específico para cerrarlas esta semana',
+          'Revisar si alguna requiere escalar al área jurídica',
+          'Confirmar que ya se resolvieron y solo falta actualizar el estado',
+        ],
+      });
+    }
+  } catch (e) { /* si falla esta parte, no bloquea las demás sugerencias */ }
+
+  res.json({ ok: true, data: sugerencias });
+});
+
 export default router;
