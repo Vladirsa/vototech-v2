@@ -185,6 +185,110 @@ function PanelResumenEjecutivoIA() {
   );
 }
 
+/**
+ * 🆕 Resultados reales de una encuesta — qué contestó la gente,
+ * desglosado por pregunta, y cruzado con género/edad/sección.
+ */
+function ModalResultadosEncuesta({ encuestaId, onCerrar }) {
+  const [datos, setDatos] = useState(null);
+  const [preguntaAbierta, setPreguntaAbierta] = useState(null);
+
+  useEffect(() => {
+    api.get(`/reportes/encuestas/${encuestaId}/resultados`).then((r) => {
+      setDatos(r.data.data);
+      if (r.data.data.preguntas.length > 0) setPreguntaAbierta(r.data.data.preguntas[0].id);
+    });
+  }, [encuestaId]);
+
+  if (!datos) return null;
+  const pregunta = datos.preguntas.find((p) => p.id === preguntaAbierta);
+
+  const barra = (obj, colorClase = 'bg-pink-500') => {
+    const total = Object.values(obj).reduce((s, n) => s + n, 0);
+    const max = Math.max(1, ...Object.values(obj));
+    return Object.entries(obj).sort((a, b) => b[1] - a[1]).map(([opcion, n]) => (
+      <div key={opcion} className="mb-1.5">
+        <div className="flex justify-between text-[10px] mb-0.5">
+          <span className="text-slate-300">{opcion}</span>
+          <span className="text-slate-400 font-bold">{n} ({total > 0 ? Math.round((n / total) * 100) : 0}%)</span>
+        </div>
+        <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+          <div className={`h-full ${colorClase}`} style={{ width: `${(n / max) * 100}%` }} />
+        </div>
+      </div>
+    ));
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/70 flex items-end md:items-center justify-center z-50" onClick={onCerrar}>
+      <div className="bg-slate-900 border border-slate-700 rounded-t-2xl md:rounded-2xl w-full max-w-2xl p-5 space-y-3 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-black text-white">{datos.encuesta.titulo}</h2>
+          <button onClick={onCerrar} className="text-slate-500">✕</button>
+        </div>
+        <p className="text-xs text-slate-500">{datos.total_respuestas} respuestas totales</p>
+
+        <div className="flex gap-1.5 flex-wrap">
+          {datos.preguntas.map((p, i) => (
+            <button key={p.id} onClick={() => setPreguntaAbierta(p.id)}
+              className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${preguntaAbierta === p.id ? 'bg-pink-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
+              Pregunta {i + 1}
+            </button>
+          ))}
+        </div>
+
+        {pregunta && (
+          <div className="space-y-3">
+            <p className="text-sm text-white font-bold">{pregunta.texto}</p>
+            <p className="text-[10px] text-slate-500">{pregunta.total_respondieron} personas contestaron esta pregunta</p>
+
+            <div className="bg-slate-800/40 rounded-xl p-3">
+              <div className="text-[10px] font-bold text-slate-400 uppercase mb-2">Resultado general</div>
+              {barra(pregunta.por_opcion)}
+            </div>
+
+            {Object.keys(pregunta.por_genero).length > 0 && (
+              <div className="bg-slate-800/40 rounded-xl p-3">
+                <div className="text-[10px] font-bold text-slate-400 uppercase mb-2">Por género</div>
+                {Object.entries(pregunta.por_genero).map(([genero, opciones]) => (
+                  <div key={genero} className="mb-2">
+                    <div className="text-[10px] text-indigo-300 font-bold mb-1">{genero}</div>
+                    {barra(opciones, 'bg-indigo-500')}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {Object.keys(pregunta.por_edad).length > 0 && (
+              <div className="bg-slate-800/40 rounded-xl p-3">
+                <div className="text-[10px] font-bold text-slate-400 uppercase mb-2">Por rango de edad</div>
+                {Object.entries(pregunta.por_edad).map(([edad, opciones]) => (
+                  <div key={edad} className="mb-2">
+                    <div className="text-[10px] text-emerald-300 font-bold mb-1">{edad}</div>
+                    {barra(opciones, 'bg-emerald-500')}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {Object.keys(pregunta.por_seccion).length > 0 && (
+              <div className="bg-slate-800/40 rounded-xl p-3">
+                <div className="text-[10px] font-bold text-slate-400 uppercase mb-2">Por sección (top 10)</div>
+                {Object.entries(pregunta.por_seccion).slice(0, 10).map(([seccion, opciones]) => (
+                  <div key={seccion} className="mb-2">
+                    <div className="text-[10px] text-amber-300 font-bold mb-1">Sección {String(seccion).padStart(3, '0')}</div>
+                    {barra(opciones, 'bg-amber-500')}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function Reportes() {
   const [tab, setTab] = useState('diario');
   // 🆕 "Análisis" agrupa 4 pestañas que antes estaban sueltas
@@ -234,6 +338,8 @@ export default function Reportes() {
   const [filtroRolActividad, setFiltroRolActividad] = useState('todos');
   const [agruparTerritorioPor, setAgruparTerritorioPor] = useState('seccion');
   const [encuestasResumen, setEncuestasResumen] = useState(null);
+  // 🆕 Ver los resultados reales de una encuesta específica
+  const [encuestaDetalleId, setEncuestaDetalleId] = useState(null);
   const [cargando, setCargando] = useState(true);
 
   useEffect(() => {
@@ -1260,10 +1366,11 @@ export default function Reportes() {
               {encuestasResumen.encuestas.length === 0 ? (
                 <div className="text-[11px] text-slate-500 text-center py-3">Sin encuestas todavía — créalas desde Promovidos</div>
               ) : encuestasResumen.encuestas.map((e) => (
-                <div key={e.id} className="flex justify-between text-xs py-1 border-b border-slate-800 last:border-0">
+                <button key={e.id} onClick={() => setEncuestaDetalleId(e.id)}
+                  className="w-full flex justify-between text-xs py-1.5 border-b border-slate-800 last:border-0 hover:bg-slate-800/40 rounded px-1">
                   <span className="text-slate-300">{e.titulo}</span>
-                  <span className="text-white font-bold">{e.total_respuestas}</span>
-                </div>
+                  <span className="text-white font-bold">{e.total_respuestas} → ver resultados</span>
+                </button>
               ))}
             </div>
 
@@ -1296,6 +1403,8 @@ export default function Reportes() {
 
         {tab === 'resumen-ia' && <PanelResumenEjecutivoIA />}
         {tab === 'auditoria' && <PanelAuditoria />}
+
+        {encuestaDetalleId && <ModalResultadosEncuesta encuestaId={encuestaDetalleId} onCerrar={() => setEncuestaDetalleId(null)} />}
     </div>
   );
 }
