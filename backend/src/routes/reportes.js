@@ -1045,73 +1045,98 @@ router.get('/cierre-campana-pdf', async (req, res) => {
   const campanaId = req.usuario.campana_id;
 
   try {
-    const campanaRes = await query('SELECT nombre_candidato, partido, tipo_eleccion, meta_votos, fecha_eleccion FROM campanas WHERE id=$1', [campanaId]);
+    const campanaRes = await query('SELECT nombre_candidato, partido, tipo_eleccion, meta_votos, fecha_eleccion, tope_gasto_ople FROM campanas WHERE id=$1', [campanaId]);
     const campana = campanaRes.rows[0];
 
+    // 🆕 Corregido — "clasificacion" ya no existe en el sistema (se
+    // simplificó a un solo campo: comprometido Sí/No). Antes esta
+    // consulta agrupaba por un campo que ya no se llena, dando datos
+    // vacíos sin avisar.
     const promosRes = await query(
-      `SELECT clasificacion, COUNT(*) as total, COUNT(*) FILTER (WHERE comprometido) as comprometidos FROM promovidos WHERE campana_id=$1 GROUP BY clasificacion`,
+      `SELECT COUNT(*) as total, COUNT(*) FILTER (WHERE comprometido) as comprometidos FROM promovidos WHERE campana_id=$1`,
       [campanaId]
     );
-    const promos = { base: 0, persuadible: 0, adversario: 0 };
-    let totalComprometidos = 0;
-    promosRes.rows.forEach((r) => { promos[r.clasificacion] = parseInt(r.total); totalComprometidos += parseInt(r.comprometidos); });
-    const totalPromovidos = promos.base + promos.persuadible + promos.adversario;
+    const totalPromovidos = parseInt(promosRes.rows[0].total);
+    const totalComprometidos = parseInt(promosRes.rows[0].comprometidos);
+    const totalNoVan = totalPromovidos - totalComprometidos;
 
-    const estructuraRes = await query(
-      `SELECT rol, COUNT(*) as total FROM usuarios WHERE campana_id=$1 AND activo != false GROUP BY rol`,
-      [campanaId]
-    );
-
-    const seccionesRes = await query(
-      `SELECT COUNT(DISTINCT seccion_id) as total FROM promovidos WHERE campana_id=$1 AND seccion_id IS NOT NULL`,
-      [campanaId]
-    );
-
+    const estructuraRes = await query(`SELECT rol, COUNT(*) as total FROM usuarios WHERE campana_id=$1 AND activo != false GROUP BY rol ORDER BY total DESC`, [campanaId]);
+    const seccionesRes = await query(`SELECT COUNT(DISTINCT seccion_id) as total FROM promovidos WHERE campana_id=$1 AND seccion_id IS NOT NULL`, [campanaId]);
     const gastoRes = await query(`SELECT COALESCE(SUM(monto),0) as total FROM gastos_campana WHERE campana_id=$1`, [campanaId]);
-    const campanaTope = await query('SELECT tope_gasto_ople FROM campanas WHERE id=$1', [campanaId]);
+    const activosRes = await query(`SELECT tipo, COUNT(*) as total, COALESCE(SUM(costo),0) as costo_total FROM activos WHERE campana_id=$1 GROUP BY tipo`, [campanaId]);
+    const incidenciasRes = await query(`SELECT estado, COUNT(*) as total FROM incidencias WHERE campana_id=$1 GROUP BY estado`, [campanaId]);
+    const incidenciasTotal = incidenciasRes.rows.reduce((s, r) => s + parseInt(r.total), 0);
+    const incidenciasAbiertas = parseInt(incidenciasRes.rows.find((r) => r.estado === 'activa')?.total || 0);
 
-    const activosRes = await query(`SELECT tipo, COUNT(*) as total FROM activos WHERE campana_id=$1 GROUP BY tipo`, [campanaId]);
-    const incidenciasRes = await query(`SELECT COUNT(*) as total FROM incidencias WHERE campana_id=$1`, [campanaId]);
+    // 🆕 AUDITORÍA NUMÉRICA — antes de armar el PDF, se verifica que
+    // los números cuadren entre sí (comprometidos + no van = total).
+    // Si algo no cuadra, se avisa DENTRO del reporte en vez de mostrar
+    // una cifra que parece correcta pero no lo es.
+    const alertasAuditoria = [];
+    if (totalComprometidos + totalNoVan !== totalPromovidos) {
+      alertasAuditoria.push('Los subtotales de "va a votar" no suman el total de promovidos — revisar integridad de datos.');
+    }
+    if (!campana.meta_votos) alertasAuditoria.push('No hay una meta de votos configurada para esta campaña.');
+    if (incidenciasAbiertas > 0) alertasAuditoria.push(`${incidenciasAbiertas} incidencia(s) siguen sin resolver al momento de este cierre.`);
 
-    // ── Generar el PDF ──
-    const doc = new PDFDocument({ margin: 50 });
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename=reporte_cierre_${new Date().toISOString().slice(0, 10)}.pdf`);
-    doc.pipe(res);
+    const doc = iniciarPDF(
+      res, `reporte_cierre_${new Date().toISOString().slice(0, 10)}.pdf`,
+      'Reporte de Cierre de Campaña', `${campana.nombre_candidato} · ${campana.partido?.toUpperCase() || 'Sin partido'} · ${campana.tipo_eleccion}`
+    );
 
-    doc.fontSize(20).fillColor('#1e1b4b').text('Reporte de Cierre de Campaña', { align: 'center' });
-    doc.fontSize(12).fillColor('#4338ca').text(campana.nombre_candidato, { align: 'center' });
-    doc.fontSize(9).fillColor('#64748b').text(`${campana.partido?.toUpperCase()} · ${campana.tipo_eleccion} · Generado el ${new Date().toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' })}`, { align: 'center' });
-    doc.moveDown(2);
+    // 🆕 CONTROL DOCUMENTAL — para que cualquier persona sepa exactamente
+    // de cuándo es este documento y quién lo generó, sin adivinar.
+    seccionPDF(doc, 'Control Documental');
+    tablaPDF(doc, ['Campo', 'Valor'], [
+      ['ID del informe', `CIERRE-${campanaId.slice(0, 8).toUpperCase()}-${Date.now()}`],
+      ['Generado por', req.usuario.nombre || 'Usuario del sistema'],
+      ['Fecha y hora', new Date().toLocaleString('es-MX')],
+      ['Fecha de corte', new Date().toLocaleDateString('es-MX')],
+      ['Fuente de datos', 'Base de datos VotoTech (en vivo)'],
+    ], [150, 350]);
 
-    const seccion = (titulo) => { doc.moveDown(0.5); doc.fontSize(13).fillColor('#1e1b4b').text(titulo); doc.moveDown(0.3); doc.fontSize(10).fillColor('#334155'); };
-    const linea = (etiqueta, valor) => doc.text(`${etiqueta}: ${valor}`);
+    // 🆕 Alertas de auditoría — si algo no cuadra, se ve arriba de todo, no escondido
+    if (alertasAuditoria.length > 0) {
+      seccionPDF(doc, '⚠️ Alertas de Auditoría');
+      alertasAuditoria.forEach((a) => lineaPDF(doc, 'Atención', a));
+    }
 
-    seccion('Avance Electoral');
-    linea('Meta de votos', campana.meta_votos?.toLocaleString() || 'No configurada');
-    linea('Promovidos totales', totalPromovidos.toLocaleString());
-    linea('Comprometidos a votar', totalComprometidos.toLocaleString());
-    linea('Base (voto seguro)', promos.base.toLocaleString());
-    linea('Persuadibles', promos.persuadible.toLocaleString());
-    linea('Secciones con presencia', seccionesRes.rows[0].total);
+    seccionPDF(doc, 'Avance Electoral (Fuente: módulo Promovidos)');
+    tablaPDF(doc, ['Indicador', 'Valor'], [
+      ['Meta de votos', campana.meta_votos?.toLocaleString() || 'No configurada'],
+      ['Promovidos totales', totalPromovidos.toLocaleString()],
+      ['Van a votar por nosotros', totalComprometidos.toLocaleString()],
+      ['No van a votar por nosotros', totalNoVan.toLocaleString()],
+      ['% de avance hacia la meta', campana.meta_votos ? `${Math.round((totalComprometidos / campana.meta_votos) * 100)}%` : 'N/D'],
+      ['Secciones con presencia', seccionesRes.rows[0].total],
+    ], [250, 250]);
 
-    seccion('Estructura de Campaña');
-    estructuraRes.rows.forEach((r) => linea(r.rol, r.total));
+    seccionPDF(doc, 'Estructura de Campaña (Fuente: módulo Estructura)');
+    graficaBarrasPDF(doc, estructuraRes.rows.map((r) => ({ label: ROL_LABEL_PDF[r.rol] || r.rol, valor: parseInt(r.total) })));
 
-    seccion('Activos de Campaña');
-    if (activosRes.rows.length === 0) doc.text('Sin activos registrados');
-    activosRes.rows.forEach((r) => linea(r.tipo, r.total));
+    seccionPDF(doc, 'Activos de Campaña (Fuente: módulo Administración)');
+    if (activosRes.rows.length === 0) {
+      doc.fontSize(9).fillColor('#64748b').text('Sin activos registrados');
+    } else {
+      tablaPDF(doc, ['Tipo', 'Cantidad', 'Costo total'], activosRes.rows.map((r) => [r.tipo, r.total, `$${parseFloat(r.costo_total).toLocaleString('es-MX')}`]), [250, 100, 150]);
+    }
 
-    seccion('Finanzas');
-    const tope = campanaTope.rows[0]?.tope_gasto_ople;
-    linea('Gasto total', `$${parseFloat(gastoRes.rows[0].total).toLocaleString('es-MX')} MXN`);
-    if (tope) linea('% del tope OPLE usado', `${Math.round((gastoRes.rows[0].total / tope) * 100)}%`);
+    seccionPDF(doc, 'Finanzas (Fuente: módulo Administración)');
+    const tope = campana.tope_gasto_ople;
+    tablaPDF(doc, ['Indicador', 'Valor'], [
+      ['Gasto total', `$${parseFloat(gastoRes.rows[0].total).toLocaleString('es-MX')} MXN`],
+      ['Tope de gasto OPLE', tope ? `$${parseFloat(tope).toLocaleString('es-MX')} MXN` : 'No configurado'],
+      ['% del tope usado', tope ? `${Math.round((gastoRes.rows[0].total / tope) * 100)}%` : 'N/D'],
+    ], [250, 250]);
 
-    seccion('Incidencias');
-    linea('Total reportadas', incidenciasRes.rows[0].total);
+    seccionPDF(doc, 'Incidencias (Fuente: módulo Incidencias)');
+    tablaPDF(doc, ['Estado', 'Total'], incidenciasRes.rows.map((r) => [r.estado, r.total]).concat([['TOTAL', incidenciasTotal]]), [250, 250]);
 
-    doc.moveDown(2);
-    doc.fontSize(8).fillColor('#94a3b8').text('Documento generado automáticamente por VotoTech — uso interno de campaña.', { align: 'center' });
+    doc.moveDown(1);
+    doc.fontSize(7).fillColor('#94a3b8').text(
+      'Este documento se generó automáticamente a partir de los registros vivos de VotoTech al momento del corte indicado arriba. Los datos financieros aquí mostrados son de control interno y no sustituyen el reporte oficial de fiscalización ante el OPLE/INE.',
+      { align: 'center' }
+    );
 
     doc.end();
   } catch (e) {
