@@ -33,6 +33,66 @@ function estadoMeta(logrado, meta) {
 }
 
 /** 🆕 Resumen ejecutivo con IA — junta varias señales (avance, ritmo, estructura, finanzas) en una sola narrativa. */
+/**
+ * 🆕 Motor de Detección de Inconsistencias (skill Inteligencia
+ * Electoral, sección 9) — no busca datos "raros" a ojo, corre las
+ * mismas 6 revisiones cada vez, y clasifica cada hallazgo por nivel.
+ */
+const NIVEL_ESTILO = {
+  CRÍTICA: { bg: 'bg-red-500/10', border: 'border-red-500/30', color: 'text-red-400' },
+  IMPORTANTE: { bg: 'bg-orange-500/10', border: 'border-orange-500/30', color: 'text-orange-400' },
+  'ATENCIÓN': { bg: 'bg-amber-500/10', border: 'border-amber-500/30', color: 'text-amber-400' },
+  INFORMATIVA: { bg: 'bg-slate-500/10', border: 'border-slate-500/30', color: 'text-slate-400' },
+};
+
+function PanelAuditoria() {
+  const [cargando, setCargando] = useState(false);
+  const [resultado, setResultado] = useState(null);
+
+  const ejecutar = async () => {
+    setCargando(true);
+    try {
+      const { data } = await api.get('/reportes/auditoria-inconsistencias');
+      setResultado(data.data);
+    } catch (e) { /* se queda como está */ }
+    setCargando(false);
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 text-[11px] text-amber-300">
+        🔍 Revisa 6 tipos de inconsistencia: secciones sin responsable, promovidos sin sección, estructura sin jefe directo, secciones sin actividad reciente, teléfonos duplicados, y registros incompletos. Superar una meta nunca se marca como error.
+      </div>
+      <button onClick={ejecutar} disabled={cargando} className="w-full py-3 rounded-xl bg-gradient-to-r from-amber-600 to-orange-600 text-white text-sm font-bold disabled:opacity-40">
+        {cargando ? '⏳ Auditando...' : resultado ? '🔄 Auditar de nuevo' : '🔍 Ejecutar auditoría'}
+      </button>
+
+      {resultado && (
+        <>
+          <div className="text-[10px] text-slate-500">Auditoría ejecutada: {new Date(resultado.fecha_auditoria).toLocaleString('es-MX')}</div>
+          {resultado.hallazgos.length === 0 ? (
+            <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-4 text-center text-sm text-emerald-400 font-bold">
+              ✅ Sin inconsistencias detectadas
+            </div>
+          ) : resultado.hallazgos.map((h, i) => {
+            const est = NIVEL_ESTILO[h.nivel] || NIVEL_ESTILO.INFORMATIVA;
+            return (
+              <div key={i} className={`${est.bg} border ${est.border} rounded-xl p-3`}>
+                <div className="flex items-center justify-between mb-1">
+                  <span className={`text-[9px] font-bold uppercase ${est.color}`}>{h.nivel}</span>
+                  <span className="text-[9px] text-slate-500">{h.modulo}</span>
+                </div>
+                <p className="text-xs text-slate-200 font-bold">{h.que}</p>
+                <p className="text-[10px] text-slate-500 mt-1">{h.donde}</p>
+              </div>
+            );
+          })}
+        </>
+      )}
+    </div>
+  );
+}
+
 function PanelResumenEjecutivoIA() {
   const [cargando, setCargando] = useState(false);
   const [resumen, setResumen] = useState('');
@@ -283,6 +343,7 @@ export default function Reportes() {
           <button onClick={() => setTab('actividad')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'actividad' ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🎯 Actividad de Campo</button>
           <button onClick={() => setTab('encuestas')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'encuestas' ? 'bg-pink-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📋 Encuestas</button>
           <button onClick={() => setTab('resumen-ia')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'resumen-ia' ? 'bg-purple-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🤖 Resumen con IA</button>
+          <button onClick={() => setTab('auditoria')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'auditoria' ? 'bg-amber-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🔍 Auditoría</button>
         </div>
 
         {tab === 'probabilidad' && probabilidad && (
@@ -1223,6 +1284,7 @@ export default function Reportes() {
         )}
 
         {tab === 'resumen-ia' && <PanelResumenEjecutivoIA />}
+        {tab === 'auditoria' && <PanelAuditoria />}
     </div>
   );
 }
