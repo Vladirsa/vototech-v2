@@ -112,6 +112,14 @@ router.get('/secciones-de-municipio/:claveMunicipio', async (req, res) => {
  * sus reuniones, sus materiales asignados, y — si es coordinador —
  * cada uno de sus subordinados con su propio desglose individual.
  */
+/**
+ * 🆕 GET /api/estructura/ficha-persona/:usuarioId — REDISEÑADO
+ * Antes solo mostraba a la persona + sus subordinados DIRECTOS (1
+ * nivel). Ahora trae TODA la rama hacia abajo (recursivo — nietos,
+ * bisnietos, todos), y para cada subordinado directo, el TOTAL
+ * AGREGADO de todo SU equipo (no solo lo que él capturó a mano) —
+ * para poder comparar equipos completos trabajando en paralelo.
+ */
 router.get('/ficha-persona/:usuarioId', async (req, res) => {
   const campanaId = req.usuario.campana_id;
   const usuarioId = req.params.usuarioId;
@@ -124,58 +132,112 @@ router.get('/ficha-persona/:usuarioId', async (req, res) => {
   if (!personaRes.rows[0]) return res.status(404).json({ ok: false, error: 'Persona no encontrada' });
   const persona = personaRes.rows[0];
 
-  const [promovidos, secciones, subordinados, reuniones, materiales] = await Promise.all([
-    // Todos los promovidos capturados por ESTA persona — fuente para avance, comprometidos y duplicados
-    query(`SELECT id, nombre, telefono, comprometido, creado_en, seccion_id FROM promovidos WHERE campana_id=$1 AND registrado_por=$2`, [campanaId, usuarioId]),
-    // En qué secciones ha trabajado
+  // 🆕 Rama completa hacia abajo — recursivo, no solo 1 nivel.
+  const ramaRes = await query(
+    `WITH RECURSIVE rama AS (
+       SELECT id, nombre, rol, puesto, meta_diaria, parent_id, 0 as nivel
+       FROM usuarios WHERE id=$1
+       UNION ALL
+       SELECT u.id, u.nombre, u.rol, u.puesto, u.meta_diaria, u.parent_id, r.nivel + 1
+       FROM usuarios u JOIN rama r ON u.parent_id = r.id
+       WHERE u.campana_id=$2 AND u.activo != false
+     )
+     SELECT * FROM rama`,
+    [usuarioId, campanaId]
+  );
+  const idsRama = ramaRes.rows.map((r) => r.id);
+
+  const [promovidos, secciones, reuniones, materiales] = await Promise.all([
+    // Promovidos capturados por CUALQUIERA de la rama completa
+    query(`SELECT id, registrado_por, telefono, comprometido, creado_en, seccion_id FROM promovidos WHERE campana_id=$1 AND registrado_por = ANY($2::uuid[])`, [campanaId, idsRama]),
     query(
       `SELECT s.numero as seccion_numero, COUNT(p.id) as total
        FROM promovidos p JOIN secciones s ON s.id = p.seccion_id
-       WHERE p.campana_id=$1 AND p.registrado_por=$2 GROUP BY s.numero ORDER BY total DESC`,
-      [campanaId, usuarioId]
+       WHERE p.campana_id=$1 AND p.registrado_por = ANY($2::uuid[]) GROUP BY s.numero ORDER BY total DESC`,
+      [campanaId, idsRama]
     ),
-    // 🆕 Si es coordinador — sus subordinados directos (parent_id),
-    // cada uno con su propio total. Así se ve el desglose de todo su
-    // equipo, no solo el total agregado.
-    query(
-      `SELECT u.id, u.nombre, u.rol, u.puesto, u.meta_diaria,
-              COUNT(p.id) as total_promovidos, COUNT(p.id) FILTER (WHERE p.comprometido) as comprometidos
-       FROM usuarios u LEFT JOIN promovidos p ON p.registrado_por = u.id AND p.campana_id=$1
-       WHERE u.campana_id=$1 AND u.parent_id=$2 AND u.activo != false
-       GROUP BY u.id, u.nombre, u.rol, u.puesto, u.meta_diaria ORDER BY total_promovidos DESC`,
-      [campanaId, usuarioId]
-    ),
-    // Reuniones — eventos de Agenda que esta persona organizó
-    query(`SELECT id, titulo, fecha_inicio, seccion_id, realizado FROM agenda WHERE campana_id=$1 AND creado_por=$2 ORDER BY fecha_inicio DESC`, [campanaId, usuarioId]).catch(() => ({ rows: [] })),
-    // Materiales/utilitarios que tiene asignados (activos.responsable_id)
-    query(`SELECT id, tipo, subtipo, cantidad, costo, estado FROM activos WHERE campana_id=$1 AND responsable_id=$2`, [campanaId, usuarioId]).catch(() => ({ rows: [] })),
+    query(`SELECT id, titulo, fecha_inicio, seccion_id, realizado, creado_por FROM agenda WHERE campana_id=$1 AND creado_por = ANY($2::uuid[]) ORDER BY fecha_inicio DESC`, [campanaId, idsRama]).catch(() => ({ rows: [] })),
+    query(`SELECT id, tipo, subtipo, cantidad, costo, responsable_id FROM activos WHERE campana_id=$1 AND responsable_id = ANY($2::uuid[])`, [campanaId, idsRama]).catch(() => ({ rows: [] })),
   ]);
 
-  // Duplicados — mismo teléfono repetido dentro de SUS PROPIOS registros
-  const porTelefono = {};
+  // 🆕 Construir el árbol en memoria, y calcular el TOTAL AGREGADO
+  // de cada persona (lo que ella capturó + TODO lo de su gente
+  // debajo, recursivamente) — así un coordinador se ve con el
+  // total real de su equipo completo, no solo lo suyo.
+  const porPersona = {};
+  ramaRes.rows.forEach((r) => { porPersona[r.id] = { ...r, propio: 0, comprometidos_propio: 0, hijos: [] }; });
+  ramaRes.rows.forEach((r) => { if (r.parent_id && porPersona[r.parent_id]) porPersona[r.parent_id].hijos.push(r.id); });
   promovidos.rows.forEach((p) => {
-    if (!p.telefono) return;
-    porTelefono[p.telefono] = (porTelefono[p.telefono] || 0) + 1;
+    if (porPersona[p.registrado_por]) {
+      porPersona[p.registrado_por].propio++;
+      if (p.comprometido) porPersona[p.registrado_por].comprometidos_propio++;
+    }
   });
+  // Suma recursiva del total de la rama de cada nodo (memoizado)
+  const memoTotal = {};
+  function totalRama(id) {
+    if (memoTotal[id] !== undefined) return memoTotal[id];
+    const nodo = porPersona[id];
+    let total = nodo.propio;
+    let comprometidos = nodo.comprometidos_propio;
+    let metaRama = parseInt(nodo.meta_diaria) || 0;
+    nodo.hijos.forEach((hijoId) => {
+      const sub = totalRama(hijoId);
+      total += sub.total;
+      comprometidos += sub.comprometidos;
+      metaRama += sub.meta_rama;
+    });
+    memoTotal[id] = { total, comprometidos, meta_rama: metaRama };
+    return memoTotal[id];
+  }
+  Object.keys(porPersona).forEach((id) => totalRama(id));
+
+  // Duplicados — de TODA la rama junta, por teléfono repetido
+  const porTelefono = {};
+  promovidos.rows.forEach((p) => { if (p.telefono) porTelefono[p.telefono] = (porTelefono[p.telefono] || 0) + 1; });
   const duplicados = Object.entries(porTelefono).filter(([, n]) => n > 1).length;
 
-  const totalPromovidos = promovidos.rows.length;
-  const comprometidos = promovidos.rows.filter((p) => p.comprometido).length;
   const hoy = new Date().toISOString().slice(0, 10);
-  const capturadosHoy = promovidos.rows.filter((p) => p.creado_en?.slice?.(0, 10) === hoy || new Date(p.creado_en).toISOString().slice(0, 10) === hoy).length;
+  const capturadosHoyRama = promovidos.rows.filter((p) => new Date(p.creado_en).toISOString().slice(0, 10) === hoy).length;
+
+  // 🆕 Equipo en paralelo — cada subordinado DIRECTO, con el TOTAL
+  // de SU propia rama completa (no solo lo que él capturó a mano).
+  const equipoEnParalelo = porPersona[usuarioId].hijos.map((hijoId) => {
+    const nodo = porPersona[hijoId];
+    const agregado = totalRama(hijoId);
+    return {
+      id: nodo.id, nombre: nodo.nombre, rol: nodo.rol, puesto: nodo.puesto,
+      propio: nodo.propio, total_su_equipo: agregado.total, comprometidos_su_equipo: agregado.comprometidos,
+      meta_su_equipo: agregado.meta_rama, tamano_equipo: contarDescendientes(porPersona, hijoId),
+      cumple_meta: agregado.meta_rama > 0 ? agregado.total >= agregado.meta_rama : null,
+    };
+  }).sort((a, b) => b.total_su_equipo - a.total_su_equipo);
+
+  function contarDescendientes(mapa, id) {
+    let n = 0;
+    mapa[id].hijos.forEach((h) => { n += 1 + contarDescendientes(mapa, h); });
+    return n;
+  }
+
+  const totalGeneral = totalRama(usuarioId);
 
   res.json({
     ok: true,
     data: {
       persona: { id: persona.id, nombre: persona.nombre, rol: persona.rol, puesto: persona.puesto, meta_diaria: persona.meta_diaria },
-      avance: {
-        total_promovidos: totalPromovidos, comprometidos, capturados_hoy: capturadosHoy,
-        cumple_meta_hoy: persona.meta_diaria ? capturadosHoy >= persona.meta_diaria : null,
+      // 🆕 Totales de TODA la rama (él + todo su equipo hacia abajo)
+      totales_rama: {
+        total_promovidos: totalGeneral.total, comprometidos: totalGeneral.comprometidos,
+        meta_total_rama: totalGeneral.meta_rama, capturados_hoy: capturadosHoyRama,
+        cumple_meta: totalGeneral.meta_rama > 0 ? totalGeneral.total >= totalGeneral.meta_rama : null,
+        tamano_equipo_completo: idsRama.length - 1, // sin contarse a sí mismo
         duplicados,
       },
+      // 🆕 Lo que ÉL capturó con sus propias manos, aparte del total de su equipo
+      propio: { total_promovidos: porPersona[usuarioId].propio, comprometidos: porPersona[usuarioId].comprometidos_propio },
+      // 🆕 Cada rama directa, en paralelo, para comparar equipos entre sí
+      equipo_en_paralelo: equipoEnParalelo,
       secciones_trabajadas: secciones.rows,
-      subordinados: subordinados.rows,
-      total_subordinados: subordinados.rows.length,
       reuniones: { total: reuniones.rows.length, realizadas: reuniones.rows.filter((r) => r.realizado).length, detalle: reuniones.rows },
       materiales: { total_items: materiales.rows.length, costo_total: materiales.rows.reduce((s, m) => s + (parseFloat(m.costo) || 0), 0), detalle: materiales.rows },
     },
