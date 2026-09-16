@@ -187,6 +187,9 @@ function PanelResumenEjecutivoIA() {
 
 export default function Reportes() {
   const [tab, setTab] = useState('diario');
+  // 🆕 "Análisis" agrupa 4 pestañas que antes estaban sueltas
+  // (Análisis histórico, Ficha del Estado, Senado/Dip., Estadística)
+  const [subTabAnalisis, setSubTabAnalisis] = useState('estadisticas');
   const [subTabActividad, setSubTabActividad] = useState('resumen');
   const [fecha, setFecha] = useState(new Date().toISOString().slice(0, 10));
   const [diario, setDiario] = useState([]);
@@ -335,18 +338,26 @@ export default function Reportes() {
         </div>
 
         <div className="flex gap-2 flex-wrap">          <button onClick={() => setTab('diario')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'diario' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📋 Bitácora diaria</button>
-          <button onClick={() => setTab('estadisticas')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'estadisticas' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🗺️ Análisis histórico</button>
-          <button onClick={() => setTab('ficha-estado')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'ficha-estado' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🏛️ Ficha del Estado</button>
+          <button onClick={() => setTab('analisis')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'analisis' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📊 Análisis</button>
           <button onClick={() => setTab('ficha-seccion')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'ficha-seccion' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📍 Ficha de Sección</button>
-          <button onClick={() => setTab('otros-cargos')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'otros-cargos' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🗳️ Senado / Dip. Federal / Dip. Local</button>
-          <button onClick={() => setTab('probabilidad')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'probabilidad' ? 'bg-purple-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🎲 Estadística y Probabilidad</button>
           <button onClick={() => setTab('actividad')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'actividad' ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🎯 Actividad de Campo</button>
           <button onClick={() => setTab('encuestas')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'encuestas' ? 'bg-pink-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📋 Encuestas</button>
           <button onClick={() => setTab('resumen-ia')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'resumen-ia' ? 'bg-purple-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🤖 Resumen con IA</button>
           <button onClick={() => setTab('auditoria')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'auditoria' ? 'bg-amber-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🔍 Auditoría</button>
         </div>
 
-        {tab === 'probabilidad' && probabilidad && (
+        {/* 🆕 Sub-pestañas de "Análisis" — agrupa 4 vistas que antes
+            estaban sueltas en la barra principal. */}
+        {tab === 'analisis' && (
+          <div className="flex gap-2 flex-wrap -mt-1">
+            <button onClick={() => setSubTabAnalisis('estadisticas')} className={`px-3 py-1 rounded-full text-[11px] font-bold ${subTabAnalisis === 'estadisticas' ? 'bg-indigo-500 text-white' : 'bg-slate-800/60 text-slate-500'}`}>🗺️ Análisis histórico</button>
+            <button onClick={() => setSubTabAnalisis('ficha-estado')} className={`px-3 py-1 rounded-full text-[11px] font-bold ${subTabAnalisis === 'ficha-estado' ? 'bg-indigo-500 text-white' : 'bg-slate-800/60 text-slate-500'}`}>🏛️ Ficha del Estado</button>
+            <button onClick={() => setSubTabAnalisis('otros-cargos')} className={`px-3 py-1 rounded-full text-[11px] font-bold ${subTabAnalisis === 'otros-cargos' ? 'bg-indigo-500 text-white' : 'bg-slate-800/60 text-slate-500'}`}>🗳️ Senado / Fed. / Local</button>
+            <button onClick={() => setSubTabAnalisis('probabilidad')} className={`px-3 py-1 rounded-full text-[11px] font-bold ${subTabAnalisis === 'probabilidad' ? 'bg-purple-500 text-white' : 'bg-slate-800/60 text-slate-500'}`}>🎲 Estadística y Probabilidad</button>
+          </div>
+        )}
+
+        {tab === 'analisis' && subTabAnalisis === 'probabilidad' && probabilidad && (
           <div className="space-y-4">
             <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 text-[11px] text-amber-300">
               ⚠️ <strong>Esto no es una encuesta científica.</strong> Se basa en tus propios promovidos (una muestra sesgada, no aleatoria) y en el comportamiento histórico real de tu territorio. Úsalo como termómetro de tendencia, no como certeza.
@@ -608,7 +619,7 @@ export default function Reportes() {
           </div>
         )}
 
-        {tab === 'estadisticas' && estadisticas && (
+        {tab === 'analisis' && subTabAnalisis === 'estadisticas' && estadisticas && (
           <div className="space-y-4">
             <div className="bg-indigo-500/5 border border-indigo-500/20 rounded-xl p-3 text-[11px] text-indigo-200 leading-relaxed">
               <strong>¿Para qué sirve esto?</strong> Es la foto general de TODO tu territorio en una elección histórica — cuántas secciones, tamaño del padrón, participación, votos totales.
@@ -726,7 +737,7 @@ export default function Reportes() {
           </div>
         )}
 
-        {tab === 'ficha-estado' && fichaEstado && (
+        {tab === 'analisis' && subTabAnalisis === 'ficha-estado' && fichaEstado && (
           <div className="space-y-4">
             <div className="bg-indigo-500/5 border border-indigo-500/20 rounded-xl p-3 text-[11px] text-indigo-200 leading-relaxed">
               <strong>Diferencia con "Análisis histórico":</strong> esa pestaña usa SOLO los resultados que ya cargamos en el sistema, filtrados a tu territorio.
@@ -1017,7 +1028,7 @@ export default function Reportes() {
           </div>
         )}
 
-        {tab === 'otros-cargos' && (
+        {tab === 'analisis' && subTabAnalisis === 'otros-cargos' && (
           <div className="space-y-4">
             <div className="bg-indigo-500/5 border border-indigo-500/20 rounded-xl p-3 text-[11px] text-indigo-200 leading-relaxed">
               Estos cargos no se reportan sección por sección como Ayuntamiento — aquí están los resultados 2024 por distrito y a nivel estatal.
