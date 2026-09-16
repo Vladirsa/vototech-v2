@@ -1747,4 +1747,73 @@ router.get('/auditoria-inconsistencias', async (req, res) => {
   res.json({ ok: true, data: { hallazgos, total: hallazgos.length, fecha_auditoria: new Date().toISOString() } });
 });
 
+/**
+ * 🆕 GET /api/reportes/encuestas/:encuestaId/resultados
+ * Los resultados REALES de una encuesta — antes solo se veía cuántas
+ * personas contestaron; ahora se ve QUÉ contestaron, desglosado por
+ * pregunta, y cruzado con género, rango de edad, y sección.
+ */
+router.get('/encuestas/:encuestaId/resultados', async (req, res) => {
+  const campanaId = req.usuario.campana_id;
+  const { encuestaId } = req.params;
+
+  const encuestaRes = await query('SELECT id, titulo FROM encuestas WHERE id=$1 AND campana_id=$2', [encuestaId, campanaId]);
+  if (!encuestaRes.rows[0]) return res.status(404).json({ ok: false, error: 'Encuesta no encontrada' });
+
+  const preguntasRes = await query('SELECT id, tipo, texto, opciones, orden FROM encuesta_preguntas WHERE encuesta_id=$1 ORDER BY orden', [encuestaId]);
+  const totalRespuestas = await query('SELECT COUNT(*) as total FROM encuesta_respuestas WHERE encuesta_id=$1', [encuestaId]);
+
+  // Una sola consulta trae, por cada respuesta individual, su valor +
+  // el género/edad/sección de quién contestó — se pivotea en JS.
+  const crudo = await query(
+    `SELECT er.respuestas, p.genero, p.rango_edad, s.numero as seccion
+     FROM encuesta_respuestas er
+     LEFT JOIN promovidos p ON p.id = er.promovido_id
+     LEFT JOIN secciones s ON s.id = er.seccion_id
+     WHERE er.encuesta_id=$1`,
+    [encuestaId]
+  );
+
+  const resultadosPorPregunta = preguntasRes.rows.map((pregunta) => {
+    const porOpcion = {};
+    const porGenero = {};
+    const porEdad = {};
+    const porSeccion = {};
+
+    crudo.rows.forEach((fila) => {
+      const respuesta = fila.respuestas?.[pregunta.id];
+      if (respuesta === undefined || respuesta === null || respuesta === '') return;
+
+      porOpcion[respuesta] = (porOpcion[respuesta] || 0) + 1;
+
+      const genero = fila.genero || 'Sin dato';
+      if (!porGenero[genero]) porGenero[genero] = {};
+      porGenero[genero][respuesta] = (porGenero[genero][respuesta] || 0) + 1;
+
+      const edad = fila.rango_edad || 'Sin dato';
+      if (!porEdad[edad]) porEdad[edad] = {};
+      porEdad[edad][respuesta] = (porEdad[edad][respuesta] || 0) + 1;
+
+      if (fila.seccion) {
+        if (!porSeccion[fila.seccion]) porSeccion[fila.seccion] = {};
+        porSeccion[fila.seccion][respuesta] = (porSeccion[fila.seccion][respuesta] || 0) + 1;
+      }
+    });
+
+    return {
+      id: pregunta.id, texto: pregunta.texto, tipo: pregunta.tipo, opciones: pregunta.opciones,
+      total_respondieron: Object.values(porOpcion).reduce((s, n) => s + n, 0),
+      por_opcion: porOpcion, por_genero: porGenero, por_edad: porEdad, por_seccion: porSeccion,
+    };
+  });
+
+  res.json({
+    ok: true,
+    data: {
+      encuesta: encuestaRes.rows[0], total_respuestas: parseInt(totalRespuestas.rows[0].total),
+      preguntas: resultadosPorPregunta,
+    },
+  });
+});
+
 export default router;
