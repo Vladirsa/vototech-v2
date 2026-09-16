@@ -463,7 +463,89 @@ router.get('/ficha-seccion/:numero', async (req, res) => {
   });
 });
 
+/**
+ * 🆕 GET /api/reportes/pdf/seccion/:numero
+ * Reporte territorial en PDF de una sección — misma información
+ * que la Ficha de Sección en pantalla, pero descargable, con
+ * control documental y formato profesional (skill de reportes).
+ */
+router.get('/pdf/seccion/:numero', async (req, res) => {
+  const campanaId = req.usuario.campana_id;
+  const estadoId = req.usuario.estado_id;
+  const numero = parseInt(req.params.numero);
+
+  const seccionRes = await query(
+    `SELECT s.id, s.numero, s.distrito_local, s.distrito_federal, s.lista_nominal, m.nombre as municipio
+     FROM secciones s JOIN municipios m ON m.id = s.municipio_id WHERE s.estado_id=$1 AND s.numero=$2`,
+    [estadoId, numero]
+  );
+  if (!seccionRes.rows[0]) return res.status(404).json({ ok: false, error: 'Sección no encontrada' });
+  const seccion = seccionRes.rows[0];
+  const campanaRes = await query('SELECT nombre_candidato, partido FROM campanas WHERE id=$1', [campanaId]);
+
+  const [estructura, casillas, promovidosTotal, promotoresSeccion, reunionesSeccion, materialesSeccion, incidencias] = await Promise.all([
+    query(`SELECT nombre, rol, puesto FROM usuarios WHERE campana_id=$1 AND territorio_tipo='seccion' AND territorio_id=$2`, [campanaId, numero]),
+    query(`SELECT id, representante_id FROM casillas WHERE campana_id=$1 AND seccion_id=$2`, [campanaId, seccion.id]),
+    query(`SELECT COUNT(*) as total, COUNT(*) FILTER (WHERE comprometido) as comprometidos FROM promovidos WHERE campana_id=$1 AND seccion_id=$2`, [campanaId, seccion.id]),
+    query(
+      `SELECT u.nombre, u.rol, jefe.nombre as jefe_directo, COUNT(p.id) as promovidos_aqui
+       FROM promovidos p JOIN usuarios u ON u.id = p.registrado_por LEFT JOIN usuarios jefe ON jefe.id = u.parent_id
+       WHERE p.campana_id=$1 AND p.seccion_id=$2 GROUP BY u.id, u.nombre, u.rol, jefe.nombre ORDER BY promovidos_aqui DESC`,
+      [campanaId, seccion.id]
+    ).catch(() => ({ rows: [] })),
+    query(`SELECT COUNT(*) as total, COUNT(*) FILTER (WHERE realizado) as realizadas FROM agenda WHERE campana_id=$1 AND seccion_id=$2`, [campanaId, seccion.id]).catch(() => ({ rows: [{ total: 0, realizadas: 0 }] })),
+    query(`SELECT tipo, subtipo, cantidad, costo FROM activos WHERE campana_id=$1 AND seccion_id=$2`, [campanaId, seccion.id]).catch(() => ({ rows: [] })),
+    query(`SELECT tipo, urgencia, estado FROM incidencias WHERE campana_id=$1 AND seccion_id=$2 ORDER BY creado_en DESC LIMIT 10`, [campanaId, seccion.id]).catch(() => ({ rows: [] })),
+  ]);
+
+  const casillasConRep = casillas.rows.filter((c) => c.representante_id).length;
+  const inversionTotal = materialesSeccion.rows.reduce((s, m) => s + (parseFloat(m.costo) || 0), 0);
+  const comprometidosSeccion = parseInt(promovidosTotal.rows[0].comprometidos);
+
+  const doc = iniciarPDF(res, 'reporte_seccion.pdf', `Reporte Territorial — Sección ${String(numero).padStart(3, '0')}`, `${seccion.municipio} · ${campanaRes.rows[0]?.nombre_candidato || ''}`);
+
+  seccionPDF(doc, 'Control Documental');
+  tablaPDF(doc, ['Campo', 'Valor'], [
+    ['ID del informe', `SECCION-${numero}-${Date.now()}`],
+    ['Fecha de corte', new Date().toLocaleDateString('es-MX')],
+    ['Fuente de datos', 'Base de datos VotoTech (en vivo)'],
+  ], [150, 350]);
+
+  seccionPDF(doc, 'Identificación Territorial (Fuente: catálogo INE/ITE)');
+  tablaPDF(doc, ['Campo', 'Valor'], [
+    ['Municipio', seccion.municipio], ['Distrito Local', seccion.distrito_local], ['Distrito Federal', seccion.distrito_federal],
+    ['Lista nominal', seccion.lista_nominal?.toLocaleString() || 'N/D'],
+  ], [200, 300]);
+
+  seccionPDF(doc, 'Estructura y Cobertura (Fuente: módulo Estructura + Día D)');
+  tablaPDF(doc, ['Indicador', 'Valor'], [
+    ['Coordinador(es) asignado(s)', estructura.rows.length > 0 ? estructura.rows.map((e) => e.nombre).join(', ') : 'Sin asignar'],
+    ['Casillas', casillas.rows.length], ['Casillas con representante', casillasConRep],
+    ['Promovidos totales', promovidosTotal.rows[0].total], ['Comprometidos', comprometidosSeccion],
+  ], [250, 250]);
+
+  if (promotoresSeccion.rows.length > 0) {
+    seccionPDF(doc, `Promotores que Trabajan Aquí (Fuente: módulo Promovidos) — ${promotoresSeccion.rows.length}`);
+    tablaPDF(doc, ['Nombre', 'Depende de', 'Promovidos aquí'], promotoresSeccion.rows.map((p) => [p.nombre, p.jefe_directo || '—', p.promovidos_aqui]), [220, 180, 100]);
+  }
+
+  seccionPDF(doc, 'Reuniones e Inversión (Fuente: módulo Agenda + Administración)');
+  tablaPDF(doc, ['Indicador', 'Valor'], [
+    ['Reuniones realizadas', `${reunionesSeccion.rows[0].realizadas} de ${reunionesSeccion.rows[0].total}`],
+    ['Inversión en materiales', `$${inversionTotal.toLocaleString('es-MX')}`],
+    ['Costo por comprometido', comprometidosSeccion > 0 ? `$${(inversionTotal / comprometidosSeccion).toFixed(2)}` : 'N/D'],
+  ], [250, 250]);
+
+  if (incidencias.rows.length > 0) {
+    seccionPDF(doc, 'Incidencias (Fuente: módulo Incidencias)');
+    tablaPDF(doc, ['Tipo', 'Urgencia', 'Estado'], incidencias.rows.map((i) => [i.tipo, i.urgencia, i.estado]), [200, 150, 150]);
+  }
+
+  doc.end();
+});
+
 router.get('/agregados/:tipo', async (req, res) => {
+
   const resultado = await query(
     `SELECT * FROM resultados_agregados WHERE estado_id=$1 AND tipo_eleccion=$2 ORDER BY anio DESC, nivel, distrito_numero NULLS FIRST, votos DESC NULLS LAST, porcentaje DESC NULLS LAST`,
     [req.usuario.estado_id, req.params.tipo]
@@ -1080,7 +1162,7 @@ router.get('/cierre-campana-pdf', async (req, res) => {
     if (incidenciasAbiertas > 0) alertasAuditoria.push(`${incidenciasAbiertas} incidencia(s) siguen sin resolver al momento de este cierre.`);
 
     const doc = iniciarPDF(
-      res, `reporte_cierre_${new Date().toISOString().slice(0, 10)}.pdf`,
+      res, 'reporte_cierre.pdf',
       'Reporte de Cierre de Campaña', `${campana.nombre_candidato} · ${campana.partido?.toUpperCase() || 'Sin partido'} · ${campana.tipo_eleccion}`
     );
 
@@ -1097,7 +1179,7 @@ router.get('/cierre-campana-pdf', async (req, res) => {
 
     // 🆕 Alertas de auditoría — si algo no cuadra, se ve arriba de todo, no escondido
     if (alertasAuditoria.length > 0) {
-      seccionPDF(doc, '⚠️ Alertas de Auditoría');
+      seccionPDF(doc, 'Alertas de Auditoría');
       alertasAuditoria.forEach((a) => lineaPDF(doc, 'Atención', a));
     }
 
@@ -1208,17 +1290,23 @@ const ROL_LABEL_PDF = {
  * candidato y fecha, en vez de solo texto centrado sin estilo. */
 function iniciarPDF(res, nombreArchivo, titulo, subtitulo) {
   const doc = new PDFDocument({ margin: 40, size: 'letter', bufferPages: true });
+  // 🆕 El nombre del archivo ahora siempre lleva fecha Y hora de
+  // descarga — antes solo algunos reportes la tenían a mano (y
+  // fácilmente se les olvidaba); ahora es automático para todos.
+  const marcaTiempo = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  const nombreConFecha = nombreArchivo.replace(/\.pdf$/, `_${marcaTiempo}.pdf`);
   res.setHeader('Content-Type', 'application/pdf');
-  res.setHeader('Content-Disposition', `attachment; filename=${nombreArchivo}`);
+  res.setHeader('Content-Disposition', `attachment; filename=${nombreConFecha}`);
   doc.pipe(res);
 
   doc.rect(0, 0, doc.page.width, 85).fill('#1e1b4b');
-  doc.fillColor('#ffffff').fontSize(18).font('Helvetica-Bold').text('🗳️ VotoTech', 40, 22);
+  doc.fillColor('#ffffff').fontSize(18).font('Helvetica-Bold').text('VotoTech', 40, 22);
   doc.fontSize(13).font('Helvetica').text(titulo, 40, 46);
   if (subtitulo) doc.fontSize(9).fillColor('#c7d2fe').text(subtitulo, 40, 64);
-  doc.fillColor('#a5b4fc').fontSize(8).text(
-    `Generado: ${new Date().toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' })}`,
-    doc.page.width - 240, 64, { width: 200, align: 'right' }
+  // 🆕 Fecha Y hora de descarga, más visible (antes solo la fecha, en letra chica)
+  doc.fillColor('#ffffff').fontSize(9).font('Helvetica-Bold').text(
+    `Descargado: ${new Date().toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' })}, ${new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}`,
+    doc.page.width - 260, 62, { width: 220, align: 'right' }
   );
 
   doc.y = 105;
