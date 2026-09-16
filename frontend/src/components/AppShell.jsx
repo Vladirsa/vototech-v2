@@ -21,6 +21,7 @@ const CAPAS = [
   { id: 'comunicacion', label: '📢 Comunicación' },
   { id: 'administracion', label: '💼 Administración y Cumplimiento' },
   { id: 'dia_e', label: '🗳️ Día E y Centro de Comando' },
+  { id: 'decisiones', label: '🧭 Centro de Decisiones' },
 ];
 
 const MODULOS = [
@@ -34,6 +35,7 @@ const MODULOS = [
   { ruta: '/movilizacion-operacion', ic: '🚶', label: 'Movilización y Operación', clave: 'movilizacion-operacion', capa: 'operacion' },
   { ruta: '/dia-e-comando', ic: '🗳️', label: 'Día E y Centro de Comando', clave: 'dia-e-comando', capa: 'dia_e' },
   { ruta: '/administracion', ic: '💼', label: 'Administración y Cumplimiento', clave: 'administracion', capa: 'administracion' },
+  { ruta: '/centro-decisiones', ic: '🧭', label: 'Centro de Decisiones', clave: 'centro-decisiones', capa: 'decisiones' },
   { ruta: '/estructura', ic: '🗂️', label: 'Estructura', clave: 'estructura', capa: 'estructura' },
   // 🆕 "Activos" ya no es un botón propio — su contenido vive ahora
   // como una pestaña MÁS dentro de Administración (junto a Gastos,
@@ -53,7 +55,7 @@ const MODULOS_POR_ROL = {
   coord_regional: TODOS.filter((c) => !['administracion'].includes(c)),
   coord_distrital: TODOS.filter((c) => !['administracion', 'dia-e-comando'].includes(c)),
   coord_municipal: TODOS.filter((c) => !['administracion', 'dia-e-comando'].includes(c)),
-  coord_seccional: ['dashboard', 'mapa', 'movilizacion-operacion', 'estructura', 'dia-e-comando'],
+  coord_seccional: ['dashboard', 'mapa', 'movilizacion-operacion', 'estructura', 'dia-e-comando', 'centro-decisiones'],
   promotor: ['mi-avance', 'dia-e-comando', 'movilizacion-operacion'],
   // Encargado de Jurídico: su área, más lo que necesita para sustentar
   // quejas/recursos — Activos ahora vive dentro de Administración.
