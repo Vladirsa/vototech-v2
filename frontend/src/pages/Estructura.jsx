@@ -62,6 +62,17 @@ const PUNTO_ACTIVIDAD = { reciente: 'bg-emerald-400', medio: 'bg-amber-400', ina
 // todo con un ejemplo concreto de principio a fin, en vez de dejar
 // que lo adivinen solos formulario por formulario.
 // ═══════════════════════════════════════════════════════════════
+/**
+ * 🆕 Lenguaje estándar de meta — FALTANTE / META CUBIERTA / META
+ * SUPERADA (skill de Inteligencia Electoral, sección 3).
+ */
+function estadoMeta(logrado, meta) {
+  if (!meta || meta <= 0) return { label: 'Sin meta configurada', color: 'text-slate-500', excedente: null };
+  if (logrado < meta) return { label: 'FALTANTE', color: 'text-red-400', excedente: null, faltante: meta - logrado };
+  if (logrado === meta) return { label: 'META CUBIERTA', color: 'text-emerald-400', excedente: 0 };
+  return { label: 'META SUPERADA', color: 'text-emerald-400', excedente: logrado - meta };
+}
+
 function ModalAyudaEstructura({ onCerrar }) {
   const [seccion, setSeccion] = useState('idea');
   const SECCIONES = [
@@ -1538,7 +1549,14 @@ export default function Estructura() {
                         <div className={`text-xl font-black ${fichaPersona.totales_rama.cumple_meta === true ? 'text-emerald-400' : fichaPersona.totales_rama.cumple_meta === false ? 'text-red-400' : 'text-slate-400'}`}>
                           {fichaPersona.totales_rama.total_promovidos}{fichaPersona.totales_rama.meta_total_rama > 0 ? ` / ${fichaPersona.totales_rama.meta_total_rama}` : ''}
                         </div>
-                        <div className="text-[9px] text-slate-500">{fichaPersona.totales_rama.cumple_meta === true ? '✅ cumple meta de equipo' : fichaPersona.totales_rama.cumple_meta === false ? '⚠️ no cumple meta de equipo' : 'Sin meta configurada'}</div>
+                        {(() => {
+                          const est = estadoMeta(fichaPersona.totales_rama.total_promovidos, fichaPersona.totales_rama.meta_total_rama);
+                          return (
+                            <div className={`text-[9px] font-bold ${est.color}`}>
+                              {est.label}{est.faltante != null && ` (faltan ${est.faltante})`}{est.excedente > 0 && ` (+${est.excedente})`}
+                            </div>
+                          );
+                        })()}
                       </div>
                       <div className="text-center">
                         <div className={`text-xl font-black ${fichaPersona.totales_rama.duplicados > 0 ? 'text-amber-400' : 'text-slate-500'}`}>{fichaPersona.totales_rama.duplicados}</div>
@@ -1580,9 +1598,16 @@ export default function Estructura() {
                               <td className="px-3 py-2 text-center text-slate-400">{s.tamano_equipo} pers.</td>
                               <td className="px-3 py-2 text-center text-slate-200 font-bold">{s.total_su_equipo}</td>
                               <td className="px-3 py-2 text-center text-purple-400">{s.comprometidos_su_equipo}</td>
-                              <td className={`px-3 py-2 text-center font-bold ${s.cumple_meta === true ? 'text-emerald-400' : s.cumple_meta === false ? 'text-red-400' : 'text-slate-500'}`}>
-                                {s.meta_su_equipo > 0 ? `${s.total_su_equipo}/${s.meta_su_equipo}` : '—'}
-                              </td>
+                              {(() => {
+                                const est = estadoMeta(s.total_su_equipo, s.meta_su_equipo);
+                                return (
+                                  <td className={`px-3 py-2 text-center font-bold text-[10px] ${est.color}`}>
+                                    {est.label === 'Sin meta configurada' ? '—' : est.label}
+                                    {est.faltante != null && <div className="text-[8px] font-normal">faltan {est.faltante}</div>}
+                                    {est.excedente > 0 && <div className="text-[8px] font-normal">+{est.excedente}</div>}
+                                  </td>
+                                );
+                              })()}
                             </tr>
                           ))}
                         </tbody>

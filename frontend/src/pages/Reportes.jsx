@@ -19,6 +19,19 @@ const ROL_LABEL = {
 };
 const ROL_ES_LIDER = ['candidato', 'jefe_campana', 'coord_general', 'coord_distrital', 'coord_municipal', 'coord_seccional'];
 
+/**
+ * 🆕 Lenguaje estándar de meta — FALTANTE / META CUBIERTA / META
+ * SUPERADA (skill de Inteligencia Electoral, sección 3). Nunca se
+ * recorta ni se limita el valor real logrado, ni cuando supera la
+ * meta — solo se etiqueta y se calcula el excedente.
+ */
+function estadoMeta(logrado, meta) {
+  if (!meta || meta <= 0) return { label: 'Sin meta configurada', color: 'text-slate-500', excedente: null };
+  if (logrado < meta) return { label: 'FALTANTE', color: 'text-red-400', excedente: null, faltante: meta - logrado };
+  if (logrado === meta) return { label: 'META CUBIERTA', color: 'text-emerald-400', excedente: 0 };
+  return { label: 'META SUPERADA', color: 'text-emerald-400', excedente: logrado - meta };
+}
+
 /** 🆕 Resumen ejecutivo con IA — junta varias señales (avance, ritmo, estructura, finanzas) en una sola narrativa. */
 function PanelResumenEjecutivoIA() {
   const [cargando, setCargando] = useState(false);
@@ -415,17 +428,26 @@ export default function Reportes() {
 
         {tab === 'diario' && (
           <div className="space-y-4">
-            {/* 🆕 Meta objetivo del día vs. logrado — antes no existía
-                esta comparación, solo se veía el total capturado sin
-                saber si eso era "bueno" o no. */}
+            {/* 🆕 Meta objetivo del día vs. logrado — con el lenguaje
+                estándar FALTANTE / META CUBIERTA / META SUPERADA. */}
             <div className="bg-gradient-to-br from-indigo-500/10 to-purple-500/10 border border-indigo-500/30 rounded-xl p-4">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-xs font-bold text-indigo-300">🎯 Meta del día — toda la estructura</span>
                 <span className="text-lg font-black text-white">{logradoHoy} <span className="text-sm text-slate-500">/ {metaObjetivoDia}</span></span>
               </div>
-              <div className="h-2.5 bg-slate-800 rounded-full overflow-hidden">
+              <div className="h-2.5 bg-slate-800 rounded-full overflow-hidden mb-1.5">
                 <div className="h-full bg-indigo-500" style={{ width: `${metaObjetivoDia > 0 ? Math.min(100, (logradoHoy / metaObjetivoDia) * 100) : 0}%` }} />
               </div>
+              {(() => {
+                const est = estadoMeta(logradoHoy, metaObjetivoDia);
+                return (
+                  <div className={`text-xs font-bold ${est.color}`}>
+                    {est.label}
+                    {est.faltante != null && ` — faltan ${est.faltante}`}
+                    {est.excedente > 0 && ` — excedente: +${est.excedente}`}
+                  </div>
+                );
+              })()}
             </div>
 
             <div className="flex items-center gap-3 flex-wrap">
