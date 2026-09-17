@@ -11,8 +11,12 @@ import 'leaflet.heat';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import api from '../lib/api';
-const COLOR_CLASIFICACION = {
-  base: '#10b981', persuadible: '#f59e0b', adversario: '#64748b',
+// 🆕 Corregido — antes coloreaba por "clasificación" (dato ya no
+// confiable, se congela con la fecha de la última edición porque el
+// campo que lo alimentaba se quitó). Ahora colorea por el campo
+// real: ¿va a votar por nosotros?
+const COLOR_VA_A_VOTAR = {
+  true: '#10b981', false: '#64748b', null: '#94a3b8',
 };
 function ControlCentrarMapa({ centro, zoomInicial, centroReal }) {
   const map = useMap();
@@ -289,9 +293,9 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
     const filas = Object.values(densidadPorSeccion);
     return {
       totalPromovidos: totalRealPromovidos ?? filas.reduce((s, f) => s + f.total, 0),
-      base: filas.reduce((s, f) => s + f.base, 0),
-      persuadible: filas.reduce((s, f) => s + f.persuadible, 0),
-      adversario: filas.reduce((s, f) => s + f.adversario, 0),
+      si_va: filas.reduce((s, f) => s + f.si_va, 0),
+      no_va: filas.reduce((s, f) => s + f.no_va, 0),
+      sin_definir: filas.reduce((s, f) => s + f.sin_definir, 0),
       seccionesConTrabajo: Object.keys(densidadPorSeccion).length,
     };
   }, [densidadPorSeccion, totalRealPromovidos]);
@@ -299,7 +303,7 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
     if (modoColoreado !== 'campana') return;
     api.get('/priorizacion/densidad-promovidos').then(r => {
       const mapa = {};
-      r.data.data.forEach((f) => { mapa[f.seccion] = { total: parseInt(f.total), base: parseInt(f.base), persuadible: parseInt(f.persuadible), adversario: parseInt(f.adversario) }; });
+      r.data.data.forEach((f) => { mapa[f.seccion] = { total: parseInt(f.total), si_va: parseInt(f.si_va), no_va: parseInt(f.no_va), sin_definir: parseInt(f.sin_definir) }; });
       setDensidadPorSeccion(mapa);
       setTotalRealPromovidos(r.data.total_real ?? null);
     }).catch(() => { setDensidadPorSeccion({}); setTotalRealPromovidos(null); });
@@ -319,17 +323,13 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
     critica: '🔴 Crítica', recuperable: '🟠 Recuperable', disputa: '🟡 Disputa', consolidar: '🟢 Consolidar', perdida: '⚫ Sin esperanza',
   };
   const [mostrarCobertura, setMostrarCobertura] = useState(false);
-  const [seccionesCubiertas, setSeccionesCubiertas] = useState(new Set());
+  // 🆕 Antes solo guardaba "cubiertas o no" (binario, solo cambiaba
+  // el borde) — ahora guarda la clasificación completa de 4 colores
+  // del endpoint dedicado (verde/amarillo/rojo/gris).
+  const [coberturaClasificacion, setCoberturaClasificacion] = useState({});
   useEffect(() => {
     if (!mostrarCobertura) return;
-    api.get('/estructura').then(r => {
-      const cubiertas = new Set(
-        r.data.data
-          .filter((u) => u.rol === 'coord_seccional' && u.territorio_id)
-          .map((u) => u.territorio_id)
-      );
-      setSeccionesCubiertas(cubiertas);
-    }).catch(() => setSeccionesCubiertas(new Set()));
+    api.get('/estructura/cobertura-mapa').then(r => setCoberturaClasificacion(r.data.data)).catch(() => setCoberturaClasificacion({}));
   }, [mostrarCobertura]);
   const [activos, setActivos] = useState([]);
   const [conteoActivos, setConteoActivos] = useState(0);
@@ -814,7 +814,19 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
       colorRelleno = seccionesActivas7d.has(num) ? '#22c55e' : '#3f3f46';
       opacidad = seccionesActivas7d.has(num) ? 0.5 : 0.6;
     }
-    const sinCobertura = mostrarCobertura && !seccionesCubiertas.has(num);
+    // 🆕 Cobertura de estructura — 4 colores completos, no solo
+    // borde rojo binario. GRIS (sin dato) se deja como el color base
+    // sin tocar, ya que "gris" significa "no se puede evaluar", no
+    // "se pinta gris forzado" (evita inventar información).
+    const COLOR_COBERTURA = { verde: '#22c55e', amarillo: '#f59e0b', rojo: '#ef4444' };
+    if (mostrarCobertura) {
+      const clase = coberturaClasificacion[num];
+      if (clase && COLOR_COBERTURA[clase]) {
+        colorRelleno = COLOR_COBERTURA[clase];
+        opacidad = 0.55;
+      }
+    }
+    const sinCobertura = mostrarCobertura && coberturaClasificacion[num] === 'rojo';
     const seleccionadaParaZona = modoSectorizacion && seccionesSeleccionadas.has(num);
     const yaAsignada = modoSectorizacion && seccionAsignadaA[num];
     if (seleccionadaParaZona) {
@@ -893,9 +905,9 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
       permanent: false, direction: 'center', className: 'etiqueta-seccion',
     });
   };
-  const iconoPromovido = (partido, clasificacion) => {
+  const iconoPromovido = (partido, comprometido) => {
     const colorPartido = PARTIDOS[partido]?.color || '#94a3b8';
-    const colorAnillo = COLOR_CLASIFICACION[clasificacion] || '#94a3b8';
+    const colorAnillo = COLOR_VA_A_VOTAR[comprometido] || COLOR_VA_A_VOTAR.null;
     return new L.DivIcon({
       className: '',
       html: `<div style="width:14px;height:14px;border-radius:50%;background:${colorPartido};border:2.5px solid ${colorAnillo};box-shadow:0 1px 4px rgba(0,0,0,.6)"></div>`,
@@ -1078,10 +1090,10 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
           </Marker>
         ))}
         {capaPromovidos && !capaCalor && promovidosFiltrados.map((p) => (
-          <Marker key={p.id} position={[p._lat, p._lng]} icon={iconoPromovido(p.partido, p.clasificacion)}>
+          <Marker key={p.id} position={[p._lat, p._lng]} icon={iconoPromovido(p.partido, p.comprometido)}>
             <Popup>
               <strong>{p.nombre}</strong><br />
-              {p.clasificacion === 'base' ? '✅ Base' : p.clasificacion === 'persuadible' ? '🎯 Persuadible' : '⛔ Adversario'}<br />
+              {p.comprometido === true ? '✅ Sí va a votar' : p.comprometido === false ? '❌ No va a votar' : '❔ Sin definir'}<br />
               {p.partido && `Partido: ${p.partido.toUpperCase()}`}
               {!p.lat && <><br /><em style={{ fontSize: 10, color: '#888' }}>Posición aproximada (sin dirección exacta registrada)</em></>}
             </Popup>
@@ -1457,8 +1469,16 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
           </label>
           <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer border-t border-slate-800 pt-2">
             <input type="checkbox" checked={mostrarCobertura} onChange={e => setMostrarCobertura(e.target.checked)} />
-            🗂️ Cobertura de estructura (borde rojo = sin coordinador)
+            🗂️ Cobertura de estructura
           </label>
+          {/* 🆕 Leyenda de los 4 colores — solo aparece si la capa está activa */}
+          {mostrarCobertura && (
+            <div className="px-3 pb-2 pt-1 flex gap-3 text-[10px] text-slate-400 flex-wrap">
+              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500" /> Con responsable + actividad</span>
+              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-amber-500" /> Con responsable, sin actividad</span>
+              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-red-500" /> Sin responsable</span>
+            </div>
+          )}
         </div>
         {coloreadoActivo && modoColoreado === 'prioridad' && (
           <div className="p-3 pt-0 space-y-1.5">
@@ -1510,9 +1530,9 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
               </div>
             </div>
             <div className="space-y-1">
-              <div className="flex justify-between text-[10px]"><span className="text-emerald-400">● Base</span><span className="text-white font-bold">{resumenCampana.base}</span></div>
-              <div className="flex justify-between text-[10px]"><span className="text-amber-400">● Persuadible</span><span className="text-white font-bold">{resumenCampana.persuadible}</span></div>
-              <div className="flex justify-between text-[10px]"><span className="text-slate-400">● Adversario</span><span className="text-white font-bold">{resumenCampana.adversario}</span></div>
+              <div className="flex justify-between text-[10px]"><span className="text-emerald-400">● Sí van a votar</span><span className="text-white font-bold">{resumenCampana.si_va}</span></div>
+              <div className="flex justify-between text-[10px]"><span className="text-slate-500">● Sin definir</span><span className="text-white font-bold">{resumenCampana.sin_definir}</span></div>
+              <div className="flex justify-between text-[10px]"><span className="text-red-400">● No van a votar</span><span className="text-white font-bold">{resumenCampana.no_va}</span></div>
             </div>
           </div>
         </div>
@@ -1586,9 +1606,9 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
               <div className="bg-slate-800/60 rounded-lg p-2.5">
                 <div className="text-[10px] text-slate-500 uppercase font-bold mb-1.5">Tu avance en esta sección</div>
                 <div className="grid grid-cols-3 gap-2 text-center mb-2">
-                  <div><div className="text-emerald-400 font-black">{fichaTecnica.promovidos.base}</div><div className="text-[9px] text-slate-500">Base</div></div>
-                  <div><div className="text-amber-400 font-black">{fichaTecnica.promovidos.persuadible}</div><div className="text-[9px] text-slate-500">Persuad.</div></div>
-                  <div><div className="text-slate-400 font-black">{fichaTecnica.promovidos.adversario}</div><div className="text-[9px] text-slate-500">Advers.</div></div>
+                  <div><div className="text-emerald-400 font-black">{fichaTecnica.promovidos.si_va}</div><div className="text-[9px] text-slate-500">Sí van</div></div>
+                  <div><div className="text-slate-500 font-black">{fichaTecnica.promovidos.sin_definir}</div><div className="text-[9px] text-slate-500">Sin def.</div></div>
+                  <div><div className="text-red-400 font-black">{fichaTecnica.promovidos.no_va}</div><div className="text-[9px] text-slate-500">No van</div></div>
                 </div>
                 {modoColoreado !== 'campana' && (fichaTecnica.deficit_votos > 0 ? (
                   <div className="text-[10px] text-slate-300 border-t border-slate-700 pt-2">
@@ -2063,9 +2083,9 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
                 <div className="border-t border-slate-800 pt-3">
                   <div className="text-[10px] font-bold text-slate-500 uppercase mb-2">🎯 Tu avance</div>
                   <div className="grid grid-cols-3 gap-2 text-center mb-2">
-                    <div><div className="text-emerald-400 font-black">{resumenMunicipio.promovidos.base}</div><div className="text-[9px] text-slate-500">Base</div></div>
-                    <div><div className="text-amber-400 font-black">{resumenMunicipio.promovidos.persuadible}</div><div className="text-[9px] text-slate-500">Persuad.</div></div>
-                    <div><div className="text-slate-400 font-black">{resumenMunicipio.promovidos.adversario}</div><div className="text-[9px] text-slate-500">Advers.</div></div>
+                    <div><div className="text-emerald-400 font-black">{resumenMunicipio.promovidos.si_va}</div><div className="text-[9px] text-slate-500">Sí van</div></div>
+                    <div><div className="text-slate-500 font-black">{resumenMunicipio.promovidos.sin_definir}</div><div className="text-[9px] text-slate-500">Sin def.</div></div>
+                    <div><div className="text-red-400 font-black">{resumenMunicipio.promovidos.no_va}</div><div className="text-[9px] text-slate-500">No van</div></div>
                   </div>
                   <div className="text-xs text-slate-300 text-center">
                     <strong className="text-white">{resumenMunicipio.total_promovidos}</strong> promovidos ·
