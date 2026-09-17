@@ -1344,6 +1344,25 @@ export default function Estructura() {
       return nuevo;
     });
   };
+  // 🆕 CORREGIDO — este hook vivía DESPUÉS de 2 "return" condicionales
+  // (if cargando / if errorCarga), así que a veces se ejecutaba y a
+  // veces no, entre un render y otro. React exige que los mismos
+  // hooks corran SIEMPRE, en el mismo orden — de ahí el error #310
+  // ("Minified React error #310") al abrir el módulo. Ahora vive
+  // antes de cualquier return, junto con los demás hooks.
+  useEffect(() => {
+    if (!busqueda) return;
+    const coincidencias = miembros.filter((m) => m.nombre.toLowerCase().includes(busqueda.toLowerCase()) || m.puesto?.toLowerCase().includes(busqueda.toLowerCase()));
+    const idsAExpandir = new Set();
+    coincidencias.forEach((m) => {
+      let actual = m;
+      while (actual?.parent_id) {
+        idsAExpandir.add(actual.parent_id);
+        actual = miembros.find((x) => x.id === actual.parent_id);
+      }
+    });
+    if (idsAExpandir.size > 0) setNodosExpandidos((prev) => new Set([...prev, ...idsAExpandir]));
+  }, [busqueda, miembros]);
   const [vacantes, setVacantes] = useState([]);
   const [alertasRama, setAlertasRama] = useState([]);
   const [ranking, setRanking] = useState([]);
@@ -1465,22 +1484,6 @@ export default function Estructura() {
   }
   const raiz = miembros.filter((m) => !m.parent_id);
 
-  // 🆕 Al buscar, expandir automáticamente el camino hasta cada
-  // coincidencia — de otro modo un resultado podría quedar oculto
-  // dentro de una rama contraída, y parecería que "no existe".
-  useEffect(() => {
-    if (!busqueda) return;
-    const coincidencias = miembros.filter((m) => m.nombre.toLowerCase().includes(busqueda.toLowerCase()) || m.puesto?.toLowerCase().includes(busqueda.toLowerCase()));
-    const idsAExpandir = new Set();
-    coincidencias.forEach((m) => {
-      let actual = m;
-      while (actual?.parent_id) {
-        idsAExpandir.add(actual.parent_id);
-        actual = miembros.find((x) => x.id === actual.parent_id);
-      }
-    });
-    if (idsAExpandir.size > 0) setNodosExpandidos((prev) => new Set([...prev, ...idsAExpandir]));
-  }, [busqueda, miembros]);
   return (
     <div className="min-h-screen bg-slate-950 p-4 md:p-8">
       <div className="max-w-7xl mx-auto space-y-5">
