@@ -15,7 +15,113 @@ const ESTADO_ESTILO = {
  * seguimiento — nunca la IA escribe una decisión sola, siempre es
  * una acción explícita de la persona con sesión real.
  */
+const ESTADO_TAREA_ESTILO = {
+  pendiente: { bg: 'bg-slate-500/10', border: 'border-slate-500/30', color: 'text-slate-400', label: 'Pendiente' },
+  asignada: { bg: 'bg-blue-500/10', border: 'border-blue-500/30', color: 'text-blue-400', label: 'Asignada' },
+  en_proceso: { bg: 'bg-amber-500/10', border: 'border-amber-500/30', color: 'text-amber-400', label: 'En Proceso' },
+  bloqueada: { bg: 'bg-red-500/10', border: 'border-red-500/30', color: 'text-red-400', label: 'Bloqueada' },
+  completada: { bg: 'bg-emerald-500/10', border: 'border-emerald-500/30', color: 'text-emerald-400', label: 'Completada' },
+  cancelada: { bg: 'bg-slate-700/10', border: 'border-slate-700/30', color: 'text-slate-500', label: 'Cancelada' },
+};
+const PRIORIDAD_COLOR = { baja: 'text-slate-500', media: 'text-blue-400', alta: 'text-amber-400', critica: 'text-red-400' };
+
+/** 🆕 Centro de Tareas — acciones pendientes con responsable y fecha
+ * límite. Cerrar (completar/cancelar) siempre es explícito. */
+function PanelCentroTareas() {
+  const [tareas, setTareas] = useState([]);
+  const [filtroEstado, setFiltroEstado] = useState('todas');
+  const [mostrarForm, setMostrarForm] = useState(false);
+  const [form, setForm] = useState({ descripcion: '', origen: '', prioridad: 'media', fecha_limite: '' });
+  const [guardando, setGuardando] = useState(false);
+
+  const cargar = () => {
+    const q = filtroEstado !== 'todas' ? `?estado=${filtroEstado}` : '';
+    api.get(`/centro-decisiones/tareas${q}`).then((r) => setTareas(r.data.data)).catch(() => setTareas([]));
+  };
+  useEffect(cargar, [filtroEstado]);
+
+  const crear = async () => {
+    if (!form.descripcion.trim()) return;
+    setGuardando(true);
+    try {
+      await api.post('/centro-decisiones/tareas', form);
+      setForm({ descripcion: '', origen: '', prioridad: 'media', fecha_limite: '' });
+      setMostrarForm(false);
+      cargar();
+    } catch (e) { alert(e.response?.data?.error || 'No se pudo crear'); }
+    setGuardando(false);
+  };
+
+  const cambiarEstado = async (id, estado) => {
+    await api.patch(`/centro-decisiones/tareas/${id}`, { estado });
+    cargar();
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="flex gap-1.5 flex-wrap">
+          {[['todas', 'Todas'], ['pendiente', 'Pendientes'], ['en_proceso', 'En Proceso'], ['completada', 'Completadas']].map(([id, label]) => (
+            <button key={id} onClick={() => setFiltroEstado(id)}
+              className={`px-3 py-1.5 rounded-full text-xs font-bold ${filtroEstado === id ? 'bg-teal-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
+              {label}
+            </button>
+          ))}
+        </div>
+        <button onClick={() => setMostrarForm(true)} className="px-4 py-2 rounded-xl bg-gradient-to-r from-teal-600 to-emerald-600 text-white text-sm font-bold">➕ Nueva Tarea</button>
+      </div>
+
+      {mostrarForm && (
+        <div className="bg-slate-900 border border-slate-700 rounded-xl p-4 space-y-2">
+          <textarea placeholder="¿Qué hay que hacer?" value={form.descripcion} onChange={(e) => setForm({ ...form, descripcion: e.target.value })}
+            className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm min-h-16" />
+          <div className="flex gap-2">
+            <select value={form.prioridad} onChange={(e) => setForm({ ...form, prioridad: e.target.value })} className="flex-1 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
+              <option value="baja">Baja</option><option value="media">Media</option><option value="alta">Alta</option><option value="critica">Crítica</option>
+            </select>
+            <input type="date" value={form.fecha_limite} onChange={(e) => setForm({ ...form, fecha_limite: e.target.value })} className="flex-1 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+          </div>
+          <div className="flex gap-2">
+            <button onClick={() => setMostrarForm(false)} className="flex-1 py-2 rounded-lg bg-slate-800 text-slate-300 text-xs font-bold">Cancelar</button>
+            <button onClick={crear} disabled={guardando} className="flex-[2] py-2 rounded-lg bg-emerald-600 text-white text-xs font-bold disabled:opacity-40">{guardando ? '⏳...' : 'Crear tarea'}</button>
+          </div>
+        </div>
+      )}
+
+      <div className="space-y-2">
+        {tareas.length === 0 ? (
+          <div className="text-center text-slate-500 py-10 text-sm">Sin tareas registradas</div>
+        ) : tareas.map((t) => {
+          const est = ESTADO_TAREA_ESTILO[t.estado] || ESTADO_TAREA_ESTILO.pendiente;
+          return (
+            <div key={t.id} className={`${est.bg} border ${est.border} rounded-xl p-3`}>
+              <div className="flex items-center justify-between mb-1">
+                <span className={`text-[9px] font-bold uppercase ${est.color}`}>{est.label}</span>
+                <span className={`text-[9px] font-bold uppercase ${PRIORIDAD_COLOR[t.prioridad]}`}>{t.prioridad}</span>
+              </div>
+              <p className="text-sm text-white font-bold">{t.descripcion}</p>
+              <p className="text-[10px] text-slate-500 mt-1">
+                {t.responsable_nombre ? `Responsable: ${t.responsable_nombre}` : 'Sin responsable asignado'}
+                {t.fecha_limite && ` · Fecha límite: ${new Date(t.fecha_limite).toLocaleDateString('es-MX')}`}
+                {t.vencida && <span className="text-red-400 font-bold"> · VENCIDA</span>}
+              </p>
+              {!['completada', 'cancelada'].includes(t.estado) && (
+                <div className="flex gap-1.5 mt-2">
+                  {t.estado !== 'en_proceso' && <button onClick={() => cambiarEstado(t.id, 'en_proceso')} className="px-2.5 py-1 rounded-lg bg-amber-700/50 text-amber-300 text-[10px] font-bold">▶ En proceso</button>}
+                  <button onClick={() => cambiarEstado(t.id, 'completada')} className="px-2.5 py-1 rounded-lg bg-emerald-700/50 text-emerald-300 text-[10px] font-bold">✓ Completar</button>
+                  <button onClick={() => cambiarEstado(t.id, 'cancelada')} className="px-2.5 py-1 rounded-lg bg-slate-700 text-slate-400 text-[10px] font-bold">✕ Cancelar</button>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export default function CentroDecisiones() {
+  const [tab, setTab] = useState('bitacora');
   const [decisiones, setDecisiones] = useState([]);
   const [filtroEstado, setFiltroEstado] = useState('todas');
   const [mostrarForm, setMostrarForm] = useState(false);
@@ -46,6 +152,13 @@ export default function CentroDecisiones() {
           <Link to="/dashboard" className="text-xs text-indigo-400">← Dashboard</Link>
         </div>
 
+        <div className="flex gap-2">
+          <button onClick={() => setTab('bitacora')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'bitacora' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📋 Bitácora de Decisiones</button>
+          <button onClick={() => setTab('tareas')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'tareas' ? 'bg-teal-600 text-white' : 'bg-slate-800 text-slate-400'}`}>✅ Centro de Tareas</button>
+        </div>
+
+        {tab === 'bitacora' && (
+        <>
         <div className="bg-indigo-500/10 border border-indigo-500/30 rounded-xl p-3 text-[11px] text-indigo-300">
           Bitácora de Decisiones — el sistema nunca registra una decisión por su cuenta. Cada entrada aquí es porque tú (o tu equipo de coordinación) tocó explícitamente "Registrar Decisión".
         </div>
@@ -102,6 +215,11 @@ export default function CentroDecisiones() {
             );
           })}
         </div>
+        </>
+        )}
+
+        {tab === 'tareas' && <PanelCentroTareas />}
+
       </div>
 
       {mostrarForm && <ModalRegistrarDecision sugerenciaInicial={sugerenciaParaUsar} onCerrar={() => setMostrarForm(false)} onGuardado={() => { setMostrarForm(false); cargar(); }} />}
