@@ -677,32 +677,47 @@ function ModalDetalleMiembro({ miembro, miembros, onCerrar, onActualizado }) {
   );
 }
 
-function NodoOrganigrama({ miembro, hijos, onClick, esRaiz, busqueda }) {
+function NodoOrganigrama({ miembro, hijos, onClick, esRaiz, busqueda, expandidos, onToggle }) {
   const est = SALUD_ESTILO[miembro.salud] || SALUD_ESTILO.na;
   const actividad = estaActivoReciente(miembro.ultimo_acceso);
   const propios = hijos.filter((h) => h.parent_id === miembro.id);
   const coincide = busqueda && (miembro.nombre.toLowerCase().includes(busqueda.toLowerCase()) || miembro.puesto?.toLowerCase().includes(busqueda.toLowerCase()));
   const opacado = busqueda && !coincide;
+  // 🆕 La raíz siempre se ve expandida (si no, no verías nada al
+  // abrir el organigrama) — el resto empieza contraído.
+  const expandido = esRaiz || expandidos.has(miembro.id);
   return (
     <div className="flex flex-col items-center">
-      <button onClick={() => onClick(miembro)}
-        className={`px-4 py-2.5 rounded-2xl border-2 ${esRaiz ? 'border-amber-500 bg-amber-500/10' : est.border} ${!esRaiz && est.bg} min-w-[150px] text-center hover:scale-105 transition-all relative shadow-lg ${coincide ? 'ring-4 ring-yellow-400 scale-105' : ''} ${opacado ? 'opacity-25' : ''}`}>
-        {actividad && <span className={`absolute -top-1 -right-1 w-3 h-3 rounded-full ${PUNTO_ACTIVIDAD[actividad]} border-2 border-slate-950`} />}
-        <div className="text-sm font-black text-white truncate max-w-[140px]">{miembro.nombre}</div>
-        <div className="text-[10px] text-indigo-300 font-bold truncate max-w-[140px]">{miembro.puesto || ROL_LABEL[miembro.rol]}</div>
-        {miembro.salud !== 'na' && <div className={`text-[9px] font-bold ${est.color} mt-0.5`}>{est.ic} {miembro.reportes_directos} a cargo</div>}
-      </button>
-      {propios.length > 0 && (
+      <div className="relative">
+        <button onClick={() => onClick(miembro)}
+          className={`px-4 py-2.5 rounded-2xl border-2 ${esRaiz ? 'border-amber-500 bg-amber-500/10' : est.border} ${!esRaiz && est.bg} min-w-[150px] text-center hover:scale-105 transition-all relative shadow-lg ${coincide ? 'ring-4 ring-yellow-400 scale-105' : ''} ${opacado ? 'opacity-25' : ''}`}>
+          {actividad && <span className={`absolute -top-1 -right-1 w-3 h-3 rounded-full ${PUNTO_ACTIVIDAD[actividad]} border-2 border-slate-950`} />}
+          <div className="text-sm font-black text-white truncate max-w-[140px]">{miembro.nombre}</div>
+          <div className="text-[10px] text-indigo-300 font-bold truncate max-w-[140px]">{miembro.puesto || ROL_LABEL[miembro.rol]}</div>
+          {miembro.salud !== 'na' && <div className={`text-[9px] font-bold ${est.color} mt-0.5`}>{est.ic} {miembro.reportes_directos} a cargo</div>}
+        </button>
+        {/* 🆕 Botón de expandir/contraer — solo aparece si tiene gente debajo */}
+        {propios.length > 0 && !esRaiz && (
+          <button onClick={(e) => { e.stopPropagation(); onToggle(miembro.id); }}
+            className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-5 h-5 rounded-full bg-slate-700 border border-slate-600 text-white text-[10px] font-bold flex items-center justify-center hover:bg-slate-600">
+            {expandido ? '−' : '+'}
+          </button>
+        )}
+      </div>
+      {propios.length > 0 && expandido && (
         <>
           <div className="w-px h-4 bg-slate-700" />
           <div className="flex gap-4 pt-1 border-t border-slate-700 relative">
             {propios.map((h) => (
               <div key={h.id} className="flex flex-col items-center pt-2">
-                <NodoOrganigrama miembro={h} hijos={hijos} onClick={onClick} busqueda={busqueda} />
+                <NodoOrganigrama miembro={h} hijos={hijos} onClick={onClick} busqueda={busqueda} expandidos={expandidos} onToggle={onToggle} />
               </div>
             ))}
           </div>
         </>
+      )}
+      {propios.length > 0 && !expandido && (
+        <p className="text-[9px] text-slate-600 mt-1">{propios.length} más ↓</p>
       )}
     </div>
   );
@@ -1317,6 +1332,18 @@ export default function Estructura() {
   const [cargando, setCargando] = useState(true);
   const [errorCarga, setErrorCarga] = useState('');
   const [busqueda, setBusqueda] = useState('');
+  // 🆕 Expandir/contraer el organigrama — antes siempre se veía el
+  // árbol completo, lo que era abrumador con muchos niveles. Ahora
+  // empieza contraído (solo el primer nivel visible), y buscar
+  // expande automáticamente el camino hasta el resultado.
+  const [nodosExpandidos, setNodosExpandidos] = useState(new Set());
+  const toggleNodo = (id) => {
+    setNodosExpandidos((prev) => {
+      const nuevo = new Set(prev);
+      if (nuevo.has(id)) nuevo.delete(id); else nuevo.add(id);
+      return nuevo;
+    });
+  };
   const [vacantes, setVacantes] = useState([]);
   const [alertasRama, setAlertasRama] = useState([]);
   const [ranking, setRanking] = useState([]);
@@ -1327,6 +1354,35 @@ export default function Estructura() {
   const [personaFichaId, setPersonaFichaId] = useState(null);
   const [fichaPersona, setFichaPersona] = useState(null);
   const [cargandoFichaPersona, setCargandoFichaPersona] = useState(false);
+  // 🆕 Detector de estructura sin responsable / responsable sin estructura
+  const [detector, setDetector] = useState(null);
+  const [asignandoId, setAsignandoId] = useState(null);
+  const [formAsignar, setFormAsignar] = useState({ territorio_tipo: 'seccion', territorio_id: '' });
+  const [duplicidad, setDuplicidad] = useState(null);
+  const cargarDetector = () => {
+    api.get('/estructura/detector-responsables').then((r) => setDetector(r.data.data)).catch(() => setDetector(null));
+    api.get('/estructura/detector-duplicidad').then((r) => setDuplicidad(r.data.data)).catch(() => setDuplicidad(null));
+  };
+  useEffect(() => { if (vista === 'detector-responsables') cargarDetector(); }, [vista]);
+  // 🆕 Histórico de asignaciones — toda la campaña
+  const [historico, setHistorico] = useState(null);
+  useEffect(() => { if (vista === 'historico') api.get('/estructura/historial-completo').then((r) => setHistorico(r.data.data)).catch(() => setHistorico([])); }, [vista]);
+  // 🆕 Ficha de Estructura — a nivel municipio
+  const [municipiosLista, setMunicipiosLista] = useState([]);
+  const [municipioSeleccionado, setMunicipioSeleccionado] = useState('');
+  const [fichaEstructura, setFichaEstructura] = useState(null);
+  useEffect(() => { if (vista === 'ficha-estructura') api.get('/geo/municipios/29').then((r) => setMunicipiosLista(r.data.data)).catch(() => setMunicipiosLista([])); }, [vista]);
+  useEffect(() => {
+    if (!municipioSeleccionado) { setFichaEstructura(null); return; }
+    api.get(`/estructura/ficha-estructura/${municipioSeleccionado}`).then((r) => setFichaEstructura(r.data.data)).catch(() => setFichaEstructura(null));
+  }, [municipioSeleccionado]);
+  const confirmarAsignacion = async (usuarioId) => {
+    if (!formAsignar.territorio_id) return;
+    await api.patch(`/estructura/${usuarioId}/asignar-territorio`, formAsignar);
+    setAsignandoId(null);
+    setFormAsignar({ territorio_tipo: 'seccion', territorio_id: '' });
+    cargarDetector();
+  };
   const verFichaPersona = async (id) => {
     setPersonaFichaId(id);
     setCargandoFichaPersona(true);
@@ -1408,6 +1464,23 @@ export default function Estructura() {
     );
   }
   const raiz = miembros.filter((m) => !m.parent_id);
+
+  // 🆕 Al buscar, expandir automáticamente el camino hasta cada
+  // coincidencia — de otro modo un resultado podría quedar oculto
+  // dentro de una rama contraída, y parecería que "no existe".
+  useEffect(() => {
+    if (!busqueda) return;
+    const coincidencias = miembros.filter((m) => m.nombre.toLowerCase().includes(busqueda.toLowerCase()) || m.puesto?.toLowerCase().includes(busqueda.toLowerCase()));
+    const idsAExpandir = new Set();
+    coincidencias.forEach((m) => {
+      let actual = m;
+      while (actual?.parent_id) {
+        idsAExpandir.add(actual.parent_id);
+        actual = miembros.find((x) => x.id === actual.parent_id);
+      }
+    });
+    if (idsAExpandir.size > 0) setNodosExpandidos((prev) => new Set([...prev, ...idsAExpandir]));
+  }, [busqueda, miembros]);
   return (
     <div className="min-h-screen bg-slate-950 p-4 md:p-8">
       <div className="max-w-7xl mx-auto space-y-5">
@@ -1462,6 +1535,28 @@ export default function Estructura() {
             ))}
           </div>
         )}
+
+        {/* 🆕 Panel de Salud de la Estructura — 6 indicadores por
+            separado, cada uno con su fórmula exacta. Nunca se combinan
+            en un solo puntaje (la skill lo prohíbe si las reglas de
+            combinación no están formalmente definidas). */}
+        {salud?.panel_salud && (
+          <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+            <h3 className="text-xs font-bold text-slate-400 uppercase mb-3">📊 Panel de Salud de la Estructura</h3>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+              {salud.panel_salud.map((ind) => (
+                <div key={ind.indicador} className="bg-slate-800/40 rounded-lg p-3">
+                  <div className="text-[9px] text-slate-500 uppercase font-bold">{ind.indicador}</div>
+                  <div className={`text-xl font-black ${ind.esFecha ? 'text-slate-300 text-sm' : ind.esConteo ? (ind.valor > 0 ? 'text-red-400' : 'text-emerald-400') : ind.valor >= 70 ? 'text-emerald-400' : ind.valor >= 40 ? 'text-amber-400' : 'text-red-400'}`}>
+                    {ind.esFecha || ind.esConteo ? ind.valor : `${ind.valor}%`}
+                  </div>
+                  <p className="text-[9px] text-slate-600 mt-1">📎 {ind.formula}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {alertasRama.length > 0 && (
           <div className="space-y-1.5">
             {alertasRama.map((a) => (
@@ -1482,6 +1577,9 @@ export default function Estructura() {
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <div className="flex gap-2 flex-wrap">
             <button onClick={() => setVista('ficha-persona')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'ficha-persona' ? 'bg-teal-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🔍 Ficha de Persona</button>
+            <button onClick={() => setVista('detector-responsables')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'detector-responsables' ? 'bg-amber-600 text-white' : 'bg-slate-800 text-slate-400'}`}>⚠️ Auditoría de Estructura</button>
+            <button onClick={() => setVista('historico')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'historico' ? 'bg-slate-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🕐 Histórico</button>
+            <button onClick={() => setVista('ficha-estructura')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'ficha-estructura' ? 'bg-teal-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🗂️ Ficha de Estructura</button>
             <button onClick={() => setVista('organigrama')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'organigrama' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🌳 Organigrama</button>
             <button onClick={() => setVista('lista')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'lista' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📋 Lista</button>
             <button onClick={() => setVista('ranking')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'ranking' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🏆 Ranking</button>
@@ -1660,10 +1758,199 @@ export default function Estructura() {
             </div>
           )}
 
+          {vista === 'detector-responsables' && detector && (
+            <div className="space-y-4">
+              <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 text-[11px] text-amber-300">
+                ⚠️ 2 revisiones distintas: territorio con actividad real sin nadie asignado, y personas con rol de coordinador que no tienen territorio — nunca se confunden entre sí.
+              </div>
+
+              <div>
+                <h3 className="text-xs font-bold text-slate-400 uppercase mb-2">🗺️ Estructura sin responsable — {detector.estructura_sin_responsable.length}</h3>
+                {detector.estructura_sin_responsable.length === 0 ? (
+                  <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-3 text-center text-xs text-emerald-400 font-bold">✅ Todas las secciones con actividad tienen alguien asignado</div>
+                ) : (
+                  <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden">
+                    <table className="w-full text-xs">
+                      <thead className="bg-slate-800/60">
+                        <tr><th className="text-left px-3 py-2 text-slate-400 font-bold">Sección</th><th className="text-left px-3 py-2 text-slate-400 font-bold">Municipio</th><th className="text-center px-3 py-2 text-slate-400 font-bold">Casillas</th></tr>
+                      </thead>
+                      <tbody>
+                        {detector.estructura_sin_responsable.map((s) => (
+                          <tr key={s.numero} className="border-t border-slate-800">
+                            <td className="px-3 py-2 text-white font-bold">{String(s.numero).padStart(3, '0')}</td>
+                            <td className="px-3 py-2 text-slate-300">{s.municipio}</td>
+                            <td className="px-3 py-2 text-center text-slate-400">{s.total_casillas}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <h3 className="text-xs font-bold text-slate-400 uppercase mb-2">👤 Responsable sin estructura — {detector.responsable_sin_estructura.length}</h3>
+                {detector.responsable_sin_estructura.length === 0 ? (
+                  <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-3 text-center text-xs text-emerald-400 font-bold">✅ Todos los coordinadores tienen territorio asignado</div>
+                ) : (
+                  <div className="space-y-2">
+                    {detector.responsable_sin_estructura.map((r) => (
+                      <div key={r.id} className="bg-slate-900/60 border border-slate-800 rounded-xl p-3">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-sm text-white font-bold">{r.nombre}</p>
+                            <p className="text-[10px] text-slate-500">{r.rol}{r.puesto ? ` · ${r.puesto}` : ''}</p>
+                          </div>
+                          {asignandoId !== r.id && (
+                            <button onClick={() => setAsignandoId(r.id)} className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-[11px] font-bold">Asignar</button>
+                          )}
+                        </div>
+                        {asignandoId === r.id && (
+                          <div className="mt-2 flex gap-2 items-center">
+                            <select value={formAsignar.territorio_tipo} onChange={(e) => setFormAsignar({ ...formAsignar, territorio_tipo: e.target.value })}
+                              className="px-2 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs">
+                              <option value="seccion">Sección</option>
+                              <option value="municipio">Municipio</option>
+                              <option value="distrito_local">Distrito Local</option>
+                              <option value="distrito_federal">Distrito Federal</option>
+                            </select>
+                            <input type="number" placeholder="Número/ID" value={formAsignar.territorio_id} onChange={(e) => setFormAsignar({ ...formAsignar, territorio_id: e.target.value })}
+                              className="w-28 px-2 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs" />
+                            <button onClick={() => confirmarAsignacion(r.id)} className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-[11px] font-bold">✓</button>
+                            <button onClick={() => setAsignandoId(null)} className="px-2 py-1.5 rounded-lg bg-slate-700 text-slate-300 text-[11px]">✕</button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* 🆕 Detector de Duplicidad (skill sección 13) —
+                  nunca borra nada solo, solo clasifica para revisar. */}
+              {duplicidad && (
+                <div className="space-y-3 border-t border-slate-800 pt-3">
+                  <div>
+                    <h3 className="text-xs font-bold text-slate-400 uppercase mb-2">🔁 Mismo territorio, mismo rol — {duplicidad.mismo_territorio_mismo_rol.length}</h3>
+                    {duplicidad.mismo_territorio_mismo_rol.length === 0 ? (
+                      <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-3 text-center text-xs text-emerald-400 font-bold">✅ Sin duplicidad de territorio</div>
+                    ) : duplicidad.mismo_territorio_mismo_rol.map((d, i) => (
+                      <div key={i} className="bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2 mb-1.5">
+                        <p className="text-xs text-amber-300 font-bold">🟡 REVISIÓN — {d.rol} en {d.territorio_tipo} {d.territorio_id}</p>
+                        <p className="text-[11px] text-slate-400">{d.nombres.join(', ')} — puede ser co-coordinación intencional, o un duplicado real</p>
+                      </div>
+                    ))}
+                  </div>
+                  <div>
+                    <h3 className="text-xs font-bold text-slate-400 uppercase mb-2">📞 Mismo teléfono, personas distintas — {duplicidad.telefono_duplicado.length}</h3>
+                    {duplicidad.telefono_duplicado.length === 0 ? (
+                      <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-3 text-center text-xs text-emerald-400 font-bold">✅ Sin teléfonos duplicados</div>
+                    ) : duplicidad.telefono_duplicado.map((d, i) => (
+                      <div key={i} className="bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2 mb-1.5">
+                        <p className="text-xs text-red-300 font-bold">🔴 ADVERTENCIA — {d.telefono}</p>
+                        <p className="text-[11px] text-slate-400">{d.nombres.join(', ')}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {vista === 'historico' && (
+            <div className="space-y-2">
+              <div className="bg-slate-500/10 border border-slate-500/30 rounded-xl p-3 text-[11px] text-slate-400">
+                🕐 Todo cambio de responsable o territorio queda aquí — quién cambió, cuándo, y quién hizo el cambio. Nunca se borra.
+              </div>
+              {!historico ? (
+                <div className="text-center text-slate-500 py-10 text-sm">⏳ Cargando...</div>
+              ) : historico.length === 0 ? (
+                <div className="text-center text-slate-500 py-10 text-sm">Sin cambios registrados todavía</div>
+              ) : historico.map((h) => (
+                <div key={h.id} className="bg-slate-900/60 border border-slate-800 rounded-xl p-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm text-white font-bold">{h.nombre_afectado}</p>
+                    <span className="text-[9px] text-slate-500">{new Date(h.creado_en).toLocaleString('es-MX')}</span>
+                  </div>
+                  {(h.parent_anterior || h.parent_nuevo) && (
+                    <p className="text-xs text-slate-400 mt-1">
+                      Jefe directo: {h.nombre_anterior || 'ninguno'} → <span className="text-emerald-400">{h.nombre_nuevo || 'ninguno'}</span>
+                    </p>
+                  )}
+                  {h.motivo && <p className="text-[11px] text-slate-500 mt-1">📝 {h.motivo}</p>}
+                  <p className="text-[9px] text-slate-600 mt-1">Cambiado por: {h.nombre_cambiado_por || 'Sistema'}</p>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {vista === 'ficha-estructura' && (
+            <div className="space-y-3">
+              <select value={municipioSeleccionado} onChange={(e) => setMunicipioSeleccionado(e.target.value)}
+                className="w-full px-3 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-white text-sm">
+                <option value="">Elige un municipio...</option>
+                {municipiosLista.map((m) => <option key={m.id} value={m.id}>{m.nombre}</option>)}
+              </select>
+
+              {fichaEstructura && (
+                <div className="space-y-3">
+                  <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+                    <div className="flex items-center justify-between">
+                      <h2 className="text-lg font-black text-white">{fichaEstructura.municipio.nombre}</h2>
+                      <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${fichaEstructura.estado === 'ACTIVA' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}`}>{fichaEstructura.estado}</span>
+                    </div>
+                  </div>
+
+                  <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+                    <h3 className="text-xs font-bold text-slate-400 uppercase mb-2">👤 Responsable</h3>
+                    {fichaEstructura.responsable ? (
+                      <p className="text-sm text-white font-bold">{fichaEstructura.responsable.nombre} <span className="text-slate-500 font-normal">— {fichaEstructura.responsable.rol}</span></p>
+                    ) : (
+                      <p className="text-xs text-red-400">Sin responsable directo asignado a este municipio</p>
+                    )}
+                  </div>
+
+                  <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+                    <h3 className="text-xs font-bold text-slate-400 uppercase mb-2">👥 Integrantes Autorizados — {fichaEstructura.integrantes.length}</h3>
+                    {fichaEstructura.integrantes.length === 0 ? (
+                      <p className="text-[11px] text-slate-500">Sin nadie asignado a secciones de este municipio</p>
+                    ) : fichaEstructura.integrantes.map((i) => (
+                      <p key={i.id} className="text-xs text-slate-300">{i.nombre} — {i.rol}</p>
+                    ))}
+                  </div>
+
+                  <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+                    <h3 className="text-xs font-bold text-slate-400 uppercase mb-1">📈 Actividad (30 días)</h3>
+                    <p className="text-sm text-white font-bold">{fichaEstructura.actividad_30d} promovidos capturados</p>
+                  </div>
+
+                  {fichaEstructura.incidencias.length > 0 && (
+                    <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4">
+                      <h3 className="text-xs font-bold text-red-400 uppercase mb-2">🚨 Incidencias abiertas — {fichaEstructura.incidencias.length}</h3>
+                      {fichaEstructura.incidencias.map((i) => <p key={i.id} className="text-xs text-red-300">{i.tipo} — {i.urgencia}</p>)}
+                    </div>
+                  )}
+
+                  {fichaEstructura.historico.length > 0 && (
+                    <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+                      <h3 className="text-xs font-bold text-slate-400 uppercase mb-2">🕐 Histórico</h3>
+                      {fichaEstructura.historico.map((h, i) => (
+                        <p key={i} className="text-[11px] text-slate-400">{h.motivo} — {new Date(h.creado_en).toLocaleDateString('es-MX')}</p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           {vista === 'organigrama' && (
-            <div className="flex gap-2 items-center">
+            <div className="flex gap-2 items-center flex-wrap">
               <input placeholder="🔍 Buscar por nombre o puesto..." value={busqueda} onChange={(e) => setBusqueda(e.target.value)}
                 className="px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs w-56" />
+              {/* 🆕 Expandir/contraer todo de un jalón */}
+              <button onClick={() => setNodosExpandidos(new Set(miembros.map((m) => m.id)))} className="px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 text-xs font-bold">＋ Expandir todo</button>
+              <button onClick={() => setNodosExpandidos(new Set())} className="px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 text-xs font-bold">－ Contraer todo</button>
               <button onClick={exportarImagen} disabled={exportando} className="px-3 py-1.5 rounded-lg bg-emerald-700/60 text-emerald-300 text-xs font-bold">
                 {exportando ? '⏳...' : '📥 Exportar imagen'}
               </button>
@@ -1677,7 +1964,7 @@ export default function Estructura() {
             <div className="flex gap-8 justify-center min-w-max pb-2">
               {raiz.length === 0 ? (
                 <div className="text-slate-500 text-sm py-10">Agrega tu primer nivel de estructura (reportan directo al Candidato)</div>
-              ) : raiz.map((m) => <NodoOrganigrama key={m.id} miembro={m} hijos={miembros} onClick={setMiembroDetalle} esRaiz busqueda={busqueda} />)}
+              ) : raiz.map((m) => <NodoOrganigrama key={m.id} miembro={m} hijos={miembros} onClick={setMiembroDetalle} esRaiz busqueda={busqueda} expandidos={nodosExpandidos} onToggle={toggleNodo} />)}
             </div>
             <p className="text-center text-[10px] text-slate-600 mt-4">Toca cualquier persona para ver su detalle, código de invitación, cadena, y editar</p>
           </div>
