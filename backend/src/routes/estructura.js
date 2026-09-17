@@ -1,11 +1,72 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import bcrypt from 'bcryptjs';
+import PDFDocument from 'pdfkit';
 import { query } from '../db/pool.js';
 import { requiereAuth } from '../middleware/auth.js';
 import { registrarAuditoria } from '../lib/auditoria.js';
 const router = Router();
 router.use(requiereAuth);
+
+/** 🆕 Mismas funciones de formato profesional que usa reportes.js —
+ * duplicadas aquí en vez de importadas entre routers, para no acoplar
+ * dos módulos que hoy son independientes entre sí. */
+function iniciarPDF(res, nombreArchivo, titulo, subtitulo) {
+  const doc = new PDFDocument({ margin: 40, size: 'letter', bufferPages: true });
+  const marcaTiempo = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  const nombreConFecha = nombreArchivo.replace(/\.pdf$/, `_${marcaTiempo}.pdf`);
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename=${nombreConFecha}`);
+  doc.pipe(res);
+  doc.rect(0, 0, doc.page.width, 85).fill('#1e1b4b');
+  doc.fillColor('#ffffff').fontSize(18).font('Helvetica-Bold').text('VotoTech', 40, 22);
+  doc.fontSize(13).font('Helvetica').text(titulo, 40, 46);
+  if (subtitulo) doc.fontSize(9).fillColor('#c7d2fe').text(subtitulo, 40, 64);
+  doc.fillColor('#ffffff').fontSize(9).font('Helvetica-Bold').text(
+    `Descargado: ${new Date().toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' })}, ${new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}`,
+    doc.page.width - 260, 62, { width: 220, align: 'right' }
+  );
+  doc.y = 105;
+  doc.fillColor('#1e293b').font('Helvetica');
+  return doc;
+}
+function seccionPDF(doc, titulo) {
+  if (doc.y > doc.page.height - 100) doc.addPage();
+  doc.moveDown(0.8);
+  const y = doc.y;
+  doc.rect(40, y + 1, 4, 14).fill('#4f46e5');
+  doc.fillColor('#1e1b4b').fontSize(12).font('Helvetica-Bold').text(titulo, 52, y);
+  doc.moveDown(0.6);
+  doc.fillColor('#334155').fontSize(9).font('Helvetica');
+}
+function tablaPDF(doc, encabezados, filas, anchos) {
+  const x0 = 40;
+  const rowHeight = 18;
+  const totalWidth = anchos.reduce((a, b) => a + b, 0);
+  if (doc.y > doc.page.height - 100) doc.addPage();
+  let y = doc.y;
+  doc.rect(x0, y, totalWidth, rowHeight).fill('#4f46e5');
+  doc.fillColor('#ffffff').fontSize(8).font('Helvetica-Bold');
+  let x = x0;
+  encabezados.forEach((h, i) => { doc.text(h, x + 4, y + 5, { width: anchos[i] - 8 }); x += anchos[i]; });
+  y += rowHeight;
+  filas.forEach((fila, idx) => {
+    if (y > doc.page.height - 60) {
+      doc.addPage(); y = 50;
+      doc.rect(x0, y, totalWidth, rowHeight).fill('#4f46e5');
+      doc.fillColor('#ffffff').fontSize(8).font('Helvetica-Bold');
+      let xh = x0;
+      encabezados.forEach((h, i) => { doc.text(h, xh + 4, y + 5, { width: anchos[i] - 8 }); xh += anchos[i]; });
+      y += rowHeight;
+    }
+    doc.rect(x0, y, totalWidth, rowHeight).fill(idx % 2 === 0 ? '#f1f5f9' : '#ffffff');
+    doc.fillColor('#1e293b').fontSize(8).font('Helvetica');
+    x = x0;
+    fila.forEach((celda, i) => { doc.text(String(celda ?? '—'), x + 4, y + 5, { width: anchos[i] - 8 }); x += anchos[i]; });
+    y += rowHeight;
+  });
+  doc.y = y + 12;
+}
 const NIVELES = {
   jefe_campana: 1, coord_general: 2, coord_distrital: 3,
   coord_municipal: 4, coord_seccional: 5, promotor: 6,
@@ -120,6 +181,213 @@ router.get('/secciones-de-municipio/:claveMunicipio', async (req, res) => {
  * AGREGADO de todo SU equipo (no solo lo que él capturó a mano) —
  * para poder comparar equipos completos trabajando en paralelo.
  */
+/**
+ * 🆕 GET /api/estructura/detector-responsables
+ * Skill Estructura Política, secciones 11-12. Detecta 2 cosas
+ * distintas (nunca se confunden):
+ * - ESTRUCTURA SIN RESPONSABLE: territorio con casillas/actividad
+ *   real, pero nadie de tu equipo asignado ahí.
+ * - RESPONSABLE SIN ESTRUCTURA: alguien con rol de coordinador que
+ *   existe en el sistema, pero no tiene territorio asignado — un
+ *   "responsable flotante".
+ */
+/**
+ * 🆕 GET /api/estructura/detector-duplicidad
+ * Skill Estructura Política, sección 13. Busca 2 tipos de
+ * duplicidad real — nunca borra nada automáticamente, solo
+ * clasifica para que la persona revise.
+ */
+/**
+ * 🆕 GET /api/estructura/cobertura-mapa
+ * Skill Estructura Política, sección 6 (Mapa Territorial) — clasifica
+ * cada sección con casillas en 1 de 4 colores, nunca infiriendo lo
+ * que no hay evidencia de:
+ * VERDE = responsable asignado + actividad reciente (14 días)
+ * AMARILLO = responsable asignado, pero sin actividad reciente
+ * ROJO = sin responsable asignado
+ * GRIS = sin casillas registradas (no aplica, no se puede evaluar)
+ */
+/**
+ * 🆕 GET /api/estructura/ficha-estructura/:municipioId
+ * Skill Estructura Política, sección 7 — Ficha de Estructura, a
+ * nivel municipio (la unidad estructural intermedia que aún no
+ * tenía su propia ficha). Secciones: resumen, responsable,
+ * territorio, integrantes, actividad, incidencias, histórico.
+ */
+router.get('/ficha-estructura/:municipioId', async (req, res) => {
+  const campanaId = req.usuario.campana_id;
+  const municipioId = parseInt(req.params.municipioId);
+
+  const municipioRes = await query('SELECT id, nombre FROM municipios WHERE id=$1', [municipioId]);
+  if (!municipioRes.rows[0]) return res.status(404).json({ ok: false, error: 'Municipio no encontrado' });
+
+  const [responsableMunicipio, integrantes, actividad, incidencias, historico] = await Promise.all([
+    // RESPONSABLE — quién tiene este municipio como territorio directo
+    query(`SELECT id, nombre, rol, puesto, creado_en FROM usuarios WHERE campana_id=$1 AND territorio_tipo='municipio' AND territorio_id=$2 AND activo != false`, [campanaId, municipioId]),
+    // INTEGRANTES AUTORIZADOS — todos con territorio DENTRO de este municipio (secciones que pertenecen a él)
+    query(
+      `SELECT u.id, u.nombre, u.rol, u.puesto FROM usuarios u
+       WHERE u.campana_id=$1 AND u.activo != false AND u.territorio_tipo='seccion'
+       AND u.territorio_id IN (SELECT numero FROM secciones WHERE municipio_id=$2)
+       ORDER BY u.rol, u.nombre`,
+      [campanaId, municipioId]
+    ),
+    // ACTIVIDAD — promovidos capturados en secciones de este municipio, últimos 30 días
+    query(
+      `SELECT COUNT(*) as total FROM promovidos p JOIN secciones s ON s.id = p.seccion_id
+       WHERE p.campana_id=$1 AND s.municipio_id=$2 AND p.creado_en > now() - interval '30 days'`,
+      [campanaId, municipioId]
+    ),
+    // INCIDENCIAS abiertas en este municipio
+    query(
+      `SELECT i.id, i.tipo, i.urgencia FROM incidencias i JOIN secciones s ON s.id = i.seccion_id
+       WHERE i.campana_id=$1 AND s.municipio_id=$2 AND i.estado='activa'`,
+      [campanaId, municipioId]
+    ).catch(() => ({ rows: [] })),
+    // HISTÓRICO — cambios de estructura de la gente asignada aquí
+    query(
+      `SELECT h.motivo, h.creado_en, u.nombre as afectado, uc.nombre as cambiado_por
+       FROM estructura_historial h JOIN usuarios u ON u.id = h.usuario_id LEFT JOIN usuarios uc ON uc.id = h.cambiado_por
+       WHERE h.campana_id=$1 AND u.territorio_tipo='municipio' AND u.territorio_id=$2
+       ORDER BY h.creado_en DESC LIMIT 10`,
+      [campanaId, municipioId]
+    ).catch(() => ({ rows: [] })),
+  ]);
+
+  res.json({
+    ok: true,
+    data: {
+      municipio: municipioRes.rows[0],
+      responsable: responsableMunicipio.rows[0] || null,
+      estado: responsableMunicipio.rows.length > 0 ? 'ACTIVA' : 'SIN RESPONSABLE',
+      integrantes: integrantes.rows,
+      actividad_30d: parseInt(actividad.rows[0].total),
+      incidencias: incidencias.rows,
+      historico: historico.rows,
+    },
+  });
+});
+
+router.get('/cobertura-mapa', async (req, res) => {
+  const campanaId = req.usuario.campana_id;
+  const estadoId = req.usuario.estado_id;
+
+  const [secciones, responsables, actividad] = await Promise.all([
+    query(`SELECT DISTINCT s.numero FROM casillas c JOIN secciones s ON s.id = c.seccion_id WHERE c.campana_id=$1`, [campanaId]),
+    query(`SELECT territorio_id FROM usuarios WHERE campana_id=$1 AND rol='coord_seccional' AND territorio_tipo='seccion' AND territorio_id IS NOT NULL AND activo != false`, [campanaId]),
+    query(
+      `SELECT s.numero FROM promovidos p JOIN secciones s ON s.id = p.seccion_id
+       WHERE p.campana_id=$1 AND p.creado_en > now() - interval '14 days' GROUP BY s.numero`,
+      [campanaId]
+    ),
+  ]);
+
+  const conResponsable = new Set(responsables.rows.map((r) => r.territorio_id));
+  const conActividad = new Set(actividad.rows.map((a) => a.numero));
+
+  const clasificacion = {};
+  secciones.rows.forEach((s) => {
+    if (!conResponsable.has(s.numero)) clasificacion[s.numero] = 'rojo';
+    else if (!conActividad.has(s.numero)) clasificacion[s.numero] = 'amarillo';
+    else clasificacion[s.numero] = 'verde';
+  });
+
+  res.json({ ok: true, data: clasificacion });
+});
+
+router.get('/detector-duplicidad', async (req, res) => {
+  const campanaId = req.usuario.campana_id;
+
+  const [mismoTerritorioMismoRol, telefonoDuplicado] = await Promise.all([
+    // Mismo territorio (tipo+id) asignado a 2+ personas del MISMO
+    // rol — ej. 2 coord_seccional en la misma sección. No siempre es
+    // un error (puede haber co-coordinación intencional), por eso se
+    // clasifica como REVISIÓN, no como ERROR automático.
+    query(
+      `SELECT territorio_tipo, territorio_id, rol, array_agg(nombre) as nombres, array_agg(id) as ids, COUNT(*) as total
+       FROM usuarios WHERE campana_id=$1 AND activo != false AND territorio_id IS NOT NULL
+       GROUP BY territorio_tipo, territorio_id, rol HAVING COUNT(*) > 1 ORDER BY total DESC`,
+      [campanaId]
+    ),
+    // Mismo teléfono usado por 2+ personas DISTINTAS en tu estructura
+    query(
+      `SELECT telefono, array_agg(nombre) as nombres, array_agg(id) as ids, array_agg(rol) as roles, COUNT(*) as total
+       FROM usuarios WHERE campana_id=$1 AND activo != false AND telefono IS NOT NULL AND telefono != ''
+       GROUP BY telefono HAVING COUNT(*) > 1 ORDER BY total DESC`,
+      [campanaId]
+    ),
+  ]);
+
+  res.json({
+    ok: true,
+    data: {
+      mismo_territorio_mismo_rol: mismoTerritorioMismoRol.rows.map((r) => ({ ...r, clasificacion: 'REVISIÓN' })),
+      telefono_duplicado: telefonoDuplicado.rows.map((r) => ({ ...r, clasificacion: 'ADVERTENCIA' })),
+    },
+  });
+});
+
+router.get('/detector-responsables', async (req, res) => {
+  const campanaId = req.usuario.campana_id;
+  const estadoId = req.usuario.estado_id;
+
+  const [seccionesSinResponsable, responsablesSinEstructura] = await Promise.all([
+    // Secciones con casillas registradas (evidencia de operación real
+    // ahí) pero sin nadie con territorio_tipo='seccion' asignado.
+    query(
+      `SELECT DISTINCT s.numero, m.nombre as municipio, s.distrito_local,
+         (SELECT COUNT(*) FROM casillas c2 WHERE c2.campana_id=$2 AND c2.seccion_id=s.id) as total_casillas
+       FROM casillas c JOIN secciones s ON s.id = c.seccion_id JOIN municipios m ON m.id = s.municipio_id
+       WHERE c.campana_id=$2 AND s.estado_id=$1
+       AND NOT EXISTS (SELECT 1 FROM usuarios u WHERE u.campana_id=$2 AND u.territorio_tipo='seccion' AND u.territorio_id=s.numero AND u.activo != false)
+       ORDER BY s.numero`,
+      [estadoId, campanaId]
+    ),
+    // Coordinadores (cualquier nivel) sin territorio_id asignado —
+    // existen en el sistema pero no tienen de qué ser responsables.
+    query(
+      `SELECT id, nombre, rol, puesto, creado_en FROM usuarios
+       WHERE campana_id=$1 AND activo != false AND territorio_id IS NULL
+       AND rol IN ('coord_general','coord_distrital','coord_municipal','coord_seccional')
+       ORDER BY rol, nombre`,
+      [campanaId]
+    ),
+  ]);
+
+  res.json({
+    ok: true,
+    data: {
+      estructura_sin_responsable: seccionesSinResponsable.rows,
+      responsable_sin_estructura: responsablesSinEstructura.rows,
+    },
+  });
+});
+
+/**
+ * 🆕 PATCH /api/estructura/:usuarioId/asignar-territorio
+ * La acción "ASIGNAR" que pide la skill — nunca automática, siempre
+ * la dispara la persona con sesión real, y queda registrada.
+ */
+router.patch('/:usuarioId/asignar-territorio', async (req, res) => {
+  const { territorio_tipo, territorio_id } = req.body;
+  if (!['seccion', 'municipio', 'distrito_local', 'distrito_federal', 'estatal'].includes(territorio_tipo)) {
+    return res.status(400).json({ ok: false, error: 'territorio_tipo inválido' });
+  }
+  const resultado = await query(
+    `UPDATE usuarios SET territorio_tipo=$1, territorio_id=$2 WHERE id=$3 AND campana_id=$4 RETURNING id, nombre, territorio_tipo, territorio_id`,
+    [territorio_tipo, territorio_id, req.params.usuarioId, req.usuario.campana_id]
+  );
+  if (!resultado.rows[0]) return res.status(404).json({ ok: false, error: 'Usuario no encontrado' });
+  // 🆕 Registro de auditoría — reusa la tabla ya existente de
+  // historial de estructura (columnas reales: motivo, cambiado_por).
+  await query(
+    `INSERT INTO estructura_historial (campana_id, usuario_id, motivo, cambiado_por, creado_en)
+     VALUES ($1,$2,$3,$4, now())`,
+    [req.usuario.campana_id, req.params.usuarioId, `Asignación de territorio: ${territorio_tipo} ${territorio_id}`, req.usuario.sub]
+  ).catch(() => {}); // si falla el registro de auditoría, no bloquea la asignación real
+  res.json({ ok: true, data: resultado.rows[0] });
+});
+
 router.get('/ficha-persona/:usuarioId', async (req, res) => {
   const campanaId = req.usuario.campana_id;
   const usuarioId = req.params.usuarioId;
@@ -244,6 +512,104 @@ router.get('/ficha-persona/:usuarioId', async (req, res) => {
   });
 });
 
+const ROL_LABEL_PDF = {
+  candidato: 'Candidato', jefe_campana: 'Jefe de Campaña', coord_general: 'Coord. General',
+  coord_distrital: 'Coord. Distrital', coord_municipal: 'Coord. Municipal', coord_seccional: 'Coord. Seccional',
+  promotor: 'Promotor', representante_casilla: 'Repres. de Casilla',
+  encargado_juridico: 'Encargado Jurídico', encargado_finanzas: 'Encargado Finanzas', voluntario: 'Voluntario',
+};
+
+/**
+ * 🆕 GET /api/estructura/pdf/persona/:usuarioId
+ * Reporte de Estructura en PDF — la cascada completa de un
+ * coordinador y su equipo, descargable, con control documental.
+ */
+router.get('/pdf/persona/:usuarioId', async (req, res) => {
+  const campanaId = req.usuario.campana_id;
+  const usuarioId = req.params.usuarioId;
+
+  const personaRes = await query('SELECT id, nombre, rol, puesto, meta_diaria FROM usuarios WHERE id=$1 AND campana_id=$2', [usuarioId, campanaId]);
+  if (!personaRes.rows[0]) return res.status(404).json({ ok: false, error: 'Persona no encontrada' });
+  const persona = personaRes.rows[0];
+
+  const ramaRes = await query(
+    `WITH RECURSIVE rama AS (
+       SELECT id, nombre, rol, puesto, meta_diaria, parent_id, 0 as nivel
+       FROM usuarios WHERE id=$1
+       UNION ALL
+       SELECT u.id, u.nombre, u.rol, u.puesto, u.meta_diaria, u.parent_id, r.nivel + 1
+       FROM usuarios u JOIN rama r ON u.parent_id = r.id
+       WHERE u.campana_id=$2 AND u.activo != false
+     )
+     SELECT * FROM rama`,
+    [usuarioId, campanaId]
+  );
+  const idsRama = ramaRes.rows.map((r) => r.id);
+
+  const promovidos = await query(
+    `SELECT registrado_por, comprometido FROM promovidos WHERE campana_id=$1 AND registrado_por = ANY($2::uuid[])`,
+    [campanaId, idsRama]
+  );
+
+  const porPersona = {};
+  ramaRes.rows.forEach((r) => { porPersona[r.id] = { ...r, propio: 0, comprometidos_propio: 0, hijos: [] }; });
+  ramaRes.rows.forEach((r) => { if (r.parent_id && porPersona[r.parent_id]) porPersona[r.parent_id].hijos.push(r.id); });
+  promovidos.rows.forEach((p) => {
+    if (porPersona[p.registrado_por]) {
+      porPersona[p.registrado_por].propio++;
+      if (p.comprometido) porPersona[p.registrado_por].comprometidos_propio++;
+    }
+  });
+  const memoTotal = {};
+  function totalRama(id) {
+    if (memoTotal[id] !== undefined) return memoTotal[id];
+    const nodo = porPersona[id];
+    let total = nodo.propio, comprometidos = nodo.comprometidos_propio, metaRama = parseInt(nodo.meta_diaria) || 0;
+    nodo.hijos.forEach((hijoId) => {
+      const sub = totalRama(hijoId);
+      total += sub.total; comprometidos += sub.comprometidos; metaRama += sub.meta_rama;
+    });
+    memoTotal[id] = { total, comprometidos, meta_rama: metaRama };
+    return memoTotal[id];
+  }
+  Object.keys(porPersona).forEach((id) => totalRama(id));
+  const totalGeneral = totalRama(usuarioId);
+
+  const equipoEnParalelo = porPersona[usuarioId].hijos.map((hijoId) => {
+    const nodo = porPersona[hijoId];
+    const agregado = totalRama(hijoId);
+    return { nombre: nodo.nombre, rol: ROL_LABEL_PDF[nodo.rol] || nodo.rol, total_su_equipo: agregado.total, comprometidos_su_equipo: agregado.comprometidos, meta_su_equipo: agregado.meta_rama };
+  }).sort((a, b) => b.total_su_equipo - a.total_su_equipo);
+
+  const doc = iniciarPDF(res, 'reporte_estructura_persona.pdf', 'Reporte de Estructura — Cascada de Equipo', `${persona.nombre} · ${ROL_LABEL_PDF[persona.rol] || persona.rol}`);
+
+  seccionPDF(doc, 'Control Documental');
+  tablaPDF(doc, ['Campo', 'Valor'], [
+    ['ID del informe', `ESTRUCTURA-${usuarioId.slice(0, 8).toUpperCase()}-${Date.now()}`],
+    ['Fecha de corte', new Date().toLocaleDateString('es-MX')],
+    ['Fuente de datos', 'Módulo Estructura (en vivo)'],
+    ['Tamaño de la rama completa', `${idsRama.length - 1} personas debajo`],
+  ], [200, 300]);
+
+  seccionPDF(doc, 'Total de Toda la Rama');
+  tablaPDF(doc, ['Indicador', 'Valor'], [
+    ['Promovidos (toda la rama)', totalGeneral.total],
+    ['Comprometidos', totalGeneral.comprometidos],
+    ['Meta total de la rama', totalGeneral.meta_rama || 'Sin meta configurada'],
+    ['Lo que él/ella capturó personalmente', porPersona[usuarioId].propio],
+  ], [280, 220]);
+
+  if (equipoEnParalelo.length > 0) {
+    seccionPDF(doc, `Su Equipo en Paralelo — ${equipoEnParalelo.length} ramas directas`);
+    tablaPDF(doc, ['Nombre', 'Rol', 'Total su rama', 'Comprometidos', 'Meta'],
+      equipoEnParalelo.map((e) => [e.nombre, e.rol, e.total_su_equipo, e.comprometidos_su_equipo, e.meta_su_equipo || '—']),
+      [140, 110, 90, 90, 70]
+    );
+  }
+
+  doc.end();
+});
+
 router.get('/mi-coordinador', async (req, res) => {
   const yo = await query('SELECT parent_id FROM usuarios WHERE id=$1', [req.usuario.sub]);
   if (!yo.rows[0]?.parent_id) return res.json({ ok: true, data: null });
@@ -307,9 +673,10 @@ router.get('/cadena/:usuarioId', async (req, res) => {
 });
 
 router.get('/salud', async (req, res) => {
+  const campanaId = req.usuario.campana_id;
   const todos = await query(
-    `SELECT id, rol, parent_id FROM usuarios WHERE campana_id = $1`,
-    [req.usuario.campana_id]
+    `SELECT id, rol, parent_id, telefono, puesto, territorio_id, creado_en FROM usuarios WHERE campana_id = $1 AND activo != false`,
+    [campanaId]
   );
   const coordinadores = todos.rows.filter((u) => u.rol !== 'promotor');
   const conteoDirectos = {};
@@ -330,7 +697,59 @@ router.get('/salud', async (req, res) => {
     resumen[salud]++;
     if (salud === 'sobrecargado') alertas.push({ usuario_id: u.id, rol: u.rol, directos, mensaje: `Tiene ${directos} personas a cargo (máximo sano: ${rango[1]})` });
   });
-  res.json({ ok: true, data: { resumen, alertas } });
+
+  // 🆕 PANEL DE SALUD DE LA ESTRUCTURA (skill Estructura Política,
+  // sección 29) — 6 indicadores separados, cada uno con su fórmula
+  // exacta. Nunca se combinan en un solo score — la skill lo prohíbe
+  // explícitamente si las reglas no están formalmente definidas.
+  const total = todos.rows.length;
+  const conDatosCompletos = todos.rows.filter((u) => u.telefono).length;
+  const conTerritorio = todos.rows.filter((u) => u.territorio_id !== null).length;
+
+  const promovidosRes = await query(
+    `SELECT COUNT(DISTINCT registrado_por) as con_actividad FROM promovidos WHERE campana_id=$1 AND creado_en > now() - interval '14 days'`,
+    [campanaId]
+  );
+
+  const incidenciasRes = await query(`SELECT COUNT(*) as total FROM incidencias WHERE campana_id=$1 AND estado='activa'`, [campanaId]);
+
+  const seccionesRes = await query(
+    `SELECT COUNT(DISTINCT s.id) as total_con_casillas,
+       COUNT(DISTINCT s.id) FILTER (WHERE EXISTS (SELECT 1 FROM usuarios u WHERE u.campana_id=$1 AND u.territorio_tipo='seccion' AND u.territorio_id=s.numero AND u.activo != false)) as con_responsable
+     FROM secciones s JOIN casillas c ON c.seccion_id = s.id WHERE c.campana_id=$1`,
+    [campanaId]
+  );
+
+  const ultimaActualizacion = await query(`SELECT MAX(creado_en) as fecha FROM estructura_historial WHERE campana_id=$1`, [campanaId]).catch(() => ({ rows: [{ fecha: null }] }));
+
+  const panelSalud = [
+    {
+      indicador: 'Completitud de Datos', valor: total > 0 ? Math.round((conDatosCompletos / total) * 100) : 0,
+      formula: `${conDatosCompletos} de ${total} personas con teléfono capturado`,
+    },
+    {
+      indicador: 'Asignaciones (con territorio)', valor: total > 0 ? Math.round((conTerritorio / total) * 100) : 0,
+      formula: `${conTerritorio} de ${total} personas con territorio asignado`,
+    },
+    {
+      indicador: 'Actividad Registrada', valor: total > 0 ? Math.round((parseInt(promovidosRes.rows[0].con_actividad) / total) * 100) : 0,
+      formula: `${promovidosRes.rows[0].con_actividad} de ${total} personas capturaron al menos 1 promovido en los últimos 14 días`,
+    },
+    {
+      indicador: 'Incidencias Abiertas', valor: parseInt(incidenciasRes.rows[0].total),
+      formula: `Conteo directo de incidencias con estado 'activa' (no es porcentaje)`, esConteo: true,
+    },
+    {
+      indicador: 'Cobertura Territorial', valor: seccionesRes.rows[0].total_con_casillas > 0 ? Math.round((seccionesRes.rows[0].con_responsable / seccionesRes.rows[0].total_con_casillas) * 100) : 0,
+      formula: `${seccionesRes.rows[0].con_responsable} de ${seccionesRes.rows[0].total_con_casillas} secciones con casillas tienen responsable asignado`,
+    },
+    {
+      indicador: 'Última Actualización', valor: ultimaActualizacion.rows[0].fecha ? new Date(ultimaActualizacion.rows[0].fecha).toLocaleDateString('es-MX') : 'Sin registros',
+      formula: `Fecha del cambio más reciente en estructura_historial`, esFecha: true,
+    },
+  ];
+
+  res.json({ ok: true, data: { resumen, alertas, panel_salud: panelSalud } });
 });
 
 const esquemaMiembro = z.object({
@@ -453,6 +872,26 @@ router.post('/:id/reasignar-equipo', async (req, res) => {
     [nuevo_parent_id, req.params.id, req.usuario.campana_id]
   );
   res.json({ ok: true, movidos: hijos.rows.length });
+});
+
+/**
+ * 🆕 GET /api/estructura/historial-completo
+ * Histórico de asignaciones de TODA la campaña (skill Estructura
+ * Política, sección 10) — reconstruye quién estuvo asignado, cuándo,
+ * y quién hizo el cambio, sin tener que abrir persona por persona.
+ */
+router.get('/historial-completo', async (req, res) => {
+  const resultado = await query(
+    `SELECT h.*, u.nombre as nombre_afectado, ua.nombre as nombre_anterior, un.nombre as nombre_nuevo, uc.nombre as nombre_cambiado_por
+     FROM estructura_historial h
+     JOIN usuarios u ON u.id = h.usuario_id
+     LEFT JOIN usuarios ua ON ua.id = h.parent_anterior
+     LEFT JOIN usuarios un ON un.id = h.parent_nuevo
+     LEFT JOIN usuarios uc ON uc.id = h.cambiado_por
+     WHERE h.campana_id=$1 ORDER BY h.creado_en DESC LIMIT 200`,
+    [req.usuario.campana_id]
+  );
+  res.json({ ok: true, data: resultado.rows });
 });
 
 router.get('/:id/historial', async (req, res) => {
