@@ -218,4 +218,82 @@ router.get('/sugerencias', async (req, res) => {
   res.json({ ok: true, data: sugerencias });
 });
 
+// ═══════════════════════════════════════════════════════════════
+// 🆕 CENTRO DE TAREAS (documento maestro, sección 13) — acciones
+// pendientes con responsable y fecha límite. Nunca se cierra sola:
+// completar o cancelar es siempre una acción explícita.
+// ═══════════════════════════════════════════════════════════════
+
+const esquemaTarea = z.object({
+  descripcion: z.string().min(3).max(2000),
+  origen: z.string().max(100).optional(),
+  prioridad: z.enum(['baja', 'media', 'alta', 'critica']).default('media'),
+  responsable_id: z.string().uuid().optional(),
+  territorio_tipo: z.enum(['seccion', 'municipio', 'distrito_local', 'distrito_federal', 'estatal']).optional(),
+  territorio_id: z.number().int().optional(),
+  fecha_limite: z.string().optional(),
+});
+
+router.get('/tareas', async (req, res) => {
+  const { estado, responsable_id } = req.query;
+  const params = [req.usuario.campana_id];
+  let filtros = '';
+  if (estado && estado !== 'todas') { filtros += ` AND t.estado=$${params.length + 1}`; params.push(estado); }
+  if (responsable_id) { filtros += ` AND t.responsable_id=$${params.length + 1}`; params.push(responsable_id); }
+
+  const resultado = await query(
+    `SELECT t.*, u.nombre as responsable_nombre, uc.nombre as creado_por_nombre,
+       (t.fecha_limite IS NOT NULL AND t.fecha_limite < CURRENT_DATE AND t.estado NOT IN ('completada','cancelada')) as vencida
+     FROM tareas t
+     LEFT JOIN usuarios u ON u.id = t.responsable_id
+     LEFT JOIN usuarios uc ON uc.id = t.creado_por
+     WHERE t.campana_id=$1 ${filtros}
+     ORDER BY (t.estado IN ('completada','cancelada')) ASC, t.fecha_limite ASC NULLS LAST, t.creado_en DESC`,
+    params
+  );
+  res.json({ ok: true, data: resultado.rows });
+});
+
+router.post('/tareas', async (req, res) => {
+  const parseado = esquemaTarea.safeParse(req.body);
+  if (!parseado.success) return res.status(400).json({ ok: false, error: parseado.error.errors[0].message });
+  const d = parseado.data;
+  const resultado = await query(
+    `INSERT INTO tareas (campana_id, descripcion, origen, prioridad, responsable_id, territorio_tipo, territorio_id, fecha_limite, estado, creado_por)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+    [req.usuario.campana_id, d.descripcion, d.origen || null, d.prioridad,
+     d.responsable_id || null, d.territorio_tipo || null, d.territorio_id || null, d.fecha_limite || null,
+     d.responsable_id ? 'asignada' : 'pendiente', req.usuario.sub]
+  );
+  res.status(201).json({ ok: true, data: resultado.rows[0] });
+});
+
+const esquemaActualizarTarea = z.object({
+  estado: z.enum(['pendiente', 'asignada', 'en_proceso', 'bloqueada', 'completada', 'cancelada']).optional(),
+  responsable_id: z.string().uuid().nullable().optional(),
+  comentario: z.string().max(2000).optional(),
+  evidencia_url: z.string().url().optional(),
+  fecha_limite: z.string().optional(),
+});
+router.patch('/tareas/:id', async (req, res) => {
+  const parseado = esquemaActualizarTarea.safeParse(req.body);
+  if (!parseado.success) return res.status(400).json({ ok: false, error: parseado.error.errors[0].message });
+  const d = parseado.data;
+
+  const campos = [];
+  const valores = [];
+  let i = 1;
+  Object.entries(d).forEach(([campo, valor]) => { campos.push(`${campo}=$${i}`); valores.push(valor); i++; });
+  if (campos.length === 0) return res.status(400).json({ ok: false, error: 'Nada que actualizar' });
+  // 🆕 Cerrar (completada/cancelada) siempre deja fecha_cierre — nunca se infiere sola después
+  if (d.estado === 'completada' || d.estado === 'cancelada') { campos.push(`fecha_cierre=now()`); }
+
+  const resultado = await query(
+    `UPDATE tareas SET ${campos.join(', ')} WHERE id=$${i} AND campana_id=$${i + 1} RETURNING *`,
+    [...valores, req.params.id, req.usuario.campana_id]
+  );
+  if (!resultado.rows[0]) return res.status(404).json({ ok: false, error: 'Tarea no encontrada' });
+  res.json({ ok: true, data: resultado.rows[0] });
+});
+
 export default router;
