@@ -24,12 +24,15 @@ router.use(requiereAuth); // todo este módulo requiere sesión
  * etiquetas sueltas, un número que combina todo lo que ya sabes de
  * esa persona en una sola cifra accionable.
  *
- * Cómo se arma (100 puntos en total):
- * - Hasta 30 pts: qué tan fuerte es tu partido HISTÓRICAMENTE en la
- *   sección de este promovido (si no hay dato, se le da 10 neutral)
- * - Hasta 30 pts: su clasificación manual (base=30, persuadible=15, adversario=0)
- * - Hasta 20 pts: su temperatura (caliente=20, tibio=10, frío=0)
- * - 10 pts: si ya está marcado como comprometido
+ * 🆕 CORREGIDO — antes 50 de los 100 puntos venían de "clasificación"
+ * y "temperatura", campos que se quitaron del sistema (se simplificó
+ * a un solo campo: ¿va a votar? Sí/No). Esos 50 puntos se
+ * redistribuyeron así:
+ * - Hasta 40 pts: qué tan fuerte es tu partido HISTÓRICAMENTE en la
+ *   sección de este promovido (si no hay dato, se le da 15 neutral)
+ * - 50 pts: si contestó que SÍ va a votar por nosotros (antes eran
+ *   solo 10 — ahora es la señal más importante, porque es la única
+ *   pregunta real que se le hace)
  * - Hasta 10 pts: qué tan reciente fue el último contacto (más
  *   reciente = más confiable el dato, no solo "más contactado")
  *
@@ -38,20 +41,18 @@ router.use(requiereAuth); // todo este módulo requiere sesión
  * persona, no un número garantizado.
  */
 router.get('/', async (req, res) => {
-  const { seccion, clasificacion, registrador, temperatura, buscar, orden } = req.query;
+  const { seccion, registrador, buscar, orden } = req.query;
   let sql = `
     SELECT p.*, s.numero as seccion_numero, u.nombre as registrado_por_nombre,
       GREATEST(0, LEAST(100, (
         COALESCE(
-          (SELECT ROUND(30.0 * rh.votos / NULLIF(rh.total_votos, 0))
+          (SELECT ROUND(40.0 * rh.votos / NULLIF(rh.total_votos, 0))
            FROM resultados_historicos rh
            WHERE rh.seccion_id = p.seccion_id AND rh.partido = c.partido
            ORDER BY (rh.tipo_eleccion = c.tipo_eleccion) DESC, rh.anio DESC LIMIT 1),
-          10
+          15
         )
-        + CASE p.clasificacion WHEN 'base' THEN 30 WHEN 'persuadible' THEN 15 ELSE 0 END
-        + CASE p.temperatura WHEN 'caliente' THEN 20 WHEN 'tibio' THEN 10 ELSE 0 END
-        + CASE WHEN p.comprometido THEN 10 ELSE 0 END
+        + CASE WHEN p.comprometido THEN 50 ELSE 0 END
         + CASE
             WHEN p.ultimo_contacto > now() - interval '7 days' THEN 10
             WHEN p.ultimo_contacto > now() - interval '30 days' THEN 5
@@ -66,9 +67,7 @@ router.get('/', async (req, res) => {
   const params = [req.usuario.campana_id];
 
   if (seccion) { params.push(seccion); sql += ` AND s.numero = $${params.length}`; }
-  if (clasificacion) { params.push(clasificacion); sql += ` AND p.clasificacion = $${params.length}`; }
   if (registrador) { params.push(registrador); sql += ` AND p.registrado_por = $${params.length}`; }
-  if (temperatura) { params.push(temperatura); sql += ` AND p.temperatura = $${params.length}`; }
   if (buscar) { params.push(`%${buscar}%`); sql += ` AND (unaccent(p.nombre) ILIKE unaccent($${params.length}) OR p.telefono ILIKE $${params.length})`; }
   sql += orden === 'puntuacion' ? ' ORDER BY puntuacion DESC' : ' ORDER BY p.creado_en DESC';
   sql += ' LIMIT 2000';
@@ -105,14 +104,20 @@ router.get('/duplicados', async (req, res) => {
 router.get('/resumen', async (req, res) => {
   const campanaId = req.usuario.campana_id;
 
-  const porClasificacion = await query(
-    `SELECT clasificacion, COUNT(*) as total FROM promovidos WHERE campana_id=$1 GROUP BY clasificacion`,
+  // 🆕 Corregido — antes agrupaba por "clasificación" (campo ya
+  // quitado); ahora agrupa por el único campo real: ¿va a votar?
+  const porVaAVotar = await query(
+    `SELECT
+       COUNT(*) FILTER (WHERE comprometido IS TRUE) as si,
+       COUNT(*) FILTER (WHERE comprometido IS FALSE) as no,
+       COUNT(*) FILTER (WHERE comprometido IS NULL) as sin_definir
+     FROM promovidos WHERE campana_id=$1`,
     [campanaId]
   );
 
   const sinSeguimiento = await query(
     `SELECT COUNT(*) as total FROM promovidos
-     WHERE campana_id=$1 AND clasificacion='persuadible'
+     WHERE campana_id=$1 AND comprometido IS NULL
        AND (ultimo_contacto IS NULL OR ultimo_contacto < now() - interval '15 days')`,
     [campanaId]
   );
@@ -125,8 +130,8 @@ router.get('/resumen', async (req, res) => {
   res.json({
     ok: true,
     data: {
-      por_clasificacion: Object.fromEntries(porClasificacion.rows.map(r => [r.clasificacion, parseInt(r.total)])),
-      persuadibles_sin_seguimiento: parseInt(sinSeguimiento.rows[0].total),
+      por_va_a_votar: { si: parseInt(porVaAVotar.rows[0].si), no: parseInt(porVaAVotar.rows[0].no), sin_definir: parseInt(porVaAVotar.rows[0].sin_definir) },
+      sin_definir_sin_seguimiento: parseInt(sinSeguimiento.rows[0].total),
       registrados_hoy: parseInt(totalHoy.rows[0].total),
     },
   });
@@ -145,7 +150,7 @@ router.get('/seguimiento-prioritario', async (req, res) => {
        EXTRACT(DAY FROM now() - COALESCE(p.ultimo_contacto, p.creado_en))::int as dias_sin_contacto
      FROM promovidos p
      LEFT JOIN secciones s ON s.id = p.seccion_id
-     WHERE p.campana_id = $1 AND p.clasificacion = 'persuadible'
+     WHERE p.campana_id = $1 AND p.comprometido IS NULL
      ORDER BY p.ultimo_contacto ASC NULLS FIRST, p.creado_en ASC
      LIMIT 50`,
     [req.usuario.campana_id]
@@ -169,8 +174,9 @@ const esquemaPromovido = z.object({
   seccion_numero: z.number().int().optional(),
   calle: z.string().max(255).optional().transform((v) => (v ? aMayusculas(v) : v)),
   partido: z.string().max(20).optional(),
-  comprometido: z.boolean().default(false),
-  temperatura: z.enum(['frio', 'tibio', 'caliente']).default('tibio'),
+  // 🆕 Ya no tiene default forzado a "false" — si no se elige Sí/No,
+  // debe quedar como "sin definir" (null), no como "No" silencioso.
+  comprometido: z.boolean().nullable().default(null),
   lat: z.number().optional(),
   lng: z.number().optional(),
   // 🆕 Verificación de campo — la ubicación GPS REAL del celular del
@@ -218,7 +224,7 @@ router.get('/seguimiento', async (req, res) => {
      FROM promovidos p
      LEFT JOIN secciones s ON s.id = p.seccion_id
      LEFT JOIN usuarios u ON u.id = p.asignado_seguimiento_a
-     WHERE p.campana_id=$1 AND p.clasificacion='persuadible' ${filtroAsignado}
+     WHERE p.campana_id=$1 AND p.comprometido IS NULL ${filtroAsignado}
      ORDER BY (p.proximo_seguimiento IS NULL) ASC, p.proximo_seguimiento ASC NULLS LAST`,
     params
   );
@@ -240,12 +246,12 @@ router.patch('/:id/seguimiento', async (req, res) => {
 
   if (se_convencio) {
     const resultado = await query(
-      `UPDATE promovidos SET comprometido=true, clasificacion='base', notas_seguimiento=$1,
+      `UPDATE promovidos SET comprometido=true, notas_seguimiento=$1,
               veces_contactado=veces_contactado+1, proximo_seguimiento=NULL
        WHERE id=$2 AND campana_id=$3 RETURNING *`,
       [notas || null, req.params.id, req.usuario.campana_id]
     );
-    return res.json({ ok: true, data: resultado.rows[0], mensaje: '🎉 ¡Se convenció! Movido a Base.' });
+    return res.json({ ok: true, data: resultado.rows[0], mensaje: '🎉 ¡Se convenció! Ya va a votar por nosotros.' });
   }
 
   const resultado = await query(
@@ -359,12 +365,12 @@ router.post('/', async (req, res) => {
     const resultado = await query(
       `INSERT INTO promovidos
         (campana_id, nombre, telefono, curp, seccion_id, calle, partido, comprometido,
-         temperatura, lat, lng, encuesta, situacion_grave, registrado_por, consentimiento, genero, rango_edad,
+         lat, lng, encuesta, situacion_grave, registrado_por, consentimiento, genero, rango_edad,
          promotor_lat, promotor_lng, distancia_verificacion_metros)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
        RETURNING *`,
       [req.usuario.campana_id, d.nombre, d.telefono || null, d.curp || null, seccionId,
-       d.calle || null, d.partido || null, d.comprometido, d.temperatura,
+       d.calle || null, d.partido || null, d.comprometido,
        d.lat || null, d.lng || null, d.encuesta ? JSON.stringify(d.encuesta) : null,
        d.situacion_grave || null, req.usuario.sub, d.consentimiento, d.genero || null, d.rango_edad || null,
        d.promotor_lat || null, d.promotor_lng || null, distanciaMetros]
@@ -425,18 +431,6 @@ router.post('/:id/contacto', async (req, res) => {
        VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
       [req.usuario.campana_id, req.params.id, req.usuario.sub, d.tipo, d.resultado || null, d.notas || null]
     );
-
-    // Si el contacto fue positivo, ofrecer subir la temperatura automáticamente
-    if (d.resultado === 'positivo') {
-      await query(
-        `UPDATE promovidos SET temperatura = CASE
-           WHEN temperatura='frio' THEN 'tibio'
-           WHEN temperatura='tibio' THEN 'caliente'
-           ELSE temperatura END
-         WHERE id=$1`,
-        [req.params.id]
-      );
-    }
 
     res.status(201).json({ ok: true, data: resultado.rows[0] });
   } catch (e) {
@@ -566,7 +560,6 @@ const esquemaEditar = z.object({
   calle: z.string().max(255).optional().transform((v) => (v ? aMayusculas(v) : v)),
   partido: z.string().max(20).optional(),
   comprometido: z.boolean().optional(),
-  temperatura: z.enum(['frio', 'tibio', 'caliente']).optional(),
   // 🆕 Faltaban en la edición — sí existían al crear, pero no se
   // podían corregir después.
   genero: z.enum(['hombre', 'mujer', 'otro']).optional(),
@@ -665,9 +658,9 @@ router.post('/importar', async (req, res) => {
       }
 
       await query(
-        `INSERT INTO promovidos (campana_id, nombre, telefono, seccion_id, partido, comprometido, temperatura, registrado_por, consentimiento)
-         VALUES ($1,$2,$3,$4,$5,$6,'tibio',$7,true)`,
-        [req.usuario.campana_id, d.nombre, d.telefono || null, seccionId, d.partido || null, d.comprometido || false, req.usuario.sub]
+        `INSERT INTO promovidos (campana_id, nombre, telefono, seccion_id, partido, comprometido, registrado_por, consentimiento)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,true)`,
+        [req.usuario.campana_id, d.nombre, d.telefono || null, seccionId, d.partido || null, d.comprometido ?? null, req.usuario.sub]
       );
       importados++;
     } catch (e) {
@@ -686,26 +679,6 @@ router.post('/importar', async (req, res) => {
   });
 
   res.json({ ok: true, importados, duplicados, errores, total: filas.length });
-});
-
-/**
- * PATCH /api/promovidos/:id/clasificacion
- * Cambio manual de clasificación (al arrastrar una tarjeta en el
- * tablero) — queda marcado como ajuste manual para que el
- * disparador automático ya no lo recalcule después.
- */
-router.patch('/:id/clasificacion', async (req, res) => {
-  const { clasificacion } = req.body;
-  if (!['base', 'persuadible', 'adversario'].includes(clasificacion)) {
-    return res.status(400).json({ ok: false, error: 'Clasificación inválida' });
-  }
-  const resultado = await query(
-    `UPDATE promovidos SET clasificacion=$1, clasificacion_manual=true
-     WHERE id=$2 AND campana_id=$3 RETURNING id, nombre, clasificacion`,
-    [clasificacion, req.params.id, req.usuario.campana_id]
-  );
-  if (!resultado.rows[0]) return res.status(404).json({ ok: false, error: 'No encontrado' });
-  res.json({ ok: true, data: resultado.rows[0] });
 });
 
 export default router;

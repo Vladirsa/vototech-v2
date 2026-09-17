@@ -66,17 +66,17 @@ async function calcularAudiencia(campanaId, tipo, filtros = {}, estadoId = 29) {
   if (tipo === 'promovidos') {
     let sql = `SELECT p.id, p.nombre, p.telefono FROM promovidos p WHERE p.campana_id=$1 AND p.telefono IS NOT NULL AND p.telefono != ''`;
     const params = [campanaId];
-    if (filtros.clasificacion) { params.push(filtros.clasificacion); sql += ` AND p.clasificacion=$${params.length}`; }
     if (filtros.seccion_numero) {
       params.push(filtros.seccion_numero);
       params.push(estadoId);
       sql += ` AND p.seccion_id = (SELECT id FROM secciones WHERE estado_id=$${params.length} AND numero=$${params.length - 1})`;
     }
     if (filtros.partido) { params.push(filtros.partido); sql += ` AND p.partido=$${params.length}`; }
-    if (filtros.comprometido !== undefined) { params.push(filtros.comprometido); sql += ` AND p.comprometido=$${params.length}`; }
-    // 🆕 Filtros nuevos — necesarios para que los segmentos sugeridos
-    // (ver /segmentos-sugeridos) se puedan aplicar de verdad al mandar.
-    if (filtros.temperatura) { params.push(filtros.temperatura); sql += ` AND p.temperatura=$${params.length}`; }
+    // 🆕 comprometido ahora puede ser true, false, o null ("sin
+    // definir") — null necesita "IS NULL" en SQL, nunca "= NULL"
+    // (eso nunca hace match con nada).
+    if (filtros.comprometido === null) sql += ` AND p.comprometido IS NULL`;
+    else if (filtros.comprometido !== undefined) { params.push(filtros.comprometido); sql += ` AND p.comprometido=$${params.length}`; }
     if (filtros.ya_voto !== undefined) { params.push(filtros.ya_voto); sql += ` AND p.ya_voto=$${params.length}`; }
     if (filtros.dias_sin_contacto_min) { params.push(filtros.dias_sin_contacto_min); sql += ` AND p.creado_en < now() - ($${params.length}::text || ' days')::interval`; }
     const r = await query(sql, params);
@@ -101,36 +101,22 @@ router.post('/audiencia/previsualizar', async (req, res) => {
 });
 
 /**
- * 🆕 GET /api/marketing/segmentos-sugeridos
- * El "asesor de segmentos" — en vez de armar un filtro a ciegas,
- * analiza tus promovidos reales y sugiere A QUIÉN conviene mandarle
- * QUÉ TIPO de mensaje, con la razón — para mejor eficiencia en vez
- * de mandar el mismo mensaje a todos por igual.
+ * 🆕 GET /api/marketing/segmentos-sugeridos — CORREGIDO
+ * Antes 2 de los 5 segmentos usaban "clasificación" y "temperatura"
+ * (campos que se quitaron del sistema al simplificar a un solo
+ * campo: ¿va a votar? Sí/No). Ahora son 3 segmentos, todos basados
+ * en el campo real.
  */
 router.get('/segmentos-sugeridos', async (req, res) => {
   const campanaId = req.usuario.campana_id;
 
   const definiciones = [
     {
-      id: 'base_sin_comprometer',
-      nombre: 'Base sin comprometer todavía',
-      razon: 'Ya se identificaron como afines, pero no han confirmado su voto — el mensaje correcto es invitarlos a comprometerse, no venderles el candidato desde cero.',
-      tipo_mensaje_sugerido: 'mensaje_dia',
-      filtro: { clasificacion: 'base', comprometido: false },
-    },
-    {
-      id: 'persuadibles',
-      nombre: 'Persuadibles',
-      razon: 'Todavía no decidieron — aquí sí conviene un mensaje con argumentos y propuestas concretas, no solo una invitación.',
+      id: 'sin_definir',
+      nombre: 'Sin definir todavía',
+      razon: 'Aún no han contestado si van a votar por nosotros o no — el mensaje correcto es invitarlos a decidir, con argumentos concretos.',
       tipo_mensaje_sugerido: 'argumentario',
-      filtro: { clasificacion: 'persuadible' },
-    },
-    {
-      id: 'calientes_sin_comprometer',
-      nombre: 'Temperatura caliente, sin comprometer',
-      razon: 'Mostraron mucho interés en persona pero todavía no se registran como comprometidos — están listos para un mensaje directo de cierre, no de introducción.',
-      tipo_mensaje_sugerido: 'mensaje_dia',
-      filtro: { temperatura: 'caliente', comprometido: false },
+      filtro: { comprometido: null },
     },
     {
       id: 'comprometidos_sin_contacto',

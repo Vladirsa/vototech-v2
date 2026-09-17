@@ -78,19 +78,25 @@ router.get('/', async (req, res) => {
       params
     );
 
-    // 3. Traer promovidos actuales por sección (agrupados + con clasificación)
+    // 🆕 CORREGIDO — antes agrupaba por "clasificación" (campo ya
+    // quitado del sistema, congelado con datos viejos). Ahora agrupa
+    // por el campo real: comprometido=true ("sí va") y comprometido
+    // IS NULL ("sin definir, todavía ganable") cuentan como votos
+    // recuperables; comprometido=false ("no va") se excluye, igual
+    // que antes se excluía "adversario".
     const promosRes = await query(
-      `SELECT s.numero as seccion, p.clasificacion, COUNT(*) as total
+      `SELECT s.numero as seccion,
+         COUNT(*) FILTER (WHERE p.comprometido = true) as si_va,
+         COUNT(*) FILTER (WHERE p.comprometido IS NULL) as sin_definir
        FROM promovidos p
        JOIN secciones s ON s.id = p.seccion_id
        WHERE p.campana_id = $1
-       GROUP BY s.numero, p.clasificacion`,
+       GROUP BY s.numero`,
       [campanaId]
     );
     const promosPorSeccion = {};
     for (const fila of promosRes.rows) {
-      if (!promosPorSeccion[fila.seccion]) promosPorSeccion[fila.seccion] = { base: 0, persuadible: 0, adversario: 0 };
-      promosPorSeccion[fila.seccion][fila.clasificacion] = parseInt(fila.total);
+      promosPorSeccion[fila.seccion] = { si_va: parseInt(fila.si_va), sin_definir: parseInt(fila.sin_definir) };
     }
 
     // 3.5. TERCERA DIMENSIÓN DEL SCORING COMPUESTO — cobertura real de
@@ -128,8 +134,8 @@ router.get('/', async (req, res) => {
       const ganador = Object.entries(datos.votos).sort((a, b) => b[1] - a[1])[0]?.[0];
       const margenPct = datos.total > 0 ? (votosPartido / datos.total * 100 - 50) : 0;
 
-      const promos = promosPorSeccion[seccNum] || { base: 0, persuadible: 0, adversario: 0 };
-      const votosConPromovidos = votosPartido + (promos.base + promos.persuadible) * CONVERSION_PROMOVIDO_A_VOTO;
+      const promos = promosPorSeccion[seccNum] || { si_va: 0, sin_definir: 0 };
+      const votosConPromovidos = votosPartido + (promos.si_va + promos.sin_definir) * CONVERSION_PROMOVIDO_A_VOTO;
       const votosNecesarios = Math.floor(datos.total / 2) + 1;
       const deficit = Math.max(0, votosNecesarios - votosConPromovidos);
       const promosNecesarios = Math.ceil(deficit / CONVERSION_PROMOVIDO_A_VOTO);
@@ -262,28 +268,28 @@ router.get('/hoy', async (req, res) => {
  * distinto que sí existe, por eso mostraba el número correcto).
  *
  * Devuelve, por cada sección con al menos un promovido, cuántos hay
- * en total y cuántos de cada clasificación — para pintar la densidad
- * en el mapa y sumar el resumen general.
+ * en total y cuántos van a votar (sí/no/sin definir) — para pintar la
+ * densidad en el mapa y sumar el resumen general.
  */
 router.get('/densidad-promovidos', async (req, res) => {
   const campanaId = req.usuario.campana_id;
   try {
+    // 🆕 Corregido — antes agrupaba por "clasificación" (campo muerto)
     const promosRes = await query(
-      `SELECT s.numero as seccion, p.clasificacion, COUNT(*) as total
+      `SELECT s.numero as seccion,
+         COUNT(*) FILTER (WHERE p.comprometido = true) as si_va,
+         COUNT(*) FILTER (WHERE p.comprometido = false) as no_va,
+         COUNT(*) FILTER (WHERE p.comprometido IS NULL) as sin_definir
        FROM promovidos p
        JOIN secciones s ON s.id = p.seccion_id
        WHERE p.campana_id = $1
-       GROUP BY s.numero, p.clasificacion`,
+       GROUP BY s.numero`,
       [campanaId]
     );
     const porSeccion = {};
     promosRes.rows.forEach((fila) => {
-      if (!porSeccion[fila.seccion]) {
-        porSeccion[fila.seccion] = { seccion: fila.seccion, total: 0, base: 0, persuadible: 0, adversario: 0 };
-      }
-      const cantidad = parseInt(fila.total);
-      porSeccion[fila.seccion][fila.clasificacion] = cantidad;
-      porSeccion[fila.seccion].total += cantidad;
+      const si = parseInt(fila.si_va), no = parseInt(fila.no_va), sin = parseInt(fila.sin_definir);
+      porSeccion[fila.seccion] = { seccion: fila.seccion, total: si + no + sin, si_va: si, no_va: no, sin_definir: sin };
     });
 
     // 🆕 EL AJUSTE REAL — el desglose por sección (arriba) solo puede
@@ -355,13 +361,13 @@ router.get('/seccion/:numero', async (req, res) => {
       casillasSeccion = historico.rows[0]?.casillas || 0;
     }
 
-    // Promovidos actuales de esta sección, por clasificación
+    // 🆕 Corregido — promovidos actuales de esta sección, por si van a votar
     const promosRes = await query(
-      `SELECT clasificacion, COUNT(*) as total FROM promovidos WHERE campana_id=$1 AND seccion_id=$2 GROUP BY clasificacion`,
+      `SELECT COUNT(*) FILTER (WHERE comprometido=true) as si_va, COUNT(*) FILTER (WHERE comprometido=false) as no_va, COUNT(*) FILTER (WHERE comprometido IS NULL) as sin_definir
+       FROM promovidos WHERE campana_id=$1 AND seccion_id=$2`,
       [campanaId, seccion.id]
     );
-    const promos = { base: 0, persuadible: 0, adversario: 0 };
-    promosRes.rows.forEach((r) => { promos[r.clasificacion] = parseInt(r.total); });
+    const promos = { si_va: parseInt(promosRes.rows[0].si_va), no_va: parseInt(promosRes.rows[0].no_va), sin_definir: parseInt(promosRes.rows[0].sin_definir) };
 
     // 🗣️ Contexto humano para el candidato antes de visitar la sección:
     // qué necesidades declara la gente (encuesta rápida) y si hay algo
@@ -490,16 +496,16 @@ router.get('/municipio/:claveIne', async (req, res) => {
       });
     }
 
-    // Promovidos actuales del municipio completo
+    // 🆕 Corregido — promovidos actuales del municipio, por si van a votar
     const promosRes = await query(
-      `SELECT clasificacion, COUNT(*) as total FROM promovidos p
+      `SELECT COUNT(*) FILTER (WHERE p.comprometido=true) as si_va, COUNT(*) FILTER (WHERE p.comprometido=false) as no_va, COUNT(*) FILTER (WHERE p.comprometido IS NULL) as sin_definir
+       FROM promovidos p
        JOIN secciones s ON s.id = p.seccion_id
-       WHERE p.campana_id=$1 AND s.id = ANY($2) GROUP BY clasificacion`,
+       WHERE p.campana_id=$1 AND s.id = ANY($2)`,
       [campanaId, seccionIds]
     );
-    const promovidos = { base: 0, persuadible: 0, adversario: 0 };
-    promosRes.rows.forEach((r) => { promovidos[r.clasificacion] = parseInt(r.total); });
-    const totalPromovidos = promovidos.base + promovidos.persuadible + promovidos.adversario;
+    const promovidos = { si_va: parseInt(promosRes.rows[0].si_va), no_va: parseInt(promosRes.rows[0].no_va), sin_definir: parseInt(promosRes.rows[0].sin_definir) };
+    const totalPromovidos = promovidos.si_va + promovidos.no_va + promovidos.sin_definir;
 
     res.json({
       ok: true,
