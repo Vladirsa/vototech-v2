@@ -18,12 +18,23 @@ import api from '../lib/api';
 const COLOR_VA_A_VOTAR = {
   true: '#10b981', false: '#64748b', null: '#94a3b8',
 };
+/**
+ * 🆕 CORREGIDO — antes el zoom inicial era fijo (11) sin importar el
+ * tamaño de pantalla. En una pantalla ancha ese zoom muestra todo el
+ * estado; en un celular (mucho más angosto que alto), el MISMO zoom
+ * muestra una porción más angosta del territorio — por eso se veía
+ * "cortado" en móvil, aunque el mapa en sí funcionara bien.
+ */
+function calcularZoomResponsive(zoomBase) {
+  if (typeof window === 'undefined') return zoomBase;
+  const ancho = window.innerWidth;
+  if (ancho < 480) return zoomBase - 2; // celulares chicos — se aleja más para que quepa el mismo territorio
+  if (ancho < 768) return zoomBase - 1; // celulares grandes / tablets chicas
+  return zoomBase;
+}
+
 function ControlCentrarMapa({ centro, zoomInicial, centroReal }) {
   const map = useMap();
-  // 🆕 Antes el mapa siempre abría en el mismo punto fijo — ahora, en
-  // cuanto se calcula el centro real de tu territorio (municipio o
-  // distrito), el mapa se mueve solo ahí una vez, sin que tengas que
-  // buscarlo ni presionar el botón de abajo a mano.
   const yaSeCentroSolo = useRef(false);
   useEffect(() => {
     if (centroReal && !yaSeCentroSolo.current) {
@@ -925,7 +936,7 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
           {errorDiagnostico}
         </div>
       )}
-      <MapContainer key={idMontajeMapa} center={centroTlaxcala} zoom={11} className="w-full h-full" zoomControl={false}>
+      <MapContainer key={idMontajeMapa} center={centroTlaxcala} zoom={calcularZoomResponsive(11)} className="w-full h-full" zoomControl={false}>
         <LayersControl position="bottomleft">
           <LayersControl.BaseLayer name="🌙 Oscuro (recomendado de noche)">
             <TileLayer
@@ -1130,7 +1141,7 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
               iconSize: [14, 14],
             })} />
         ))}
-        <ControlCentrarMapa centro={centroTlaxcala} zoomInicial={11} centroReal={centroCampana} />
+        <ControlCentrarMapa centro={centroTlaxcala} zoomInicial={calcularZoomResponsive(11)} centroReal={centroCampana} />
         <CapaCalor
           puntos={promovidosFiltrados.map(p => ({ lat: p._lat, lng: p._lng }))}
           activa={capaCalor}
