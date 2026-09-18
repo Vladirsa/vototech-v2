@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../lib/api';
+import { useAuth } from '../lib/authStore';
 
 const ESTADO_ESTILO = {
   pendiente: { bg: 'bg-slate-500/10', border: 'border-slate-500/30', color: 'text-slate-400', label: 'Pendiente' },
@@ -120,7 +121,630 @@ function PanelCentroTareas() {
   );
 }
 
+const NIVEL_ALERTA_ESTILO = {
+  critica: { bg: 'bg-red-500/10', border: 'border-red-500/30', color: 'text-red-400' },
+  alta: { bg: 'bg-orange-500/10', border: 'border-orange-500/30', color: 'text-orange-400' },
+  media: { bg: 'bg-amber-500/10', border: 'border-amber-500/30', color: 'text-amber-400' },
+  baja: { bg: 'bg-blue-500/10', border: 'border-blue-500/30', color: 'text-blue-400' },
+  informativa: { bg: 'bg-slate-500/10', border: 'border-slate-500/30', color: 'text-slate-400' },
+};
+const ESTADO_ALERTA_LABEL = { nueva: 'Nueva', en_revision: 'En Revisión', asignada: 'Asignada', en_proceso: 'En Proceso', resuelta: 'Resuelta', descartada: 'Descartada' };
+
+/** 🆕 Motor de Alertas formal — a diferencia de Auditoría (que solo
+ * calcula al vuelo), estas alertas se GUARDAN con ciclo de vida
+ * completo: Nueva → En Revisión → Asignada → En Proceso → Resuelta/Descartada. */
+function PanelMotorAlertas() {
+  const [alertas, setAlertas] = useState([]);
+  const [filtroEstado, setFiltroEstado] = useState('activas');
+  const [generando, setGenerando] = useState(false);
+  const [ultimoResultado, setUltimoResultado] = useState(null);
+
+  const cargar = () => {
+    const q = filtroEstado === 'activas' ? '' : `?estado=${filtroEstado}`;
+    api.get(`/centro-decisiones/alertas${q}`).then((r) => setAlertas(r.data.data)).catch(() => setAlertas([]));
+  };
+  useEffect(cargar, [filtroEstado]);
+
+  const generar = async () => {
+    setGenerando(true);
+    try {
+      const { data } = await api.post('/centro-decisiones/alertas/generar');
+      setUltimoResultado(data.data);
+      cargar();
+    } catch (e) { /* silencioso */ }
+    setGenerando(false);
+  };
+
+  const cambiarEstado = async (id, estado) => {
+    await api.patch(`/centro-decisiones/alertas/${id}`, { estado });
+    cargar();
+  };
+
+  return (
+    <div className="space-y-3">
+      <button onClick={generar} disabled={generando} className="w-full py-3 rounded-xl bg-gradient-to-r from-amber-600 to-red-600 text-white text-sm font-bold disabled:opacity-40">
+        {generando ? '⏳ Revisando...' : '🔍 Ejecutar revisión de alertas'}
+      </button>
+      {ultimoResultado && (
+        <p className="text-[10px] text-slate-500 text-center">
+          {ultimoResultado.creadas} nueva(s) · {ultimoResultado.actualizadas} siguen activas · {ultimoResultado.resueltas_automaticamente} resuelta(s) sola(s) porque la condición ya no existe
+        </p>
+      )}
+
+      <div className="flex gap-1.5 flex-wrap">
+        {[['activas', 'Activas'], ['todas', 'Todas'], ['resuelta', 'Resueltas'], ['descartada', 'Descartadas']].map(([id, label]) => (
+          <button key={id} onClick={() => setFiltroEstado(id)}
+            className={`px-3 py-1.5 rounded-full text-xs font-bold ${filtroEstado === id ? 'bg-amber-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      <div className="space-y-2">
+        {alertas.length === 0 ? (
+          <div className="text-center text-slate-500 py-10 text-sm">Sin alertas — ejecuta la revisión para ver si hay algo</div>
+        ) : alertas.map((a) => {
+          const est = NIVEL_ALERTA_ESTILO[a.nivel] || NIVEL_ALERTA_ESTILO.informativa;
+          return (
+            <div key={a.id} className={`${est.bg} border ${est.border} rounded-xl p-3`}>
+              <div className="flex items-center justify-between mb-1">
+                <span className={`text-[9px] font-bold uppercase ${est.color}`}>{a.nivel}</span>
+                <span className="text-[9px] text-slate-500">{a.modulo_origen} · {ESTADO_ALERTA_LABEL[a.estado]}</span>
+              </div>
+              <p className="text-sm text-white font-bold">{a.descripcion}</p>
+              <p className="text-[10px] text-slate-500 mt-1">Actual: {a.valor_actual} · Referencia: {a.valor_referencia}{a.responsable_nombre && ` · Responsable: ${a.responsable_nombre}`}</p>
+              {!['resuelta', 'descartada'].includes(a.estado) && (
+                <div className="flex gap-1.5 mt-2 flex-wrap">
+                  {a.estado === 'nueva' && <button onClick={() => cambiarEstado(a.id, 'en_revision')} className="px-2.5 py-1 rounded-lg bg-blue-700/50 text-blue-300 text-[10px] font-bold">👁 Revisar</button>}
+                  {a.estado === 'en_revision' && <button onClick={() => cambiarEstado(a.id, 'en_proceso')} className="px-2.5 py-1 rounded-lg bg-amber-700/50 text-amber-300 text-[10px] font-bold">▶ En proceso</button>}
+                  <button onClick={() => cambiarEstado(a.id, 'resuelta')} className="px-2.5 py-1 rounded-lg bg-emerald-700/50 text-emerald-300 text-[10px] font-bold">✓ Resolver</button>
+                  <button onClick={() => cambiarEstado(a.id, 'descartada')} className="px-2.5 py-1 rounded-lg bg-slate-700 text-slate-400 text-[10px] font-bold">✕ Descartar</button>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/** 🆕 "¿Qué cambió?" — compara el estado actual contra un corte
+ * anterior. El valor real nunca se recorta, solo se etiqueta. */
+function PanelQueCambio() {
+  const [periodo, setPeriodo] = useState('dia');
+  const [datos, setDatos] = useState(null);
+
+  useEffect(() => {
+    api.get(`/centro-decisiones/que-cambio?periodo=${periodo}`).then((r) => setDatos(r.data.data)).catch(() => setDatos(null));
+  }, [periodo]);
+
+  const ESTADO_COLOR = { 'AUMENTÓ': 'text-emerald-400', 'DISMINUYÓ': 'text-red-400', 'SIN CAMBIOS': 'text-slate-400', 'SIN DATOS': 'text-slate-500' };
+  const PERIODO_LABEL = { dia: 'vs. ayer', semana: 'vs. hace 1 semana', mes: 'vs. hace 1 mes' };
+
+  return (
+    <div className="space-y-3">
+      <div className="flex gap-2">
+        {[['dia', 'Hoy vs. Ayer'], ['semana', 'Semana vs. Anterior'], ['mes', 'Mes vs. Anterior']].map(([id, label]) => (
+          <button key={id} onClick={() => setPeriodo(id)}
+            className={`px-3 py-1.5 rounded-full text-xs font-bold ${periodo === id ? 'bg-purple-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {!datos ? (
+        <div className="text-center text-slate-500 py-10 text-sm">⏳ Cargando...</div>
+      ) : (
+        <>
+          <div className="space-y-2">
+            {datos.metricas.map((m) => (
+              <div key={m.nombre} className="bg-slate-900/60 border border-slate-800 rounded-xl p-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs text-slate-400">{m.nombre} <span className="text-slate-600">({m.modulo})</span></p>
+                    <p className="text-lg font-black text-white">{m.esMoneda ? `$${m.actual.toLocaleString('es-MX')}` : m.actual.toLocaleString('es-MX')}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className={`text-xs font-bold ${ESTADO_COLOR[m.estado]}`}>{m.estado}</p>
+                    {m.diferencia !== 0 && <p className="text-[10px] text-slate-500">{m.diferencia > 0 ? '+' : ''}{m.esMoneda ? `$${m.diferencia.toLocaleString('es-MX')}` : m.diferencia.toLocaleString('es-MX')} {PERIODO_LABEL[periodo]}</p>}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3">
+            <p className="text-xs text-slate-400">Incidencias nuevas en el período</p>
+            <p className="text-lg font-black text-white">{datos.incidencias_nuevas_en_el_periodo}</p>
+            <p className="text-[9px] text-slate-600 mt-1">Nota: las incidencias se pueden resolver — este número es "nuevas reportadas", no un estado histórico reconstruido.</p>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+const TENDENCIA_LABEL = { B_MAYOR: '↑ B es mayor', A_MAYOR: '↓ A es mayor', IGUAL: '= Iguales' };
+const TENDENCIA_COLOR = { B_MAYOR: 'text-emerald-400', A_MAYOR: 'text-red-400', IGUAL: 'text-slate-400' };
+
+/** 🆕 Comparador — Territorio vs Territorio, o Responsable vs
+ * Responsable. Diferencia = B − A. Nunca divide entre cero. */
+function PanelComparador() {
+  const [modo, setModo] = useState('territorio');
+  const [municipios, setMunicipios] = useState([]);
+  const [equipo, setEquipo] = useState([]);
+  const [a, setA] = useState('');
+  const [b, setB] = useState('');
+  const [resultado, setResultado] = useState(null);
+  const [cargando, setCargando] = useState(false);
+
+  useEffect(() => {
+    api.get('/geo/municipios/29').then((r) => setMunicipios(r.data.data)).catch(() => setMunicipios([]));
+    api.get('/estructura').then((r) => setEquipo(r.data.data)).catch(() => setEquipo([]));
+  }, []);
+
+  const comparar = async () => {
+    if (!a || !b) return;
+    setCargando(true);
+    try {
+      const url = modo === 'territorio' ? `/centro-decisiones/comparar/territorio?tipo=municipio&a=${a}&b=${b}` : `/centro-decisiones/comparar/responsable?a=${a}&b=${b}`;
+      const { data } = await api.get(url);
+      setResultado(data.data);
+    } catch (e) { setResultado(null); }
+    setCargando(false);
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="flex gap-2">
+        <button onClick={() => { setModo('territorio'); setA(''); setB(''); setResultado(null); }} className={`flex-1 py-2 rounded-lg text-xs font-bold ${modo === 'territorio' ? 'bg-cyan-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🗺️ Territorio vs Territorio</button>
+        <button onClick={() => { setModo('responsable'); setA(''); setB(''); setResultado(null); }} className={`flex-1 py-2 rounded-lg text-xs font-bold ${modo === 'responsable' ? 'bg-cyan-600 text-white' : 'bg-slate-800 text-slate-400'}`}>👤 Responsable vs Responsable</button>
+      </div>
+
+      <div className="flex gap-2">
+        {modo === 'territorio' ? (
+          <>
+            <select value={a} onChange={(e) => setA(e.target.value)} className="flex-1 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
+              <option value="">Municipio A...</option>
+              {municipios.map((m) => <option key={m.id} value={m.id}>{m.nombre}</option>)}
+            </select>
+            <select value={b} onChange={(e) => setB(e.target.value)} className="flex-1 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
+              <option value="">Municipio B...</option>
+              {municipios.map((m) => <option key={m.id} value={m.id}>{m.nombre}</option>)}
+            </select>
+          </>
+        ) : (
+          <>
+            <select value={a} onChange={(e) => setA(e.target.value)} className="flex-1 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
+              <option value="">Persona A...</option>
+              {equipo.map((u) => <option key={u.id} value={u.id}>{u.nombre}</option>)}
+            </select>
+            <select value={b} onChange={(e) => setB(e.target.value)} className="flex-1 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
+              <option value="">Persona B...</option>
+              {equipo.map((u) => <option key={u.id} value={u.id}>{u.nombre}</option>)}
+            </select>
+          </>
+        )}
+      </div>
+
+      <button onClick={comparar} disabled={!a || !b || cargando} className="w-full py-2.5 rounded-xl bg-cyan-600 text-white text-sm font-bold disabled:opacity-40">
+        {cargando ? '⏳...' : 'Comparar'}
+      </button>
+
+      {resultado && (
+        <div className="space-y-2">
+          {Object.values(resultado).map((r, i) => (
+            <div key={i} className="bg-slate-900/60 border border-slate-800 rounded-xl p-3">
+              <p className="text-[10px] text-slate-500 uppercase font-bold mb-2">{r.unidad}</p>
+              <div className="grid grid-cols-2 gap-3 mb-2">
+                <div><p className="text-[10px] text-slate-500">{r.nombre_a}</p><p className="text-lg font-black text-white">{r.valor_a}</p></div>
+                <div><p className="text-[10px] text-slate-500">{r.nombre_b}</p><p className="text-lg font-black text-white">{r.valor_b}</p></div>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-slate-400">Diferencia: {r.diferencia_absoluta > 0 ? '+' : ''}{r.diferencia_absoluta}</span>
+                <span className="text-slate-400">{r.diferencia_porcentual}</span>
+                <span className={`font-bold ${TENDENCIA_COLOR[r.tendencia]}`}>{TENDENCIA_LABEL[r.tendencia]}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** 🆕 Simulador — modificar variables sin tocar la base. La
+ * simulación se distingue visualmente del dato real en TODO
+ * momento, y nunca se guarda como si fuera real. */
+function PanelSimulador() {
+  const [base, setBase] = useState(null);
+  const [promovidosAdicionalesDia, setPromovidosAdicionalesDia] = useState(0);
+  const [diasSimulados, setDiasSimulados] = useState(0);
+
+  useEffect(() => {
+    api.get('/centro-decisiones/escenarios/base').then((r) => {
+      setBase(r.data.data);
+      setDiasSimulados(r.data.data.dias_restantes || 0);
+    }).catch(() => setBase(null));
+  }, []);
+
+  if (!base) return <div className="text-center text-slate-500 py-10 text-sm">⏳ Cargando datos reales de partida...</div>;
+
+  const ritmoSimulado = base.ritmo_actual_diario + promovidosAdicionalesDia;
+  const proyeccion = Math.round(base.comprometidos_actuales + ritmoSimulado * diasSimulados);
+  const diferenciaVsMeta = base.meta_votos ? proyeccion - base.meta_votos : null;
+
+  return (
+    <div className="space-y-3">
+      {/* DATOS REALES — siempre visualmente distinto de la simulación */}
+      <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+        <div className="text-[10px] font-bold text-slate-500 uppercase mb-2">📊 Datos Reales de Partida</div>
+        <div className="grid grid-cols-2 gap-2 text-xs">
+          <div><span className="text-slate-500">Comprometidos hoy:</span> <span className="text-white font-bold">{base.comprometidos_actuales}</span></div>
+          <div><span className="text-slate-500">Meta:</span> <span className="text-white font-bold">{base.meta_votos || 'Sin configurar'}</span></div>
+          <div><span className="text-slate-500">Ritmo actual:</span> <span className="text-white font-bold">{base.ritmo_actual_diario}/día</span></div>
+          <div><span className="text-slate-500">Días restantes:</span> <span className="text-white font-bold">{base.dias_restantes ?? 'Sin fecha'}</span></div>
+        </div>
+      </div>
+
+      {/* Controles de simulación */}
+      <div className="bg-pink-500/10 border border-pink-500/30 rounded-xl p-4 space-y-3">
+        <div className="text-[10px] font-bold text-pink-300 uppercase">🔮 Ajusta la Simulación</div>
+        <div>
+          <label className="text-xs text-slate-300">¿Qué pasa si el ritmo diario cambia en: <strong className="text-white">{promovidosAdicionalesDia > 0 ? '+' : ''}{promovidosAdicionalesDia}</strong>?</label>
+          <input type="range" min="-20" max="50" value={promovidosAdicionalesDia} onChange={(e) => setPromovidosAdicionalesDia(parseInt(e.target.value))} className="w-full" />
+        </div>
+        <div>
+          <label className="text-xs text-slate-300">¿Durante cuántos días? <strong className="text-white">{diasSimulados}</strong></label>
+          <input type="range" min="0" max={Math.max(60, base.dias_restantes || 60)} value={diasSimulados} onChange={(e) => setDiasSimulados(parseInt(e.target.value))} className="w-full" />
+        </div>
+      </div>
+
+      {/* RESULTADO SIMULADO — nunca se confunde con dato real */}
+      <div className="bg-gradient-to-br from-pink-500/20 to-purple-500/20 border-2 border-pink-500/50 rounded-xl p-4">
+        <div className="text-[10px] font-bold text-pink-300 uppercase mb-2">⚠️ RESULTADO SIMULADO — no es un dato real, es una proyección</div>
+        <div className="text-2xl font-black text-white">{proyeccion.toLocaleString('es-MX')} comprometidos</div>
+        {diferenciaVsMeta !== null && (
+          <p className={`text-sm font-bold mt-1 ${diferenciaVsMeta >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+            {diferenciaVsMeta >= 0 ? `META SUPERADA por ${diferenciaVsMeta.toLocaleString('es-MX')}` : `FALTARÍAN ${Math.abs(diferenciaVsMeta).toLocaleString('es-MX')} para la meta`}
+          </p>
+        )}
+        <p className="text-[10px] text-slate-400 mt-2">Ritmo simulado: {ritmoSimulado.toFixed(1)}/día × {diasSimulados} días + {base.comprometidos_actuales} actuales. Esta simulación no se guarda ni afecta ningún dato real.</p>
+      </div>
+    </div>
+  );
+}
+
+/** 🆕 Auditoría del propio Centro de Decisiones — quién consultó
+ * qué, cuándo, y qué acción tomó. Registrado automáticamente por
+ * middleware, nunca a mano (así nunca falta un endpoint). */
+function PanelAuditoriaCD() {
+  const [registros, setRegistros] = useState([]);
+
+  useEffect(() => {
+    api.get('/centro-decisiones/auditoria').then((r) => setRegistros(r.data.data)).catch(() => setRegistros([]));
+  }, []);
+
+  return (
+    <div className="space-y-2">
+      <div className="bg-slate-500/10 border border-slate-500/30 rounded-xl p-3 text-[11px] text-slate-400">
+        🔍 Cada consulta y acción dentro de Centro de Decisiones queda aquí — automático, nunca a mano. Sirve para reconstruir qué vio cada persona y qué decidió.
+      </div>
+      {registros.length === 0 ? (
+        <div className="text-center text-slate-500 py-10 text-sm">Sin registros todavía</div>
+      ) : registros.map((r) => (
+        <div key={r.id} className="bg-slate-900/60 border border-slate-800 rounded-xl p-2.5">
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-white font-bold">{r.accion}</span>
+            <span className="text-[9px] text-slate-500">{new Date(r.creado_en).toLocaleString('es-MX')}</span>
+          </div>
+          <p className="text-[10px] text-slate-500">{r.usuario_nombre || 'Sistema'}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** 🆕 Histórico Avanzado — serie de tiempo real con detección de
+ * anomalías por desviación estándar (no una opinión visual). */
+function PanelHistoricoAvanzado() {
+  const [dias, setDias] = useState(30);
+  const [datos, setDatos] = useState(null);
+
+  useEffect(() => {
+    api.get(`/centro-decisiones/historico?dias=${dias}`).then((r) => setDatos(r.data.data)).catch(() => setDatos(null));
+  }, [dias]);
+
+  if (!datos) return <div className="text-center text-slate-500 py-10 text-sm">⏳ Cargando...</div>;
+
+  const max = Math.max(1, ...datos.puntos.map((p) => p.promovidos));
+
+  return (
+    <div className="space-y-3">
+      <div className="flex gap-2">
+        {[[14, '14 días'], [30, '30 días'], [90, '90 días']].map(([n, label]) => (
+          <button key={n} onClick={() => setDias(n)} className={`px-3 py-1.5 rounded-full text-xs font-bold ${dias === n ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'}`}>{label}</button>
+        ))}
+      </div>
+
+      <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+        <div className="flex items-end gap-0.5 h-32 overflow-x-auto">
+          {datos.puntos.map((p) => (
+            <div key={p.fecha} className="flex-1 min-w-[6px] flex flex-col items-center justify-end h-full group relative">
+              <div className={`w-full rounded-t ${p.es_anomalia ? 'bg-red-500' : 'bg-blue-500'}`} style={{ height: `${Math.max(2, (p.promovidos / max) * 100)}%` }} />
+              {p.es_anomalia && <span className="absolute -top-4 text-[10px]">⚠️</span>}
+            </div>
+          ))}
+        </div>
+        <p className="text-[9px] text-slate-500 mt-2">Promedio diario: {datos.promedio_diario} · {datos.total_anomalias} día(s) marcado(s) como anomalía (rojo)</p>
+      </div>
+
+      <div className="bg-slate-500/10 border border-slate-500/30 rounded-xl p-3 text-[10px] text-slate-400">
+        📐 {datos.metodo}
+      </div>
+
+      {datos.puntos.filter((p) => p.es_anomalia).length > 0 && (
+        <div className="space-y-1.5">
+          {datos.puntos.filter((p) => p.es_anomalia).map((p) => (
+            <div key={p.fecha} className="bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2 text-xs text-red-300">
+              {new Date(p.fecha).toLocaleDateString('es-MX')}: {p.promovidos} promovidos (se aleja mucho del promedio de {datos.promedio_diario})
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const PERMISOS_INFO = {
+  VIEW: 'Ver el contenido de Centro de Decisiones',
+  AI: 'Usar el asistente de IA (cuando esté disponible)',
+  SCENARIOS: 'Usar el Simulador de escenarios',
+  REPORTS: 'Generar reportes desde este módulo',
+  DECISION_LOG: 'Registrar y actualizar decisiones en la Bitácora',
+  EXPORT: 'Exportar información de Centro de Decisiones',
+  ADMIN: 'Otorgar/quitar permisos a otras personas (como este panel)',
+};
+
+/** 🆕 Panel de Permisos — solo candidato/jefe_campana. Otorgar o
+ * quitar cualquiera de los 7 permisos granulares a una persona. */
+function PanelPermisosCD() {
+  const [equipo, setEquipo] = useState([]);
+  const [personaId, setPersonaId] = useState('');
+  const [permisos, setPermisos] = useState([]);
+
+  useEffect(() => { api.get('/estructura').then((r) => setEquipo(r.data.data)).catch(() => setEquipo([])); }, []);
+
+  const cargarPermisos = (id) => {
+    setPersonaId(id);
+    if (!id) { setPermisos([]); return; }
+    api.get(`/centro-decisiones/permisos/${id}`).then((r) => setPermisos(r.data.data)).catch(() => setPermisos([]));
+  };
+
+  const toggle = async (permiso) => {
+    if (permisos.includes(permiso)) {
+      await api.delete('/centro-decisiones/permisos', { data: { usuario_id: personaId, permiso } });
+      setPermisos(permisos.filter((p) => p !== permiso));
+    } else {
+      await api.post('/centro-decisiones/permisos', { usuario_id: personaId, permiso });
+      setPermisos([...permisos, permiso]);
+    }
+  };
+
+  const persona = equipo.find((u) => u.id === personaId);
+  const tieneTodoAutomatico = persona && ['candidato', 'jefe_campana'].includes(persona.rol);
+
+  return (
+    <div className="space-y-3">
+      <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-3 text-[11px] text-red-300">
+        🔐 Ser administrador general del sistema NO da acceso automático aquí — cada persona necesita que se le otorgue cada permiso explícitamente (excepto candidato/jefe de campaña, que siempre tienen todo).
+      </div>
+
+      <select value={personaId} onChange={(e) => cargarPermisos(e.target.value)} className="w-full px-3 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-white text-sm">
+        <option value="">Elige una persona...</option>
+        {equipo.filter((u) => !['candidato', 'jefe_campana'].includes(u.rol)).map((u) => <option key={u.id} value={u.id}>{u.nombre} — {u.rol}</option>)}
+      </select>
+
+      {personaId && (
+        <div className="space-y-2">
+          {Object.entries(PERMISOS_INFO).map(([permiso, descripcion]) => (
+            <label key={permiso} className="flex items-center gap-3 bg-slate-900/60 border border-slate-800 rounded-xl p-3 cursor-pointer">
+              <input type="checkbox" checked={permisos.includes(permiso)} onChange={() => toggle(permiso)} className="w-4 h-4" />
+              <div>
+                <p className="text-sm text-white font-bold">{permiso}</p>
+                <p className="text-[10px] text-slate-500">{descripcion}</p>
+              </div>
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** 🆕 Asistente IA con trazabilidad total — nunca inventa, y cada
+ * respuesta se puede abrir en "Ver Fuentes" para ver exactamente
+ * qué datos se usaron. */
+function PanelAsistenteIA() {
+  const [pregunta, setPregunta] = useState('');
+  const [historial, setHistorial] = useState([]);
+  const [cargando, setCargando] = useState(false);
+  const [fuentesAbiertas, setFuentesAbiertas] = useState(null);
+
+  const PREGUNTAS_SUGERIDAS = ['¿Qué está pasando hoy?', '¿Qué alertas requieren revisión?', '¿Qué metas están cubiertas?', 'Muéstrame el histórico'];
+
+  const preguntar = async (texto) => {
+    const p = texto || pregunta;
+    if (!p.trim()) return;
+    setCargando(true);
+    setPregunta('');
+    try {
+      const { data } = await api.post('/centro-decisiones/asistente', { pregunta: p });
+      setHistorial([...historial, { pregunta: p, ...data.data }]);
+    } catch (e) {
+      setHistorial([...historial, { pregunta: p, respuesta: e.response?.data?.error || 'No se pudo responder', fuentes: null }]);
+    }
+    setCargando(false);
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="bg-violet-500/10 border border-violet-500/30 rounded-xl p-3 text-[11px] text-violet-300">
+        🤖 Analiza SOLO datos reales de tu campaña. Si no hay suficiente información para responder, te lo dice claramente — nunca inventa un número.
+      </div>
+
+      <div className="flex gap-1.5 flex-wrap">
+        {PREGUNTAS_SUGERIDAS.map((p) => (
+          <button key={p} onClick={() => preguntar(p)} className="px-2.5 py-1 rounded-full bg-slate-800 text-slate-400 text-[10px] font-bold">{p}</button>
+        ))}
+      </div>
+
+      <div className="space-y-3 max-h-96 overflow-y-auto">
+        {historial.map((h, i) => (
+          <div key={i} className="space-y-1.5">
+            <p className="text-xs text-slate-400 text-right">{h.pregunta}</p>
+            <div className="bg-slate-900 border border-slate-700 rounded-xl p-3">
+              <p className="text-sm text-slate-200 whitespace-pre-wrap">{h.respuesta}</p>
+              {h.fuentes && (
+                <button onClick={() => setFuentesAbiertas(fuentesAbiertas === i ? null : i)} className="mt-2 text-[10px] text-violet-400 font-bold">
+                  {fuentesAbiertas === i ? '▲ Ocultar fuentes' : '▼ Ver fuentes'}
+                </button>
+              )}
+              {fuentesAbiertas === i && (
+                <pre className="mt-2 text-[9px] text-slate-500 bg-slate-950 rounded-lg p-2 overflow-x-auto">{JSON.stringify(h.fuentes, null, 2)}</pre>
+              )}
+            </div>
+          </div>
+        ))}
+        {cargando && <div className="text-center text-slate-500 text-xs">⏳ Analizando...</div>}
+      </div>
+
+      <div className="flex gap-2">
+        <input value={pregunta} onChange={(e) => setPregunta(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && preguntar()}
+          placeholder="¿Qué quieres analizar?" className="flex-1 px-3 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-white text-sm" />
+        <button onClick={() => preguntar()} disabled={cargando} className="px-4 py-2.5 rounded-xl bg-violet-600 text-white text-sm font-bold disabled:opacity-40">Enviar</button>
+      </div>
+    </div>
+  );
+}
+
+/** 🆕 Constructor de Reportes — pasos: qué información → periodo y
+ * territorio → vista previa → generar/guardar como plantilla. */
+function PanelConstructorReportes() {
+  const [paso, setPaso] = useState(1);
+  const [config, setConfig] = useState({ informacion: 'promovidos', fecha_inicio: '', fecha_fin: '', agrupar_por: 'seccion' });
+  const [vistaPrevia, setVistaPrevia] = useState(null);
+  const [cargando, setCargando] = useState(false);
+  const [plantillas, setPlantillas] = useState([]);
+  const [nombrePlantilla, setNombrePlantilla] = useState('');
+
+  useEffect(() => { api.get('/centro-decisiones/reportes/plantillas').then((r) => setPlantillas(r.data.data)).catch(() => setPlantillas([])); }, []);
+
+  const generarVistaPrevia = async () => {
+    setCargando(true);
+    try {
+      const { data } = await api.post('/centro-decisiones/reportes/vista-previa', config);
+      setVistaPrevia(data.data);
+      setPaso(3);
+    } catch (e) { alert(e.response?.data?.error || 'No se pudo generar'); }
+    setCargando(false);
+  };
+
+  const guardarPlantilla = async () => {
+    if (!nombrePlantilla.trim()) return;
+    await api.post('/centro-decisiones/reportes/plantillas', { nombre: nombrePlantilla, configuracion: config });
+    setNombrePlantilla('');
+    api.get('/centro-decisiones/reportes/plantillas').then((r) => setPlantillas(r.data.data));
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="flex gap-1.5">
+        {[1, 2, 3].map((n) => (
+          <div key={n} className={`flex-1 h-1.5 rounded-full ${paso >= n ? 'bg-green-500' : 'bg-slate-800'}`} />
+        ))}
+      </div>
+
+      {paso === 1 && (
+        <div className="space-y-2">
+          <p className="text-xs font-bold text-slate-300">Paso 1 — ¿Qué información?</p>
+          <div className="flex gap-2">
+            {[['promovidos', 'Promovidos'], ['estructura', 'Estructura'], ['incidencias', 'Incidencias']].map(([id, label]) => (
+              <button key={id} onClick={() => setConfig({ ...config, informacion: id })}
+                className={`flex-1 py-2.5 rounded-xl text-xs font-bold ${config.informacion === id ? 'bg-green-600 text-white' : 'bg-slate-800 text-slate-400'}`}>{label}</button>
+            ))}
+          </div>
+          <button onClick={() => setPaso(2)} className="w-full py-2.5 rounded-xl bg-slate-700 text-white text-sm font-bold">Siguiente →</button>
+        </div>
+      )}
+
+      {paso === 2 && (
+        <div className="space-y-2">
+          <p className="text-xs font-bold text-slate-300">Paso 2 — Periodo y agrupación</p>
+          {config.informacion === 'promovidos' && (
+            <>
+              <div className="flex gap-2">
+                <input type="date" value={config.fecha_inicio} onChange={(e) => setConfig({ ...config, fecha_inicio: e.target.value })} className="flex-1 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+                <input type="date" value={config.fecha_fin} onChange={(e) => setConfig({ ...config, fecha_fin: e.target.value })} className="flex-1 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+              </div>
+              <select value={config.agrupar_por} onChange={(e) => setConfig({ ...config, agrupar_por: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
+                <option value="seccion">Agrupar por Sección</option>
+                <option value="municipio">Agrupar por Municipio</option>
+              </select>
+            </>
+          )}
+          <div className="flex gap-2">
+            <button onClick={() => setPaso(1)} className="flex-1 py-2.5 rounded-xl bg-slate-800 text-slate-300 text-sm font-bold">← Atrás</button>
+            <button onClick={generarVistaPrevia} disabled={cargando} className="flex-[2] py-2.5 rounded-xl bg-green-600 text-white text-sm font-bold disabled:opacity-40">{cargando ? '⏳...' : 'Ver vista previa →'}</button>
+          </div>
+        </div>
+      )}
+
+      {paso === 3 && vistaPrevia && (
+        <div className="space-y-2">
+          <p className="text-xs font-bold text-slate-300">Paso 3 — Vista previa</p>
+          <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden">
+            <table className="w-full text-xs">
+              <thead className="bg-slate-800/60"><tr><th className="text-left px-3 py-2 text-slate-400">Categoría</th><th className="text-center px-3 py-2 text-slate-400">Total</th>{config.informacion === 'promovidos' && <th className="text-center px-3 py-2 text-slate-400">Comprometidos</th>}</tr></thead>
+              <tbody>
+                {vistaPrevia.filas.map((f, i) => (
+                  <tr key={i} className="border-t border-slate-800">
+                    <td className="px-3 py-2 text-white">{f.etiqueta}</td>
+                    <td className="px-3 py-2 text-center text-slate-300">{f.total}</td>
+                    {config.informacion === 'promovidos' && <td className="px-3 py-2 text-center text-emerald-400">{f.comprometidos}</td>}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-xs text-slate-400">Total general: <strong className="text-white">{vistaPrevia.total_general}</strong></p>
+
+          <div className="flex gap-2">
+            <input placeholder="Nombre para guardar como plantilla" value={nombrePlantilla} onChange={(e) => setNombrePlantilla(e.target.value)} className="flex-1 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+            <button onClick={guardarPlantilla} className="px-4 py-2 rounded-lg bg-emerald-700 text-white text-xs font-bold">💾 Guardar</button>
+          </div>
+          <button onClick={() => setPaso(1)} className="w-full py-2 rounded-xl bg-slate-800 text-slate-300 text-xs font-bold">↻ Nuevo reporte</button>
+        </div>
+      )}
+
+      {plantillas.length > 0 && (
+        <div className="border-t border-slate-800 pt-3">
+          <p className="text-[10px] font-bold text-slate-500 uppercase mb-2">Plantillas guardadas</p>
+          {plantillas.map((p) => (
+            <button key={p.id} onClick={() => { setConfig(p.configuracion); setPaso(2); }} className="w-full text-left text-xs text-slate-300 bg-slate-800/40 rounded-lg px-3 py-2 mb-1">{p.nombre}</button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function CentroDecisiones() {
+  // 🆕 candidato/jefe_campana siempre tienen acceso total (regla de
+  // la skill) — solo ellos ven la pestaña de administrar permisos.
+  const usuario = useAuth((s) => s.usuario);
+  const puedeAdministrarPermisos = ['candidato', 'jefe_campana'].includes(usuario?.rol);
   const [tab, setTab] = useState('bitacora');
   const [decisiones, setDecisiones] = useState([]);
   const [filtroEstado, setFiltroEstado] = useState('todas');
@@ -155,6 +779,17 @@ export default function CentroDecisiones() {
         <div className="flex gap-2">
           <button onClick={() => setTab('bitacora')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'bitacora' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📋 Bitácora de Decisiones</button>
           <button onClick={() => setTab('tareas')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'tareas' ? 'bg-teal-600 text-white' : 'bg-slate-800 text-slate-400'}`}>✅ Centro de Tareas</button>
+          <button onClick={() => setTab('alertas')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'alertas' ? 'bg-amber-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🚨 Motor de Alertas</button>
+          <button onClick={() => setTab('que-cambio')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'que-cambio' ? 'bg-purple-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📈 ¿Qué Cambió?</button>
+          <button onClick={() => setTab('comparador')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'comparador' ? 'bg-cyan-600 text-white' : 'bg-slate-800 text-slate-400'}`}>⚖️ Comparador</button>
+          <button onClick={() => setTab('simulador')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'simulador' ? 'bg-pink-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🔮 Simulador</button>
+          <button onClick={() => setTab('asistente')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'asistente' ? 'bg-violet-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🤖 Asistente IA</button>
+          <button onClick={() => setTab('constructor')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'constructor' ? 'bg-green-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🧱 Constructor de Reportes</button>
+          <button onClick={() => setTab('auditoria-cd')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'auditoria-cd' ? 'bg-slate-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🔍 Auditoría</button>
+          <button onClick={() => setTab('historico-cd')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'historico-cd' ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📉 Histórico</button>
+          {puedeAdministrarPermisos && (
+            <button onClick={() => setTab('permisos')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'permisos' ? 'bg-red-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🔐 Permisos</button>
+          )}
         </div>
 
         {tab === 'bitacora' && (
@@ -219,6 +854,15 @@ export default function CentroDecisiones() {
         )}
 
         {tab === 'tareas' && <PanelCentroTareas />}
+        {tab === 'alertas' && <PanelMotorAlertas />}
+        {tab === 'que-cambio' && <PanelQueCambio />}
+        {tab === 'comparador' && <PanelComparador />}
+        {tab === 'simulador' && <PanelSimulador />}
+        {tab === 'asistente' && <PanelAsistenteIA />}
+        {tab === 'constructor' && <PanelConstructorReportes />}
+        {tab === 'auditoria-cd' && <PanelAuditoriaCD />}
+        {tab === 'historico-cd' && <PanelHistoricoAvanzado />}
+        {tab === 'permisos' && puedeAdministrarPermisos && <PanelPermisosCD />}
 
       </div>
 
