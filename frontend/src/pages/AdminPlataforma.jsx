@@ -81,7 +81,26 @@ export default function AdminPlataforma() {
     cargar();
   };
 
-  const aprobar = async (id) => { await axios.patch(`${API_URL}/admin/campanas/${id}/aprobar`, {}, { headers }); cargar(); };
+  // 🆕 Ahora, al aprobar, se abre un modal para capturar el plan y la
+  // tarifa mensual real acordada con el cliente — antes se aprobaba
+  // sin ese dato, y el contrato quedaba sin poder generarse.
+  const [aprobandoId, setAprobandoId] = useState(null);
+  const [formAprobar, setFormAprobar] = useState({ plan: 'Básico', tarifa_mensual: '' });
+  const confirmarAprobacion = async () => {
+    await axios.patch(`${API_URL}/admin/campanas/${aprobandoId}/aprobar`, formAprobar, { headers });
+    setAprobandoId(null);
+    setFormAprobar({ plan: 'Básico', tarifa_mensual: '' });
+    cargar();
+  };
+  const descargarContrato = (id, nombreCandidato) => {
+    axios.get(`${API_URL}/admin/campanas/${id}/contrato-pdf`, { headers, responseType: 'blob' })
+      .then((r) => {
+        const url = URL.createObjectURL(new Blob([r.data]));
+        const a = document.createElement('a');
+        a.href = url; a.download = `contrato_${nombreCandidato}.pdf`; a.click();
+      })
+      .catch((e) => alert(e.response?.data?.error || 'No se pudo generar el contrato — verifica que el plan y la tarifa mensual estén capturados.'));
+  };
   const rechazar = async (id) => { await axios.patch(`${API_URL}/admin/campanas/${id}/rechazar`, {}, { headers }); cargar(); };
 
   const renovar = async (id, meses) => {
@@ -954,7 +973,10 @@ export default function AdminPlataforma() {
                   <div className="flex items-center gap-2">
                     {c.estado_aprobacion === 'pendiente' && (
                       <>
-                        <button onClick={() => aprobar(c.id)} className="text-[10px] font-bold text-emerald-400 px-2 py-1">✅ Aprobar</button>
+                        <button onClick={() => setAprobandoId(c.id)} className="text-[10px] font-bold text-emerald-400 px-2 py-1">✅ Aprobar</button>
+                        {c.estado_aprobacion === 'aprobada' && (
+                          <button onClick={() => descargarContrato(c.id, c.nombre_candidato)} className="text-[10px] font-bold text-indigo-400 px-2 py-1">📄 Contrato</button>
+                        )}
                         <button onClick={() => rechazar(c.id)} className="text-[10px] font-bold text-red-400 px-2 py-1">✕ Rechazar</button>
                       </>
                     )}
@@ -983,6 +1005,27 @@ export default function AdminPlataforma() {
           </div>
         </div>
       </div>
+
+      {/* 🆕 Modal para capturar plan y tarifa mensual real al aprobar */}
+      {aprobandoId && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50" onClick={() => setAprobandoId(null)}>
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-sm p-5 space-y-3" onClick={(e) => e.stopPropagation()}>
+            <h2 className="text-lg font-black text-white">Aprobar campaña</h2>
+            <p className="text-xs text-slate-500">Captura el plan y la tarifa mensual acordada — esto se usa para generar el contrato ya llenado.</p>
+            <select value={formAprobar.plan} onChange={(e) => setFormAprobar({ ...formAprobar, plan: e.target.value })}
+              className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
+              <option value="Básico">Básico</option>
+              <option value="Premium">Premium</option>
+            </select>
+            <input type="number" placeholder="Tarifa mensual (MXN)" value={formAprobar.tarifa_mensual} onChange={(e) => setFormAprobar({ ...formAprobar, tarifa_mensual: e.target.value })}
+              className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+            <div className="flex gap-2">
+              <button onClick={() => setAprobandoId(null)} className="flex-1 py-2 rounded-lg bg-slate-800 text-slate-300 text-xs font-bold">Cancelar</button>
+              <button onClick={confirmarAprobacion} disabled={!formAprobar.tarifa_mensual} className="flex-[2] py-2 rounded-lg bg-emerald-600 text-white text-xs font-bold disabled:opacity-40">✅ Confirmar aprobación</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
