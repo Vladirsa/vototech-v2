@@ -14,6 +14,12 @@ export const COLOR_PARTIDO = {
   rsp: { color: '#7C3AED', color2: '#8B5CF6', nombre: 'RSP' },
   panalt: { color: '#0D9488', color2: '#14B8A6', nombre: 'PANAL' },
   fxm: { color: '#DB2777', color2: '#EC4899', nombre: 'FXM' },
+  // 🆕 2 partidos con registro NACIONAL vigente desde el 1° de julio
+  // de 2026 — no se quitó ninguno de los anteriores, porque perder
+  // registro nacional no quita el registro LOCAL que algunos
+  // conservan en ciertos estados, donde sí pueden seguir siendo clientes.
+  somos: { color: '#EC4899', color2: '#F472B6', nombre: 'SOMOS' }, // antes "Somos México" — emblema oficial aprobado por el INE: la palabra SOMOS en rosa sobre blanco
+  paz: { color: '#64748B', color2: '#94A3B8', nombre: 'PAZ' }, // color oficial aún no confirmado públicamente, verificar cuando el INE lo publique
   independiente: { color: '#64748B', color2: '#94A3B8', nombre: 'INDEP.' },
 };
 
