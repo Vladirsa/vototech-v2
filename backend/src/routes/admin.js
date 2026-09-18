@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import multer from 'multer';
 import crypto from 'crypto';
+import PDFDocument from 'pdfkit';
 import { query } from '../db/pool.js';
 import { requiereSuperAdmin } from '../middleware/superAdmin.js';
 import { generarToken } from '../middleware/auth.js';
@@ -43,18 +44,123 @@ router.get('/campanas', async (req, res) => {
   res.json({ ok: true, data: resultado.rows });
 });
 
+/**
+ * 🆕 CORREGIDO — ahora acepta tarifa_mensual y plan al momento de dar
+ * de alta la campaña. Es aquí, en el alta, donde tú decides el monto
+ * real con el que se va a trabajar (no viene de una tabla fija).
+ */
 router.patch('/campanas/:id/aprobar', async (req, res) => {
+  const { tarifa_mensual, plan } = req.body;
   const resultado = await query(
     `UPDATE campanas SET estado_aprobacion='aprobada', activa=true,
-       fecha_activacion=now(), fecha_vencimiento=now() + interval '1 month'
+       fecha_activacion=now(), fecha_vencimiento=now() + interval '1 month',
+       tarifa_mensual = COALESCE($2, tarifa_mensual), plan = COALESCE($3, plan)
      WHERE id=$1 RETURNING *`,
-    [req.params.id]
+    [req.params.id, tarifa_mensual || null, plan || null]
   );
   if (resultado.rows[0]) {
     await query(`INSERT INTO admin_bitacora (campana_id, nombre_campana, accion, detalle) VALUES ($1,$2,'aprobada','1 mes de gracia otorgado')`,
       [req.params.id, resultado.rows[0].nombre_candidato]);
   }
   res.json({ ok: true, data: resultado.rows[0] });
+});
+
+// 🆕 Datos fijos de EL PRESTADOR — se usan en cada contrato generado,
+// nunca se le pide a la persona que los escriba a mano.
+const PRESTADOR = {
+  nombre: 'Roberto Vladimir Rivera Sánchez',
+  rfc: 'RISR830214R64',
+  domicilio: 'Apizaco, Tlaxcala',
+};
+
+/**
+ * 🆕 GET /api/admin/campanas/:id/contrato-pdf
+ * Genera el contrato de prestación de servicios YA LLENADO con los
+ * datos reales de la campaña — nombre del candidato, tipo de
+ * elección, fecha de elección, plan y tarifa mensual (los que TÚ
+ * capturaste al dar de alta con /aprobar).
+ *
+ * Lista de verificación previa a firma (skill legal:signature-request)
+ * — si falta algún dato indispensable, se detiene con un error claro
+ * en vez de generar un contrato con huecos.
+ */
+router.get('/campanas/:id/contrato-pdf', async (req, res) => {
+  const campanaRes = await query('SELECT * FROM campanas WHERE id=$1', [req.params.id]);
+  const c = campanaRes.rows[0];
+  if (!c) return res.status(404).json({ ok: false, error: 'Campaña no encontrada' });
+
+  const faltantes = [];
+  if (!c.nombre_candidato) faltantes.push('nombre del candidato');
+  if (!c.tipo_eleccion) faltantes.push('tipo de elección');
+  if (!c.tarifa_mensual) faltantes.push('tarifa mensual (captúrala al aprobar la campaña)');
+  if (!c.plan) faltantes.push('plan contratado (captúralo al aprobar la campaña)');
+  if (faltantes.length > 0) {
+    return res.status(400).json({ ok: false, error: `Faltan datos antes de generar el contrato: ${faltantes.join(', ')}.` });
+  }
+
+  const doc = new PDFDocument({ margin: 50, size: 'letter', bufferPages: true });
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename=contrato_${c.nombre_candidato.replace(/\s+/g, '_')}.pdf`);
+  doc.pipe(res);
+
+  const clausula = (num, titulo) => { doc.moveDown(0.8); doc.fontSize(11).font('Helvetica-Bold').fillColor('#1e1b4b').text(`${num}. ${titulo}`); doc.moveDown(0.3); doc.font('Helvetica').fontSize(9.5).fillColor('#1e293b'); };
+
+  doc.fontSize(16).font('Helvetica-Bold').fillColor('#1e1b4b').text('VotoTech', { align: 'center' });
+  doc.fontSize(13).text('CONTRATO DE PRESTACIÓN DE SERVICIOS', { align: 'center' });
+  doc.fontSize(9).font('Helvetica').fillColor('#64748b').text('PLATAFORMA TECNOLÓGICA VOTOTECH', { align: 'center' });
+  doc.moveDown(1);
+
+  doc.fontSize(9.5).fillColor('#1e293b').text(
+    `Contrato de prestación de servicios que celebran, por una parte ${PRESTADOR.nombre}, RFC ${PRESTADOR.rfc}, con domicilio en ${PRESTADOR.domicilio} (en adelante "EL PRESTADOR"), y por la otra ${c.nombre_candidato}, en su calidad de candidato(a) a ${c.tipo_eleccion} (en adelante "EL CLIENTE"), al tenor de las siguientes declaraciones y cláusulas:`
+  );
+
+  doc.moveDown(0.8);
+  doc.fontSize(11).font('Helvetica-Bold').text('DECLARACIONES');
+  doc.fontSize(9.5).font('Helvetica');
+  doc.text(`I. EL PRESTADOR declara ser una plataforma tecnológica de gestión de campañas electorales, con capacidad técnica para prestar el servicio objeto de este contrato.`);
+  doc.moveDown(0.3);
+  doc.text(`II. EL CLIENTE declara ser candidato o representante legalmente facultado de la campaña "${c.nombre_candidato}", para el proceso de ${c.tipo_eleccion}${c.fecha_eleccion ? ` con fecha de jornada electoral ${new Date(c.fecha_eleccion).toLocaleDateString('es-MX')}` : ''}, y contar con capacidad legal para obligarse en los términos de este contrato.`);
+  doc.moveDown(0.3);
+  doc.text(`III. Ambas partes declaran conocer y sujetarse a la Ley General de Instituciones y Procedimientos Electorales, la legislación electoral local aplicable, y la Ley Federal de Protección de Datos Personales en Posesión de los Particulares.`);
+
+  doc.moveDown(0.8);
+  doc.fontSize(11).font('Helvetica-Bold').text('CLÁUSULAS');
+
+  clausula('PRIMERA', 'OBJETO.');
+  doc.text(`EL PRESTADOR otorga a EL CLIENTE una licencia de uso, no exclusiva e intransferible, de la plataforma VotoTech, plan ${c.plan}, para su uso exclusivo en la operación interna de la campaña señalada en las Declaraciones.`);
+
+  clausula('SEGUNDA', 'VIGENCIA Y MODALIDAD DE SUSCRIPCIÓN.');
+  doc.text('El presente contrato opera bajo un modelo de suscripción MENSUAL. La vigencia se renueva automáticamente cada mes salvo cancelación expresa de cualquiera de las partes. EL CLIENTE puede cancelar su suscripción en cualquier momento, sin penalización sobre los meses ya pagados.');
+
+  clausula('TERCERA', 'CONTRAPRESTACIÓN.');
+  doc.text(`EL CLIENTE se obliga a cubrir una contraprestación mensual de $${parseFloat(c.tarifa_mensual).toLocaleString('es-MX')} MXN + IVA, correspondiente al plan ${c.plan}. La falta de pago oportuno faculta a EL PRESTADOR a suspender el acceso al servicio sin responsabilidad alguna, hasta que se regularice el pago.`);
+
+  clausula('CUARTA', 'OBLIGACIONES DE EL CLIENTE.');
+  ['Utilizar la plataforma exclusivamente para fines lícitos de organización interna de campaña.', 'No importar, cargar ni distribuir el padrón electoral oficial del INE.', 'No utilizar la plataforma para actos de compra o coacción del voto.', 'Contar con su propio Aviso de Privacidad frente a los ciudadanos cuyos datos capture.', 'Cumplir con sus propias obligaciones de fiscalización ante el INE/OPLE.', 'Ser el único responsable del uso que su equipo dé a la plataforma.'].forEach((t) => doc.text(`•  ${t}`));
+
+  clausula('QUINTA', 'LIMITACIÓN DE RESPONSABILIDAD.');
+  doc.text('EL PRESTADOR no será responsable por el uso indebido de EL CLIENTE, interrupciones de proveedores externos, ni por decisiones de campaña tomadas con base en la información o sugerencias del Centro de Decisiones — la decisión final siempre corresponde a EL CLIENTE. La responsabilidad máxima de EL PRESTADOR no excederá el monto pagado por EL CLIENTE en los últimos tres meses.');
+
+  clausula('SEXTA', 'PROTECCIÓN DE DATOS Y CONFIDENCIALIDAD.');
+  doc.text('EL PRESTADOR actuará como Encargado del tratamiento de los datos personales que EL CLIENTE capture, siendo EL CLIENTE el Responsable de dichos datos frente a los titulares.');
+
+  clausula('SÉPTIMA', 'TERMINACIÓN.');
+  doc.text('Este contrato podrá darse por terminado por cualquiera de las partes con aviso previo de al menos 15 días naturales, o de forma inmediata por EL PRESTADOR en caso de incumplimiento grave de EL CLIENTE.');
+
+  clausula('OCTAVA', 'JURISDICCIÓN.');
+  doc.text(`Para la interpretación y cumplimiento de este contrato, las partes se someten a las leyes federales de los Estados Unidos Mexicanos y a los tribunales competentes de Tlaxcala, Tlaxcala.`);
+
+  doc.moveDown(1.5);
+  doc.fontSize(9.5).text('Leído que fue el presente contrato y enteradas las partes de su contenido y alcance legal, lo firman de conformidad.', { align: 'center' });
+  doc.moveDown(2);
+  doc.text('_______________________________', { align: 'center' });
+  doc.font('Helvetica-Bold').text(`EL PRESTADOR — ${PRESTADOR.nombre}`, { align: 'center' });
+  doc.moveDown(1.5);
+  doc.font('Helvetica').text('_______________________________', { align: 'center' });
+  doc.font('Helvetica-Bold').text(`EL CLIENTE — ${c.nombre_candidato}`, { align: 'center' });
+  doc.font('Helvetica').fontSize(8).fillColor('#64748b').text(`Fecha de generación: ${new Date().toLocaleDateString('es-MX')}`, { align: 'center' });
+
+  doc.end();
 });
 
 router.patch('/campanas/:id/rechazar', async (req, res) => {
