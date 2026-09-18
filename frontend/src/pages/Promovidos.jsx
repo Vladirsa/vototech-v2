@@ -225,7 +225,7 @@ export function ModalAgregar({ onCerrar, onGuardado, seccionInicial }) {
         <select value={form.partido} onChange={(e) => actualizar('partido', e.target.value)}
           className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
           <option value="">Partido de preferencia (opcional)</option>
-          {['morena','pan','pri','prd','mc','pvem','pt','pac','independiente'].map(p => <option key={p} value={p}>{p.toUpperCase()}</option>)}
+          {['morena','pan','pri','prd','mc','pvem','pt','pac','somos','paz','independiente'].map(p => <option key={p} value={p}>{p.toUpperCase()}</option>)}
         </select>
 
         <div className="flex gap-2">
@@ -431,7 +431,7 @@ function ModalDetalle({ promovidoId, onCerrar, onActualizado }) {
             <select value={form.partido || ''} onChange={(e) => setForm({ ...form, partido: e.target.value })}
               className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
               <option value="">Sin partido</option>
-              {['morena','pan','pri','prd','mc','pvem','pt','pac','independiente'].map(p => <option key={p} value={p}>{p.toUpperCase()}</option>)}
+              {['morena','pan','pri','prd','mc','pvem','pt','pac','somos','paz','independiente'].map(p => <option key={p} value={p}>{p.toUpperCase()}</option>)}
             </select>
             <div>
               <p className="text-xs font-bold text-slate-300 mb-1.5">¿Va a votar por nosotros?</p>

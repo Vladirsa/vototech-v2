@@ -7,6 +7,12 @@ const PARTIDOS_COLOR = {
   morena: '#8B0000', pan: '#003DA5', pri: '#006847', pvem: '#2D7D27',
   pt: '#CC0000', mc: '#F26522', prd: '#FFCB00', pac: '#E91E63',
   rsp: '#7c3aed', fxm: '#0891b2', panalt: '#64748b',
+  // 🆕 2 partidos nuevos con registro nacional desde el 1° de julio
+  // de 2026 — no se quitó nada de los anteriores porque perder
+  // registro NACIONAL no quita el registro LOCAL que algunos
+  // conservan en ciertos estados, y ahí sí pueden ser clientes.
+  somos: '#EC4899', // "SOMOS" (antes "Somos México") — emblema oficial aprobado por el INE: la palabra SOMOS en rosa sobre blanco
+  paz: '#64748b', // Partido PAZ — color oficial aún no confirmado, verificar cuando el INE lo publique
 };
 
 // 🆕 Etiquetas legibles por rol — para el filtro "por estructura" de
