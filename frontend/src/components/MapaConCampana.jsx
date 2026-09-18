@@ -19,6 +19,22 @@ export default function MapaConCampana() {
       .catch(() => setError(true));
   }, []);
 
+  // 🆕 Respaldo por JavaScript para navegadores móviles que aún no
+  // soportan "dvh" — calcula la altura REAL visible con
+  // window.innerHeight (que sí se actualiza cuando la barra de
+  // direcciones aparece/desaparece), y la guarda como variable CSS.
+  const [alturaRealPx, setAlturaRealPx] = useState(null);
+  useEffect(() => {
+    const actualizar = () => setAlturaRealPx(window.innerHeight);
+    actualizar();
+    window.addEventListener('resize', actualizar);
+    window.addEventListener('orientationchange', actualizar);
+    return () => {
+      window.removeEventListener('resize', actualizar);
+      window.removeEventListener('orientationchange', actualizar);
+    };
+  }, []);
+
   if (error) {
     return <div className="min-h-screen bg-slate-950 flex items-center justify-center text-red-400 text-sm">⚠️ No se pudo cargar la información de tu campaña</div>;
   }
@@ -42,7 +58,15 @@ export default function MapaConCampana() {
     // flexbox perfecta, funciona sola sin importar el contexto donde
     // se monte. Y overflow-hidden asegura que nada de lo que esté
     // adentro se pueda salir de esa caja hacia el resto de la página.
-    <div className="h-[calc(100vh-45px)] overflow-hidden">
+    // 🆕 CORREGIDO — "100vh" en navegadores móviles NO es la altura
+    // real visible: incluye el espacio de la barra de direcciones
+    // aunque esté mostrándose, así que el contenido calculado con
+    // 100vh queda MÁS ALTO que lo que en verdad se ve en pantalla —
+    // por eso el mapa se veía cortado en celular. "100dvh" (dynamic
+    // viewport height) sí se ajusta al alto real visible en cada
+    // momento, tanto si la barra de direcciones está mostrada como
+    // oculta.
+    <div className="h-[calc(100dvh-45px)] overflow-hidden" style={alturaRealPx ? { height: `${alturaRealPx - 45}px` } : undefined}>
       <MapaElectoral
         territorioTipo={campana.territorio_tipo}
         territorioId={campana.territorio_id}
