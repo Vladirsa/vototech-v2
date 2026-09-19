@@ -1,6 +1,6 @@
 import { precacheAndRoute } from 'workbox-precaching';
 import { registerRoute } from 'workbox-routing';
-import { NetworkFirst, CacheFirst } from 'workbox-strategies';
+import { NetworkFirst, StaleWhileRevalidate } from 'workbox-strategies';
 import { ExpirationPlugin } from 'workbox-expiration';
 
 // Precache de los archivos de la app — esto es lo que antes generaba
@@ -9,13 +9,27 @@ import { ExpirationPlugin } from 'workbox-expiration';
 // no permite personalizar.
 precacheAndRoute(self.__WB_MANIFEST);
 
-// Mismo criterio que antes: datos geográficos casi no cambian, se
-// pueden cachear agresivo; todo lo demás de la API siempre intenta
-// red primero (LECCIÓN DE LA V1: CacheFirst en todo servía datos
-// viejos eternamente y costó días de confusión).
+// 🆕 CORREGIDO — LA CAUSA REAL de "subo un municipio nuevo / corrijo
+// datos de cartografía y en el celular sigue viéndose lo de antes,
+// aunque en incógnito ya se ve bien". Antes esto era CacheFirst con
+// 24 horas: la PRIMERA vez que el mapa cargaba en un celular, guardaba
+// esa respuesta y la servía TAL CUAL durante todo un día — sin
+// siquiera intentar preguntarle al servidor si había algo nuevo. Si
+// esa primera carga coincidió con datos viejos o corruptos (como el
+// bug de municipios con nombres numéricos que ya se corrigió), el
+// celular se quedaba "atorado" viendo esa versión vieja hasta que se
+// cumplieran las 24 horas, sin importar cuántas veces se corrigiera
+// el código o la base de datos.
+//
+// StaleWhileRevalidate resuelve esto sin sacrificar velocidad:
+// sigue mostrando la copia guardada AL INSTANTE (rápido, funciona
+// offline), pero en cuanto hay internet, pide la versión real al
+// servidor EN PARALELO y actualiza lo guardado para la próxima vez —
+// así como máximo se ve una versión desactualizada UNA sola vez,
+// nunca 24 horas seguidas.
 registerRoute(
   ({ url }) => url.pathname.startsWith('/api/geo/'),
-  new CacheFirst({ cacheName: 'geo-cache', plugins: [new ExpirationPlugin({ maxEntries: 50, maxAgeSeconds: 60 * 60 * 24 })] })
+  new StaleWhileRevalidate({ cacheName: 'geo-cache', plugins: [new ExpirationPlugin({ maxEntries: 50, maxAgeSeconds: 60 * 60 * 24 })] })
 );
 // 🆕 LA CAUSA REAL DE "AGREGO ALGO Y NO SE VE" — antes esperaba solo
 // 5 segundos antes de rendirse y servir la caché vieja SIN avisar.
