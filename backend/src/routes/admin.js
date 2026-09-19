@@ -597,6 +597,29 @@ function primerCampoQueExista(propiedades, nombresPosibles) {
   return null;
 }
 
+// 🆕 NUEVO — esta es la corrección real del bug que dañó los
+// municipios de Tlaxcala Y de Baja California Sur: cuando el archivo
+// GeoJSON no trae el nombre del municipio bajo ninguna de las llaves
+// de CAMPOS_MUNICIPIO_NOMBRE, a veces trae en su lugar una CLAVE o
+// CÓDIGO numérico bajo una llave que por coincidencia SÍ está en esa
+// lista (por ejemplo, un campo llamado "municipio" con el número "3"
+// en vez del nombre "La Paz"). Antes, ese número se aceptaba tal
+// cual como si fuera el nombre real, y se creaba (o se le cambiaban
+// las secciones) a un municipio llamado literalmente "3" — eso fue
+// EXACTAMENTE lo que pasó: terminaron secciones completas de
+// Tlaxcala y de BCS colgadas de municipios con nombres como "1", "2",
+// "3"... en vez de sus nombres reales, y por eso no se veían bien en
+// el mapa ni en los selectores de Estructura/Demo.
+//
+// Ahora, si lo que se detectó como "nombre del municipio" es
+// puramente un número, se rechaza — se prefiere DETENERSE y pedir
+// ayuda (mostrando las propiedades reales del archivo, como ya hacía
+// este endpoint cuando no detectaba nada) que crear datos corruptos
+// en silencio.
+function esNombreDeMunicipioValido(valor) {
+  return valor !== null && valor !== undefined && !/^\s*\d+\s*$/.test(String(valor));
+}
+
 router.post('/importar-cartografia-estado', upload.single('geojson'), async (req, res) => {
   const { estado_id } = req.body;
   if (!estado_id) return res.status(400).json({ ok: false, error: 'Falta estado_id' });
@@ -625,6 +648,15 @@ router.post('/importar-cartografia-estado', upload.single('geojson'), async (req
       sugerencia: 'Copia y pega estas propiedades en el chat — con eso se agregan los nombres de columna que falten.',
     });
   }
+  // 🆕 NUEVO — ver esNombreDeMunicipioValido() arriba.
+  if (!esNombreDeMunicipioValido(municipioDetectado)) {
+    return res.status(422).json({
+      ok: false,
+      error: `El campo que se detectó como nombre del municipio en realidad es un número ("${municipioDetectado}"), no un nombre real — probablemente es una clave o código, no el nombre del municipio. Para evitar crear municipios corruptos (esto ya pasó antes), el proceso se detiene aquí.`,
+      propiedadesDeEjemplo: propiedadesEjemplo,
+      sugerencia: 'Copia y pega estas propiedades en el chat — dime cuál llave sí trae el nombre real del municipio (por ejemplo "NOM_MUNICIP" o algo similar) y la agrego a la lista de nombres reconocidos.',
+    });
+  }
 
   const municipiosCache = {};
   let municipiosCreados = 0, seccionesCreadas = 0, errores = 0;
@@ -638,7 +670,10 @@ router.post('/importar-cartografia-estado', upload.single('geojson'), async (req
     const distritoFederal = primerCampoQueExista(p, CAMPOS_DISTRITO_FEDERAL);
     const listaNominal = primerCampoQueExista(p, CAMPOS_LISTA_NOMINAL);
 
-    if (numeroSeccion === null || !municipioNombre) { errores++; continue; }
+    // 🆕 NUEVO — misma protección, pero por cada sección (no solo con
+    // el primer elemento): si esta sección en particular no trae un
+    // nombre de municipio válido, se descarta en vez de crear basura.
+    if (numeroSeccion === null || !municipioNombre || !esNombreDeMunicipioValido(municipioNombre)) { errores++; continue; }
 
     try {
       let municipioId = municipiosCache[municipioNombre];
