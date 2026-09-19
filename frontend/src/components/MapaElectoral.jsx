@@ -1216,16 +1216,12 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
           />
         )}
       </MapContainer>
-      {/* 🆕 NUEVO — título del mapa pedido: muestra siempre "CAMPAÑA
-          ELECTORAL" y, entre paréntesis, el tipo de elección real de
-          esta campaña (Ayuntamiento, Gobernador, etc.), para que sea
-          claro qué elección se está viendo sin tener que adivinar. */}
-      <div className="absolute top-2 left-2 z-[1000] bg-slate-900/95 backdrop-blur border border-slate-700 rounded-lg shadow-lg px-2.5 py-1.5 max-w-[62%] md:max-w-none">
-        <div className="text-[9px] md:text-[11px] font-black text-white uppercase tracking-wide leading-tight">
-          Campaña Electoral
-          <span className="text-indigo-400"> ({TIPO_ELECCION_LABEL[tipoEleccion] || tipoEleccion})</span>
-        </div>
-      </div>
+      {/* 🆕 QUITADO — el título "Campaña Electoral (tipo)" ya NO va
+          flotando encima del mapa (tapaba contenido y ocupaba espacio
+          valioso en pantallas chicas). Ahora vive arriba de todo,
+          junto al logo de VotoTech en la franja superior (AppShell.jsx),
+          con el nombre real del municipio en vez del tipo de elección
+          — así se ve siempre, en cualquier pantalla, sin estorbar el mapa. */}
       {concentrado && (
         <button onClick={() => setMostrarConcentrado(true)}
           className="absolute top-2 right-2 z-[1000] bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl shadow-xl px-3 py-2 flex items-center gap-2">

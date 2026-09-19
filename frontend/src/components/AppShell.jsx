@@ -3,6 +3,7 @@ import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../lib/authStore';
 import { useTema } from '../lib/temaStore';
 import { contarPendientesOffline } from '../lib/colaOffline';
+import api from '../lib/api';
 
 // Mismo listado y misma lógica de permisos por rol que ya existía en
 // NavBar.jsx — se traen tal cual, solo cambia CÓMO se pintan (antes
@@ -99,6 +100,19 @@ function modulosDeCoordGeneral(puesto) {
   return regla ? ['dashboard', 'mapa', ...regla.modulos] : TODOS;
 }
 
+// 🆕 NUEVO — nombre bonito en español para cada tipo de elección,
+// usado cuando la campaña no tiene un municipio específico (Gobernador,
+// Senaduría, Diputación) — ahí no hay "un municipio" que mostrar, así
+// que se muestra el tipo de elección en su lugar.
+const TIPO_ELECCION_LABEL = {
+  ayuntamiento: 'Ayuntamiento',
+  pres_comunidad: 'Presidencia de Comunidad',
+  gobernador: 'Gobernador',
+  dip_local: 'Diputación Local',
+  dip_federal: 'Diputación Federal',
+  senador: 'Senaduría',
+};
+
 /** Contenido de navegación compartido entre el riel de escritorio y el cajón móvil. */
 function ListaModulos({ modulos, onNavegar }) {
   const enlaceModulo = (m) => (
@@ -177,6 +191,24 @@ export default function AppShell({ children }) {
     };
   }, []);
 
+  // 🆕 NUEVO — "Campaña Electoral de [Municipio]" junto al logo de
+  // VotoTech, siempre visible en cualquier pantalla (no solo el
+  // mapa). Antes esto vivía flotando ENCIMA del mapa, tapando
+  // contenido y solo visible en esa pantalla; ahora se pide una sola
+  // vez aquí y se ve en toda la app. Se usa el nombre real del
+  // municipio cuando existe (campañas de Ayuntamiento/Presidencia de
+  // Comunidad); para el resto (Gobernador, Senaduría, Diputación,
+  // que no tienen "un municipio") se muestra el tipo de elección.
+  const [campana, setCampana] = useState(null);
+  useEffect(() => {
+    api.get('/auth/mi-campana').then((r) => setCampana(r.data.data)).catch(() => {});
+  }, []);
+  const etiquetaCampana = campana
+    ? campana.territorio_nombre
+      ? `Campaña Electoral de ${campana.territorio_nombre}`
+      : `Campaña Electoral (${TIPO_ELECCION_LABEL[campana.tipo_eleccion] || campana.tipo_eleccion})`
+    : null;
+
   const salir = () => { cerrarSesion(); navigate('/login'); };
   const modulosPermitidos = usuario?.rol === 'voluntario' ? modulosDeVoluntario(usuario.puesto)
     : usuario?.rol === 'coord_general' ? modulosDeCoordGeneral(usuario.puesto)
@@ -190,16 +222,21 @@ export default function AppShell({ children }) {
           celular, para que el mapa (que resta exactamente 45px con
           calc(100vh-45px)) no necesite ningún cambio. ── */}
       <div className="h-[45px] flex-shrink-0 flex items-center justify-between px-3 border-b border-slate-800 bg-slate-950/95 backdrop-blur z-[100]">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 min-w-0">
           {/* Botón de menú — solo visible en celular, abre el cajón con la lista completa */}
-          <button onClick={() => setCajonAbierto(true)} className="lg:hidden text-white text-xl leading-none px-1" aria-label="Abrir menú">
+          <button onClick={() => setCajonAbierto(true)} className="lg:hidden text-white text-xl leading-none px-1 flex-shrink-0" aria-label="Abrir menú">
             ☰
           </button>
-          <span className="text-lg">🗳️</span>
-          <span className="text-xs font-black text-white hidden sm:inline">VotoTech</span>
-          {moduloActual && <span className="text-xs text-slate-500 hidden md:inline">· {moduloActual.label}</span>}
+          <span className="text-lg flex-shrink-0">🗳️</span>
+          <span className="text-xs font-black text-white hidden sm:inline flex-shrink-0">VotoTech</span>
+          {etiquetaCampana && (
+            <span className="text-[10px] sm:text-xs font-bold text-indigo-400 truncate">
+              · {etiquetaCampana}
+            </span>
+          )}
+          {!etiquetaCampana && moduloActual && <span className="text-xs text-slate-500 hidden md:inline">· {moduloActual.label}</span>}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-shrink-0">
           {/* 🆕 Aviso de registros esperando conexión — solo aparece
               si de verdad hay algo pendiente, para no estorbar en el
               uso normal del día a día. */}
