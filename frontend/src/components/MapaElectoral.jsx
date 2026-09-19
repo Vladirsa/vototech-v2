@@ -903,6 +903,40 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
   };
   const refEstiloSeccion = useRef(estiloSeccion);
   refEstiloSeccion.current = estiloSeccion;
+  // 🆕 CORREGIDO — LA CAUSA REAL de "cambio el año de 2024 a 2021
+  // (o de cualquier otro selector de color) y el mapa se queda
+  // pintado igual". React-Leaflet dibuja el polígono de cada sección
+  // UNA sola vez cuando se monta la capa <GeoJSON>; después de eso,
+  // aunque la función `estiloSeccion` cambie en cada render (porque
+  // `resultados`, `anio`, `modoColoreado`, etc. cambiaron), Leaflet
+  // NO vuelve a preguntarle su color a cada polígono por sí solo —
+  // hay que decírselo explícitamente con `.setStyle(...)`.
+  // La capa de secciones ya se "remonta" completa (pierde y vuelve a
+  // dibujar los ~626 polígonos) cuando cambian modoSectorizacion /
+  // modoCapa / zonasAsignadas / territorioId (ver `key` de abajo) —
+  // pero el AÑO y el modo de coloreado (Partido/Prioridad/Campaña)
+  // nunca estaban en esa lista, así que nunca disparaban ese
+  // remontaje ni ningún otro repintado.
+  // La solución: en vez de forzar un remontaje completo (lento con
+  // 626 polígonos — se notaría como un parpadeo cada vez que tocas
+  // un año), se guarda una referencia directa a la capa dibujada y,
+  // cada vez que algo que afecta el color cambia, se recorre
+  // `eachLayer` y se le vuelve a aplicar su estilo actual a cada
+  // polígono — instantáneo, sin redibujar geometría.
+  const capaSeccionesRef = useRef(null);
+  useEffect(() => {
+    const capa = capaSeccionesRef.current;
+    if (!capa || typeof capa.eachLayer !== 'function') return;
+    capa.eachLayer((l) => {
+      if (l.feature) l.setStyle(refEstiloSeccion.current(l.feature));
+    });
+  }, [
+    anio, resultados, modoColoreado, coloreadoActivo,
+    prioridadPorSeccion, densidadPorSeccion,
+    mostrarCobertura, coberturaClasificacion,
+    capaPulso, seccionesActivas7d, seccionActiva,
+    modoSectorizacion, seccionesSeleccionadas, seccionAsignadaA,
+  ]);
   // 🆕 LA CORRECCIÓN REAL — el manejador de clic de cada sección se
   // "graba" UNA sola vez cuando el mapa carga (Leaflet no lo vuelve a
   // ejecutar después). Sin esta referencia, el clic siempre recordaba
@@ -1006,6 +1040,7 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
         </LayersControl>
         {seccionesFiltradas && (
           <GeoJSON
+            ref={capaSeccionesRef}
             key={`${territorioId}-${modoSectorizacion}-${modoCapa}-${zonasAsignadas.length}`}
             data={seccionesFiltradas}
             style={estiloSeccion}
@@ -1216,12 +1251,16 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
           />
         )}
       </MapContainer>
-      {/* 🆕 QUITADO — el título "Campaña Electoral (tipo)" ya NO va
-          flotando encima del mapa (tapaba contenido y ocupaba espacio
-          valioso en pantallas chicas). Ahora vive arriba de todo,
-          junto al logo de VotoTech en la franja superior (AppShell.jsx),
-          con el nombre real del municipio en vez del tipo de elección
-          — así se ve siempre, en cualquier pantalla, sin estorbar el mapa. */}
+      {/* 🆕 NUEVO — título del mapa pedido: muestra siempre "CAMPAÑA
+          ELECTORAL" y, entre paréntesis, el tipo de elección real de
+          esta campaña (Ayuntamiento, Gobernador, etc.), para que sea
+          claro qué elección se está viendo sin tener que adivinar. */}
+      <div className="absolute top-2 left-2 z-[1000] bg-slate-900/95 backdrop-blur border border-slate-700 rounded-lg shadow-lg px-2.5 py-1.5 max-w-[62%] md:max-w-none">
+        <div className="text-[9px] md:text-[11px] font-black text-white uppercase tracking-wide leading-tight">
+          Campaña Electoral
+          <span className="text-indigo-400"> ({TIPO_ELECCION_LABEL[tipoEleccion] || tipoEleccion})</span>
+        </div>
+      </div>
       {concentrado && (
         <button onClick={() => setMostrarConcentrado(true)}
           className="absolute top-2 right-2 z-[1000] bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl shadow-xl px-3 py-2 flex items-center gap-2">
