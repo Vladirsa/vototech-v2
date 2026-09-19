@@ -752,16 +752,28 @@ router.get('/salud', async (req, res) => {
   res.json({ ok: true, data: { resumen, alertas, panel_salud: panelSalud } });
 });
 
+// 🆕 CORREGIDO — faltaba 'coord_regional' en la lista de roles
+// válidos. El formulario de "Agregar miembro" (Estructura.jsx) YA
+// tenía todo listo para crear un Coordinador Regional y asignarle
+// una región (selector, texto de ayuda, envío de region_id) desde
+// hace tiempo, pero el backend SIEMPRE rechazaba la petición con un
+// error de validación porque 'coord_regional' no estaba en este
+// enum — por eso nunca se pudo crear ninguno, y las regiones (y las
+// fichas que dependen de saber quién las coordina) se veían
+// permanentemente vacías/desactualizadas. También faltaba el campo
+// region_id por completo (el formulario ya lo mandaba, pero se
+// perdía silenciosamente porque el esquema no lo reconocía).
 const esquemaMiembro = z.object({
   nombre: z.string().min(2).max(200),
   email: z.string().email(),
   telefono: z.string().max(20).optional(),
   password: z.string().min(8),
-  rol: z.enum(['jefe_campana', 'coord_general', 'coord_distrital', 'coord_municipal', 'coord_seccional', 'promotor', 'encargado_juridico', 'encargado_finanzas', 'representante_casilla', 'voluntario']),
+  rol: z.enum(['jefe_campana', 'coord_general', 'coord_regional', 'coord_distrital', 'coord_municipal', 'coord_seccional', 'promotor', 'encargado_juridico', 'encargado_finanzas', 'representante_casilla', 'voluntario']),
   puesto: z.string().max(100).optional(),
   parent_id: z.string().uuid().optional(),
   territorio_tipo: z.string().optional(),
   territorio_id: z.number().int().optional(),
+  region_id: z.string().uuid().optional(),
   meta_diaria: z.number().int().default(0),
 });
 
@@ -788,11 +800,14 @@ router.post('/', async (req, res) => {
       );
       parentId = candidatoRes.rows[0]?.id || null;
     }
+    // 🆕 CORREGIDO — se agregó region_id al INSERT (antes no existía
+    // en esta lista, así que aunque el formulario lo mandara, nunca
+    // se guardaba en la base de datos).
     const resultado = await query(
-      `INSERT INTO usuarios (campana_id, nombre, email, telefono, password_hash, rol, puesto, parent_id, territorio_tipo, territorio_id, meta_diaria)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id, nombre, rol, puesto`,
+      `INSERT INTO usuarios (campana_id, nombre, email, telefono, password_hash, rol, puesto, parent_id, territorio_tipo, territorio_id, region_id, meta_diaria)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id, nombre, rol, puesto`,
       [req.usuario.campana_id, d.nombre, d.email, d.telefono || null, passwordHash,
-       d.rol, d.puesto || null, parentId, d.territorio_tipo || null, d.territorio_id || null, d.meta_diaria]
+       d.rol, d.puesto || null, parentId, d.territorio_tipo || null, d.territorio_id || null, d.region_id || null, d.meta_diaria]
     );
     res.status(201).json({ ok: true, data: resultado.rows[0] });
   } catch (e) {
@@ -801,14 +816,21 @@ router.post('/', async (req, res) => {
   }
 });
 
+// 🆕 CORREGIDO — mismo problema que en esquemaMiembro: faltaba
+// 'coord_regional' (no se podía editar a alguien para convertirlo en
+// Coordinador Regional) y faltaba region_id (no se podía reasignar
+// de región desde "Editar miembro"). El UPDATE de abajo ya construye
+// sus columnas dinámicamente a partir de lo que llegue validado
+// aquí, así que con solo agregar el campo ya queda funcional.
 const esquemaEditar = z.object({
   nombre: z.string().min(2).max(200).optional(),
   telefono: z.string().max(20).optional(),
-  rol: z.enum(['jefe_campana', 'coord_general', 'coord_distrital', 'coord_municipal', 'coord_seccional', 'promotor', 'encargado_juridico', 'encargado_finanzas', 'representante_casilla', 'voluntario']).optional(),
+  rol: z.enum(['jefe_campana', 'coord_general', 'coord_regional', 'coord_distrital', 'coord_municipal', 'coord_seccional', 'promotor', 'encargado_juridico', 'encargado_finanzas', 'representante_casilla', 'voluntario']).optional(),
   puesto: z.string().max(100).nullable().optional(),
   parent_id: z.string().uuid().nullable().optional(),
   territorio_tipo: z.string().nullable().optional(),
   territorio_id: z.number().int().nullable().optional(),
+  region_id: z.string().uuid().nullable().optional(),
   meta_diaria: z.number().int().optional(),
   activo: z.boolean().optional(),
 });

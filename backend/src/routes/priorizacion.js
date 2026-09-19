@@ -84,9 +84,14 @@ router.get('/', async (req, res) => {
     // IS NULL ("sin definir, todavía ganable") cuentan como votos
     // recuperables; comprometido=false ("no va") se excluye, igual
     // que antes se excluía "adversario".
+    //
+    // 🆕 CORREGIDO (2) — se agregó "no_va" a la consulta para poder
+    // reportarlo abajo como "promovidos_adversarios" (antes ese campo
+    // ni siquiera se consultaba, y se mandaba undefined al frontend).
     const promosRes = await query(
       `SELECT s.numero as seccion,
          COUNT(*) FILTER (WHERE p.comprometido = true) as si_va,
+         COUNT(*) FILTER (WHERE p.comprometido = false) as no_va,
          COUNT(*) FILTER (WHERE p.comprometido IS NULL) as sin_definir
        FROM promovidos p
        JOIN secciones s ON s.id = p.seccion_id
@@ -96,7 +101,7 @@ router.get('/', async (req, res) => {
     );
     const promosPorSeccion = {};
     for (const fila of promosRes.rows) {
-      promosPorSeccion[fila.seccion] = { si_va: parseInt(fila.si_va), sin_definir: parseInt(fila.sin_definir) };
+      promosPorSeccion[fila.seccion] = { si_va: parseInt(fila.si_va), no_va: parseInt(fila.no_va), sin_definir: parseInt(fila.sin_definir) };
     }
 
     // 3.5. TERCERA DIMENSIÓN DEL SCORING COMPUESTO — cobertura real de
@@ -134,7 +139,7 @@ router.get('/', async (req, res) => {
       const ganador = Object.entries(datos.votos).sort((a, b) => b[1] - a[1])[0]?.[0];
       const margenPct = datos.total > 0 ? (votosPartido / datos.total * 100 - 50) : 0;
 
-      const promos = promosPorSeccion[seccNum] || { si_va: 0, sin_definir: 0 };
+      const promos = promosPorSeccion[seccNum] || { si_va: 0, no_va: 0, sin_definir: 0 };
       const votosConPromovidos = votosPartido + (promos.si_va + promos.sin_definir) * CONVERSION_PROMOVIDO_A_VOTO;
       const votosNecesarios = Math.floor(datos.total / 2) + 1;
       const deficit = Math.max(0, votosNecesarios - votosConPromovidos);
@@ -153,7 +158,16 @@ router.get('/', async (req, res) => {
 
       // Ajustar score: entre más faltan días, más urgente (multiplicador)
       const factorUrgencia = diasRestantes < 30 ? 1.5 : diasRestantes < 90 ? 1.2 : 1;
-      score = score * factorUrgencia * (1 - Math.min(0.7, (promos.base + promos.persuadible) / Math.max(1, promosNecesarios) * 0.5));
+      // 🆕 CORREGIDO — esta línea todavía usaba "promos.base" y
+      // "promos.persuadible" (campos que ya NO existen desde que el
+      // sistema se simplificó a "va a votar Sí/No/Sin definir"). Al
+      // sumar dos "undefined" el resultado era NaN, y ese NaN se
+      // multiplicaba con TODO el score — por eso las fichas de
+      // priorización mostraban datos rotos/desactualizados en vez de
+      // reflejar el avance real de promovidos. Ahora usa los campos
+      // reales: si_va + sin_definir (los mismos que sí cuentan como
+      // "votos con promovidos" arriba).
+      score = score * factorUrgencia * (1 - Math.min(0.7, (promos.si_va + promos.sin_definir) / Math.max(1, promosNecesarios) * 0.5));
 
       // TERCERA DIMENSIÓN: cobertura de estructura. Una sección
       // prioritaria (crítica/recuperable/disputa) sin NADIE asignado
@@ -174,9 +188,15 @@ router.get('/', async (req, res) => {
         votos_partido: votosPartido,
         ganador_historico: ganador,
         margen_pct: +margenPct.toFixed(1),
-        promovidos_base: promos.base,
-        promovidos_persuadibles: promos.persuadible,
-        promovidos_adversarios: promos.adversario,
+        // 🆕 CORREGIDO — antes mandaba promos.base/persuadible/adversario
+        // (undefined desde la simplificación a Sí/No/Sin definir), y el
+        // frontend de Priorización sumaba esos "undefined" para mostrar
+        // "Promovidos: NaN de X" en cada tarjeta. Ahora manda los campos
+        // reales, manteniendo los mismos nombres de propiedad para no
+        // romper al frontend que ya los consume.
+        promovidos_base: promos.si_va,
+        promovidos_persuadibles: promos.sin_definir,
+        promovidos_adversarios: promos.no_va,
         deficit_votos: Math.round(deficit),
         promovidos_necesarios: promosNecesarios,
         ritmo_diario_necesario: ritmoDiario,
@@ -332,17 +352,94 @@ router.get('/seccion/:numero', async (req, res) => {
   const anioSolicitado = req.query.anio ? parseInt(req.query.anio) : null;
 
   try {
-    const campanaRes = await query('SELECT partido, tipo_eleccion, fecha_eleccion FROM campanas WHERE id=$1', [campanaId]);
+    // 🆕 Se agregó "territorio_tipo" — es lo que decide más abajo si
+    // esta campaña organiza su equipo por Distrito Federal/Local
+    // (elecciones de Gobernador, Senaduría, Diputación) o por Región
+    // (elecciones de Ayuntamiento/Presidencia de Comunidad, donde solo
+    // hay UN municipio en juego y "distrito" no organiza nada real).
+    const campanaRes = await query('SELECT partido, tipo_eleccion, territorio_tipo, fecha_eleccion FROM campanas WHERE id=$1', [campanaId]);
     const campana = campanaRes.rows[0];
 
+    // 🆕 Se agregó m.clave_ine y s.municipio_id — se necesitan para
+    // buscar quién es responsable de ESTE municipio y, en campañas de
+    // un solo municipio, a qué Región pertenece esta sección.
     const seccionRes = await query(
-      `SELECT s.id, s.numero, s.lista_nominal, s.distrito_federal, s.distrito_local, m.nombre as municipio
+      `SELECT s.id, s.numero, s.lista_nominal, s.distrito_federal, s.distrito_local, s.municipio_id, m.nombre as municipio, m.clave_ine as municipio_clave
        FROM secciones s JOIN municipios m ON m.id=s.municipio_id
        WHERE s.estado_id=${req.usuario.estado_id} AND s.numero=$1`,
       [numero]
     );
     if (!seccionRes.rows[0]) return res.status(404).json({ ok: false, error: 'Sección no encontrada' });
     const seccion = seccionRes.rows[0];
+
+    // 🆕 NUEVO — "Quién trabaja aquí" completo: antes el mapa pedía
+    // fichaTecnica.equipo_en_seccion y fichaTecnica.responsable_* pero
+    // este endpoint JAMÁS los mandaba (ni siquiera existían en la
+    // respuesta) — por eso en el mapa esos renglones SIEMPRE se veían
+    // en rojo como "Sin asignar", sin importar qué tan actualizada
+    // estuviera en realidad la estructura de la campaña.
+    //
+    // Además, antes de esto la ficha SIEMPRE mostraba "Responsable de
+    // Distrito Federal" / "Responsable de Distrito Local" sin importar
+    // el tipo de elección — lo cual no tiene sentido en una campaña de
+    // Ayuntamiento o Presidencia de Comunidad (un solo municipio: ahí
+    // "distrito" no organiza nada del equipo real). Ahora, para ese
+    // tipo de campañas se usa la Región (módulo "🌎 Regiones" dentro
+    // de Estructura), que agrupa SECCIONES dentro del mismo municipio;
+    // para el resto (Gobernador, Senaduría, Diputación Local/Federal)
+    // se mantiene Distrito Federal / Distrito Local, que ahí sí aplica.
+    const esCampanaDeUnMunicipio = campana.territorio_tipo === 'municipio';
+
+    const [equipoSeccionRes, responsableMunicipioRes] = await Promise.all([
+      query(
+        `SELECT nombre, rol, puesto FROM usuarios
+         WHERE campana_id=$1 AND territorio_tipo='seccion' AND territorio_id=$2 AND activo != false
+         ORDER BY rol, nombre`,
+        [campanaId, numero]
+      ),
+      query(
+        `SELECT nombre FROM usuarios
+         WHERE campana_id=$1 AND territorio_tipo='municipio' AND territorio_id=$2 AND activo != false
+         ORDER BY nombre LIMIT 1`,
+        [campanaId, seccion.municipio_clave]
+      ),
+    ]);
+    const responsableMunicipio = responsableMunicipioRes.rows[0] || null;
+
+    let responsableDistritoFederal = null, responsableDistritoLocal = null;
+    let region = null, responsableRegion = null;
+
+    if (esCampanaDeUnMunicipio) {
+      // La región agrupa SECCIONES (unidad_tipo='seccion') cuando la
+      // campaña es de un solo municipio — ver obtenerUnidadTipo() en
+      // estructura.js, que arma estas regiones con ese mismo criterio.
+      const regionRes = await query(
+        `SELECT id, nombre FROM regiones_campana
+         WHERE campana_id=$1 AND unidad_tipo='seccion' AND $2 = ANY(municipios_ids) LIMIT 1`,
+        [campanaId, numero]
+      );
+      region = regionRes.rows[0] || null;
+      if (region) {
+        const coordRes = await query(
+          `SELECT nombre FROM usuarios WHERE campana_id=$1 AND region_id=$2 AND rol='coord_regional' AND activo != false LIMIT 1`,
+          [campanaId, region.id]
+        );
+        responsableRegion = coordRes.rows[0] || null;
+      }
+    } else {
+      const [drfRes, drlRes] = await Promise.all([
+        query(
+          `SELECT nombre FROM usuarios WHERE campana_id=$1 AND territorio_tipo='distrito_federal' AND territorio_id=$2 AND activo != false ORDER BY nombre LIMIT 1`,
+          [campanaId, seccion.distrito_federal]
+        ),
+        query(
+          `SELECT nombre FROM usuarios WHERE campana_id=$1 AND territorio_tipo='distrito_local' AND territorio_id=$2 AND activo != false ORDER BY nombre LIMIT 1`,
+          [campanaId, seccion.distrito_local]
+        ),
+      ]);
+      responsableDistritoFederal = drfRes.rows[0] || null;
+      responsableDistritoLocal = drlRes.rows[0] || null;
+    }
 
     // Resultados históricos reales (el año pedido, o el más reciente si no se especificó)
     let anio = anioSolicitado;
@@ -390,9 +487,17 @@ router.get('/seccion/:numero', async (req, res) => {
     );
 
     // Cálculo de déficit — misma fórmula que el Motor de Priorización general
+    // 🆕 CORREGIDO — esta fórmula todavía usaba "promos.base" y
+    // "promos.persuadible" (campos muertos desde la simplificación a
+    // Sí/No/Sin definir). El resultado era NaN, que se propagaba a
+    // TODA la ficha de la sección: déficit_votos, promovidos_necesarios,
+    // ritmo_diario y total_promovidos salían todos como NaN o vacíos —
+    // esto es lo que hacía ver la ficha "desactualizada" en el mapa.
+    // Ahora usa los campos reales: si_va + sin_definir cuentan como
+    // votos recuperables, igual que en el Motor de Priorización general.
     const CONVERSION = 0.65;
     const votosPartido = votos[campana.partido] || 0;
-    const votosConPromovidos = votosPartido + (promos.base + promos.persuadible) * CONVERSION;
+    const votosConPromovidos = votosPartido + (promos.si_va + promos.sin_definir) * CONVERSION;
     const votosNecesarios = totalVotos > 0 ? Math.floor(totalVotos / 2) + 1 : 0;
     const deficit = Math.max(0, votosNecesarios - votosConPromovidos);
     const promovidosNecesarios = Math.ceil(deficit / CONVERSION);
@@ -417,12 +522,22 @@ router.get('/seccion/:numero', async (req, res) => {
         casillas: casillasSeccion,
         participacion_pct: seccion.lista_nominal > 0 && totalVotos > 0 ? +((totalVotos / seccion.lista_nominal) * 100).toFixed(1) : null,
         promovidos: promos,
-        total_promovidos: promos.base + promos.persuadible + promos.adversario,
+        // 🆕 CORREGIDO — antes: promos.base + promos.persuadible + promos.adversario (NaN)
+        total_promovidos: promos.si_va + promos.no_va + promos.sin_definir,
         deficit_votos: Math.round(deficit),
         promovidos_necesarios: promovidosNecesarios,
         ritmo_diario: diasRestantes ? +(promovidosNecesarios / diasRestantes).toFixed(1) : null,
         necesidades_declaradas: conteoNecesidades,
         situaciones_graves: situacionesRes.rows,
+        // 🆕 NUEVO — datos reales de "quién trabaja aquí", antes
+        // ausentes por completo de esta respuesta.
+        tipo_estructura: esCampanaDeUnMunicipio ? 'regional' : 'distrital',
+        equipo_en_seccion: equipoSeccionRes.rows,
+        responsable_municipio: responsableMunicipio,
+        region: region,
+        responsable_region: responsableRegion,
+        responsable_distrito_federal: responsableDistritoFederal,
+        responsable_distrito_local: responsableDistritoLocal,
       },
     });
   } catch (e) {
