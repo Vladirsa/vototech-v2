@@ -8,6 +8,10 @@ const ROL_CORTO = { coord_general: 'Coord. General', coord_distrital: 'Coord. Di
 const ICONO_ACTIVO = { espectacular: '📺', barda: '🧱', manta: '🎏', ine_representante: '🗳️', utilitario: '👕' };
 const NOMBRE_ACTIVO = { espectacular: 'Espectaculares', barda: 'Bardas', manta: 'Mantas', ine_representante: 'Representantes', utilitario: 'Utilitarios' };
 
+// 🆕 AGRANDADO — antes viewBox 180x100 en un recuadro w-40 h-24; se
+// pidió que el avance hacia la meta se vea MÁS GRANDE (es lo primero
+// que el candidato debe poder leer de un vistazo). Mismo dibujo, más
+// grande, y con el porcentaje en letra más grande adentro.
 function Gauge({ porcentaje }) {
   const pct = Math.min(100, Math.max(0, porcentaje));
   const angulo = (pct / 100) * 180;
@@ -16,7 +20,7 @@ function Gauge({ porcentaje }) {
   const largeArc = angulo > 180 ? 1 : 0;
 
   return (
-    <svg viewBox="0 0 180 100" className="w-40 h-24">
+    <svg viewBox="0 0 180 100" className="w-56 h-32 md:w-72 md:h-40 flex-shrink-0">
       <path d={`M 20 90 A 70 70 0 0 1 160 90`} fill="none" stroke="#1e293b" strokeWidth="14" strokeLinecap="round" />
       {pct > 0 && (
         <path d={`M 20 90 A 70 70 0 ${largeArc} 1 ${puntoFinal.x} ${puntoFinal.y}`} fill="none" stroke="url(#grad)" strokeWidth="14" strokeLinecap="round" />
@@ -29,8 +33,8 @@ function Gauge({ porcentaje }) {
       </defs>
       <circle cx="20" cy="90" r="4" fill="#ef4444" />
       <circle cx="160" cy="90" r="4" fill="#ef4444" />
-      <text x="90" y="72" textAnchor="middle" className="fill-white" style={{ fontSize: 26, fontWeight: 900 }}>{pct}%</text>
-      <text x="90" y="88" textAnchor="middle" className="fill-slate-400" style={{ fontSize: 9 }}>de la meta</text>
+      <text x="90" y="75" textAnchor="middle" className="fill-white" style={{ fontSize: 34, fontWeight: 900 }}>{pct}%</text>
+      <text x="90" y="90" textAnchor="middle" className="fill-slate-400" style={{ fontSize: 10 }}>de la meta</text>
     </svg>
   );
 }
@@ -150,7 +154,6 @@ export default function Dashboard() {
   const [cargando, setCargando] = useState(true);
 
   const [encuestasResumen, setEncuestasResumen] = useState(null);
-  const [alertasInteligentes, setAlertasInteligentes] = useState([]);
   const [vistaEjecutiva, setVistaEjecutiva] = useState(false);
   const [ejecutivo, setEjecutivo] = useState(null);
   // 🆕 Estadísticas y alertas de casillas — para el candidato
@@ -159,7 +162,10 @@ export default function Dashboard() {
   useEffect(() => {
     api.get('/dashboard/resumen').then((r) => { setD(r.data.data); setCargando(false); }).catch(() => setCargando(false));
     api.get('/reportes/encuestas-resumen').then((r) => setEncuestasResumen(r.data.data)).catch(() => {});
-    api.get('/inteligencia/alertas').then((r) => setAlertasInteligentes(r.data.data)).catch(() => {});
+    // 🆕 Las alertas de "🧠 Inteligencia Electoral" que vivían aquí
+    // se movieron al módulo de Inteligencia Electoral (ahí tienen más
+    // sentido — junto a Reportes y Priorización, no mezcladas con el
+    // resumen operativo del día).
     api.get('/dashboard/ejecutivo').then((r) => setEjecutivo(r.data.data)).catch(() => {});
     api.get('/dia-eleccion/casillas-estadisticas').then((r) => setCasillasStats(r.data.data)).catch(() => {});
   }, []);
@@ -256,91 +262,32 @@ export default function Dashboard() {
         ) : (
         <>
 
-        {alertasInteligentes.length > 0 && (
-          <div className="bg-gradient-to-br from-slate-900 to-purple-950/40 border border-purple-800/30 rounded-2xl p-4">
-            <h2 className="text-xs font-bold text-purple-300 uppercase mb-3 flex items-center gap-1.5">🧠 Inteligencia Electoral</h2>
-            <div className="space-y-2">
-              {alertasInteligentes.map((a, i) => {
-                const COLOR = { alta: 'border-red-500/40 bg-red-500/5', media: 'border-amber-500/40 bg-amber-500/5', info: 'border-emerald-500/40 bg-emerald-500/5' };
-                return (
-                  <Link key={i} to={a.enlace} className={`block rounded-xl border p-3 hover:brightness-125 transition ${COLOR[a.severidad]}`}>
-                    <div className="flex gap-2 items-start">
-                      <span className="text-lg flex-shrink-0">{a.icono}</span>
-                      <p className="text-xs text-slate-200 leading-relaxed">{a.mensaje}</p>
-                    </div>
-                  </Link>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* 🆕 Panel de casillas — cobertura y alertas de qué falta
-            cerrar antes del día D. Solo aparece cuando ya hay al
-            menos una casilla registrada, para no saturar el panel a
-            campañas que todavía no llegan a esa etapa. */}
-        {casillasStats && casillasStats.total_casillas > 0 && (
-          <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-xs font-bold text-slate-400 uppercase flex items-center gap-1.5">🗳️ Cobertura de casillas</h2>
-              <Link to="/dia-eleccion" className="text-[10px] text-indigo-400 font-bold">Ver detalle →</Link>
-            </div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
-              <div className="bg-slate-800/50 rounded-lg p-2.5 text-center">
-                <div className="text-xl font-black text-white">{casillasStats.total_casillas}</div>
-                <div className="text-[9px] text-slate-500">Casillas totales</div>
-              </div>
-              <div className="bg-emerald-500/10 rounded-lg p-2.5 text-center">
-                <div className="text-xl font-black text-emerald-400">{casillasStats.porcentaje_cobertura}%</div>
-                <div className="text-[9px] text-slate-500">Con representante</div>
-              </div>
-              <div className="bg-indigo-500/10 rounded-lg p-2.5 text-center">
-                <div className="text-xl font-black text-indigo-400">{casillasStats.con_suplente}</div>
-                <div className="text-[9px] text-slate-500">Con suplente</div>
-              </div>
-              <div className="bg-purple-500/10 rounded-lg p-2.5 text-center">
-                <div className="text-xl font-black text-purple-400">{casillasStats.confirmadas_asistencia}</div>
-                <div className="text-[9px] text-slate-500">Confirmadas</div>
-              </div>
-            </div>
-            <div className="h-2 bg-slate-800 rounded-full overflow-hidden mb-3">
-              <div className={`h-full ${casillasStats.porcentaje_cobertura >= 90 ? 'bg-emerald-500' : casillasStats.porcentaje_cobertura >= 60 ? 'bg-amber-500' : 'bg-red-500'}`}
-                style={{ width: `${casillasStats.porcentaje_cobertura}%` }} />
-            </div>
-            {casillasStats.alertas.length > 0 && (
-              <div className="space-y-1.5">
-                {casillasStats.alertas.map((a, i) => (
-                  <div key={i} className={`text-[11px] rounded-lg border px-3 py-2 ${a.nivel === 'alta' ? 'bg-red-500/10 border-red-500/40 text-red-300' : 'bg-amber-500/10 border-amber-500/40 text-amber-300'}`}>
-                    {a.nivel === 'alta' ? '🔴' : '🟡'} {a.texto}
-                    {a.secciones.length > 0 && <span className="text-slate-500"> · Secciones: {a.secciones.slice(0, 8).join(', ')}{a.secciones.length > 8 ? '...' : ''}</span>}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        <div className="bg-gradient-to-br from-slate-900 to-indigo-950/60 border border-indigo-800/30 rounded-2xl p-5 flex flex-col md:flex-row items-center gap-6">
+        {/* 🆕 MOVIDO HASTA ARRIBA Y AGRANDADO — pedido explícito: esto
+            es lo primero que un candidato debe ver al entrar, para
+            saber de un vistazo cómo va. Antes vivía más abajo, después
+            de las alertas y de cobertura de casillas. */}
+        <div className="bg-gradient-to-br from-slate-900 to-indigo-950/60 border border-indigo-800/30 rounded-2xl p-6 md:p-8 flex flex-col md:flex-row items-center gap-6 md:gap-10">
           <Gauge porcentaje={d.meta_electoral.porcentaje} />
           <div className="flex-1 w-full">
             <div className="flex items-center gap-2 mb-1">
-              <span className="text-lg">🎯</span>
-              <h2 className="font-black text-white">Avance hacia la meta electoral</h2>
+              <span className="text-2xl">🎯</span>
+              <h2 className="font-black text-white text-lg md:text-xl">Avance hacia la meta electoral</h2>
             </div>
-            <p className="text-[10px] text-indigo-300 mb-3">
+            <p className="text-[11px] text-indigo-300 mb-3">
               Cuantifica <strong>promovidos</strong>, no votos — verificar por quién vota alguien es ilegal (coacción de voto), así que no se puede medir. Los promovidos comprometidos son el indicador más honesto disponible del avance real hacia tu meta.
             </p>
-            <div className="space-y-1.5 text-sm">
+            <div className="space-y-1.5 text-sm md:text-base">
               <div className="flex justify-between"><span className="flex items-center gap-2 text-slate-400"><span className="w-2 h-2 rounded-full bg-purple-500" />Promovidos registrados</span><strong className="text-purple-400">{d.meta_electoral.promovidos_registrados}</strong></div>
               <div className="flex justify-between"><span className="flex items-center gap-2 text-slate-400"><span className="w-2 h-2 rounded-full bg-emerald-500" />Meta de votos</span><strong className="text-emerald-400">{d.meta_electoral.meta_votos.toLocaleString()}</strong></div>
               <div className="flex justify-between"><span className="flex items-center gap-2 text-slate-400"><span className="w-2 h-2 rounded-full bg-amber-500" />Faltan para la meta</span><strong className="text-amber-400">{d.meta_electoral.faltan_para_meta.toLocaleString()}</strong></div>
             </div>
-            <div className="h-2 bg-slate-800 rounded-full overflow-hidden mt-3">
+            <div className="h-2.5 bg-slate-800 rounded-full overflow-hidden mt-3">
               <div className="h-full bg-gradient-to-r from-indigo-500 to-purple-500" style={{ width: `${d.meta_electoral.porcentaje}%` }} />
             </div>
             {d.meta_electoral.ritmo_necesario != null && (
               <p className="text-[11px] text-slate-500 mt-2">Ritmo necesario: <strong className="text-amber-400">{d.meta_electoral.ritmo_necesario} promovidos/día</strong> durante {d.meta_electoral.dias_restantes} días</p>
             )}
+            <Link to="/administracion" className="text-[10px] font-bold text-indigo-400 block pt-2">⚙️ Cambiar la meta de votos →</Link>
           </div>
         </div>
 
@@ -473,6 +420,50 @@ export default function Dashboard() {
           </div>
         </div>
 
+        {/* 🆕 MOVIDO — "Cobertura de casillas" ahora va justo debajo de
+            "Actividad reciente de promotores" (pedido explícito).
+            Antes vivía arriba de todo, junto a las alertas. */}
+        {casillasStats && casillasStats.total_casillas > 0 && (
+          <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-xs font-bold text-slate-400 uppercase flex items-center gap-1.5">🗳️ Cobertura de casillas</h2>
+              <Link to="/dia-eleccion" className="text-[10px] text-indigo-400 font-bold">Ver detalle →</Link>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
+              <div className="bg-slate-800/50 rounded-lg p-2.5 text-center">
+                <div className="text-xl font-black text-white">{casillasStats.total_casillas}</div>
+                <div className="text-[9px] text-slate-500">Casillas totales</div>
+              </div>
+              <div className="bg-emerald-500/10 rounded-lg p-2.5 text-center">
+                <div className="text-xl font-black text-emerald-400">{casillasStats.porcentaje_cobertura}%</div>
+                <div className="text-[9px] text-slate-500">Con representante</div>
+              </div>
+              <div className="bg-indigo-500/10 rounded-lg p-2.5 text-center">
+                <div className="text-xl font-black text-indigo-400">{casillasStats.con_suplente}</div>
+                <div className="text-[9px] text-slate-500">Con suplente</div>
+              </div>
+              <div className="bg-purple-500/10 rounded-lg p-2.5 text-center">
+                <div className="text-xl font-black text-purple-400">{casillasStats.confirmadas_asistencia}</div>
+                <div className="text-[9px] text-slate-500">Confirmadas</div>
+              </div>
+            </div>
+            <div className="h-2 bg-slate-800 rounded-full overflow-hidden mb-3">
+              <div className={`h-full ${casillasStats.porcentaje_cobertura >= 90 ? 'bg-emerald-500' : casillasStats.porcentaje_cobertura >= 60 ? 'bg-amber-500' : 'bg-red-500'}`}
+                style={{ width: `${casillasStats.porcentaje_cobertura}%` }} />
+            </div>
+            {casillasStats.alertas.length > 0 && (
+              <div className="space-y-1.5">
+                {casillasStats.alertas.map((a, i) => (
+                  <div key={i} className={`text-[11px] rounded-lg border px-3 py-2 ${a.nivel === 'alta' ? 'bg-red-500/10 border-red-500/40 text-red-300' : 'bg-amber-500/10 border-amber-500/40 text-amber-300'}`}>
+                    {a.nivel === 'alta' ? '🔴' : '🟡'} {a.texto}
+                    {a.secciones.length > 0 && <span className="text-slate-500"> · Secciones: {a.secciones.slice(0, 8).join(', ')}{a.secciones.length > 8 ? '...' : ''}</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
             <h3 className="text-xs font-bold text-slate-400 uppercase mb-3">📺 Activos de campaña</h3>
@@ -521,17 +512,20 @@ export default function Dashboard() {
             className="px-3 py-2 rounded-lg bg-indigo-600 text-white text-xs font-bold flex-shrink-0">Probar</button>
         </div>
 
+        {/* 🆕 "Mi contrato de servicio" se quitó de aquí — ahora vive
+            junto a Términos y Condiciones y Aviso de Privacidad en
+            Administración y Cumplimiento → 📜 Documentos legales. */}
         <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
           <h3 className="text-xs font-bold text-slate-400 uppercase mb-3">📄 Descargar reportes en PDF</h3>
           <div className="flex flex-wrap gap-2">
             <button onClick={() => descargarArchivo('/reportes/cierre-campana-pdf', 'reporte_cierre_campana.pdf')} className="px-3 py-2 rounded-lg bg-red-700/40 text-red-300 text-xs font-bold">📄 Cierre de campaña</button>
-            <button onClick={() => descargarArchivo('/auth/mi-contrato-pdf', 'contrato_vototech.pdf')} className="px-3 py-2 rounded-lg bg-amber-700/40 text-amber-300 text-xs font-bold">📜 Mi contrato de servicio</button>
             <button onClick={() => descargarArchivo('/exportar/respaldo-completo', 'respaldo_completo.xlsx')} className="px-3 py-2 rounded-lg bg-emerald-700/40 text-emerald-300 text-xs font-bold">💾 Respaldo completo (Excel)</button>
             <button onClick={() => descargarArchivo('/reportes/pdf/juridico', 'reporte_juridico.pdf')} className="px-3 py-2 rounded-lg bg-slate-800 text-slate-300 text-xs font-bold">📄 Jurídico</button>
             <button onClick={() => descargarArchivo('/reportes/pdf/estructura', 'reporte_estructura.pdf')} className="px-3 py-2 rounded-lg bg-slate-800 text-slate-300 text-xs font-bold">📄 Estructura</button>
             <button onClick={() => descargarArchivo('/reportes/pdf/incidencias', 'reporte_incidencias.pdf')} className="px-3 py-2 rounded-lg bg-slate-800 text-slate-300 text-xs font-bold">📄 Incidencias</button>
             <button onClick={() => descargarArchivo('/reportes/pdf/encuestas', 'reporte_encuestas.pdf')} className="px-3 py-2 rounded-lg bg-slate-800 text-slate-300 text-xs font-bold">📄 Encuestas</button>
           </div>
+          <Link to="/administracion" className="text-[10px] font-bold text-indigo-400 block pt-2">📜 Mi contrato, Términos y Aviso de Privacidad →</Link>
         </div>
         </>
         )}

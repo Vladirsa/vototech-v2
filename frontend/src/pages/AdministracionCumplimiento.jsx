@@ -4,11 +4,20 @@ import { useAuth } from '../lib/authStore';
 import Juridico from './Juridico';
 import Administracion from './Administracion';
 import Respaldos from './Respaldos';
+import ConfiguracionCampana from './ConfiguracionCampana';
+import DocumentosLegales from './DocumentosLegales';
 
 /**
  * 🆕 "Administración y Cumplimiento" — antes eran 3 botones sueltos
  * en el menú (Jurídico, Administración, Respaldos); ahora es UNA
  * sola entrada que abre a pestañas.
+ *
+ * 🆕 NUEVO — 2 pestañas más:
+ * - "⚙️ Configuración": meta de votos y fecha de elección (antes no
+ *   existía ningún lugar en la app para ponerlas).
+ * - "📜 Documentos legales": Mi contrato de servicio (antes vivía
+ *   suelto en el Dashboard) + Términos y Condiciones + Aviso de
+ *   Privacidad, todos juntos en un solo lugar.
  *
  * 🆕 IMPORTANTE — las pestañas se filtran por rol. Un
  * "encargado_juridico" o "encargado_finanzas" solo debe ver SU
@@ -21,6 +30,8 @@ export default function AdministracionCumplimiento() {
     { id: 'juridico', ic: '⚖️', label: 'Jurídico', Comp: Juridico },
     { id: 'administrativo', ic: '💼', label: 'Administrativo', Comp: Administracion },
     { id: 'respaldos', ic: '📦', label: 'Respaldos', Comp: Respaldos },
+    { id: 'configuracion', ic: '⚙️', label: 'Configuración', Comp: ConfiguracionCampana },
+    { id: 'documentos-legales', ic: '📜', label: 'Documentos legales', Comp: DocumentosLegales },
   ];
   const soloEstasParaMiRol = {
     encargado_juridico: ['juridico'],
@@ -42,7 +53,7 @@ export default function AdministracionCumplimiento() {
         {/* Si el rol solo tiene acceso a 1 pestaña, no hace falta
             mostrar el selector — se ve directo su único módulo. */}
         {TABS.length > 1 && (
-          <div className="flex gap-2 border-b border-slate-800 pb-2">
+          <div className="flex gap-2 border-b border-slate-800 pb-2 flex-wrap">
             {TABS.map((t) => (
               <button key={t.id} onClick={() => setTab(t.id)}
                 className={`px-4 py-2 rounded-lg text-sm font-bold transition-colors ${
