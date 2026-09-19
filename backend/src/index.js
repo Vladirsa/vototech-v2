@@ -29,6 +29,10 @@ import agendaRoutes from './routes/agenda.js';
 import codigosRoutes from './routes/codigos.js';
 import diaEleccionRoutes from './routes/dia-eleccion.js';
 import incidenciasRoutes from './routes/incidencias.js';
+// 🆕 Bitácora Diaria (Etapa 1 del rediseño) — registro cronológico de
+// la jornada, vive como pestaña dentro de "Movilización y Operación"
+// en el frontend, junto a Incidencias.
+import bitacoraRoutes from './routes/bitacora.js';
 import finanzasRoutes from './routes/finanzas.js';
 import iaRoutes from './routes/ia.js';
 import whatsappRoutes from './routes/whatsapp.js';
@@ -130,6 +134,10 @@ app.use('/api/agenda', requiereAuth, requiereModulo('agenda'), agendaRoutes);
 app.use('/api/codigos', requiereAuth, requiereModulo('estructura'), codigosRoutes);
 app.use('/api/dia-eleccion', requiereAuth, requiereModulo('dia-eleccion'), diaEleccionRoutes);
 app.use('/api/incidencias', requiereAuth, requiereModulo('incidencias'), incidenciasRoutes);
+// 🆕 Bitácora Diaria — misma llave de acceso que Incidencias (ver
+// nota en middleware/permisos.js): es la misma clase de herramienta
+// de reporte rápido desde el campo.
+app.use('/api/bitacora', requiereAuth, requiereModulo('bitacora'), bitacoraRoutes);
 app.use('/api/finanzas', requiereAuth, requiereModulo('finanzas'), finanzasRoutes);
 app.use('/api/ia', iaRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
