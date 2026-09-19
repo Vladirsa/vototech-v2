@@ -517,15 +517,34 @@ router.post('/registrar-con-codigo', async (req, res) => {
  * El territorio y tipo de elección REALES de la campaña del usuario
  * logueado — antes el mapa traía un municipio fijo en el código sin
  * importar la campaña de quién entrara, esto lo corrige.
+ *
+ * 🆕 NUEVO — ahora también manda "territorio_nombre": el nombre REAL
+ * y legible del territorio (ej. "Tlaxcala", "Distrito Local 5"), no
+ * solo el número/clave que ya traía "territorio_id". Esto es lo que
+ * necesita la franja superior (AppShell.jsx) para mostrar "Campaña
+ * Electoral de Tlaxcala" junto al logo de VotoTech, en vez de tener
+ * que adivinar o mostrar solo un número sin contexto.
  */
 router.get('/mi-campana', requiereAuth, async (req, res) => {
   const resultado = await query(
-    `SELECT nombre_candidato, partido, tipo_eleccion, territorio_tipo, territorio_id, fecha_eleccion, fecha_vencimiento, es_demo
+    `SELECT nombre_candidato, partido, tipo_eleccion, territorio_tipo, territorio_id, fecha_eleccion, fecha_vencimiento, es_demo, estado_id
      FROM campanas WHERE id=$1`,
     [req.usuario.campana_id]
   );
   if (!resultado.rows[0]) return res.status(404).json({ ok: false, error: 'Campaña no encontrada' });
-  res.json({ ok: true, data: resultado.rows[0] });
+  const campana = resultado.rows[0];
+
+  let territorioNombre = null;
+  if (campana.territorio_tipo === 'municipio' && campana.territorio_id) {
+    const m = await query('SELECT nombre FROM municipios WHERE estado_id=$1 AND clave_ine=$2', [campana.estado_id, campana.territorio_id]);
+    territorioNombre = m.rows[0]?.nombre || null;
+  } else if (campana.territorio_tipo === 'distrito_local' && campana.territorio_id) {
+    territorioNombre = `Distrito Local ${campana.territorio_id}`;
+  } else if (campana.territorio_tipo === 'distrito_federal' && campana.territorio_id) {
+    territorioNombre = `Distrito Federal ${campana.territorio_id}`;
+  }
+
+  res.json({ ok: true, data: { ...campana, territorio_nombre: territorioNombre } });
 });
 
 /**
