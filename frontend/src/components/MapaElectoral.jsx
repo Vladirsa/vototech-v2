@@ -33,6 +33,41 @@ function calcularZoomResponsive(zoomBase) {
   return zoomBase;
 }
 
+/**
+ * 🆕 NUEVO — arregla que en celular el mapa se viera "vacío" (sin
+ * secciones ni colores), aunque en computadora sí funcionara.
+ *
+ * Por qué pasaba: Leaflet calcula la posición de todo lo que dibuja
+ * (las secciones coloreadas, por ejemplo) según el TAMAÑO del
+ * recuadro del mapa en el momento exacto en que se monta por primera
+ * vez. En computadora, ese tamaño ya es el correcto desde el
+ * principio. Pero en celular, el contenedor que envuelve al mapa
+ * (MapaConCampana.jsx) cambia de altura un instante DESPUÉS de que
+ * el mapa ya se montó (por el ajuste de "100dvh" que corrige la
+ * barra de direcciones del navegador). Leaflet nunca se entera de
+ * ese cambio de tamaño por sí solo — las capas de imagen (el mapa
+ * base) se ven bien porque se van pidiendo por pedacitos conforme
+ * uno se mueve, pero las secciones dibujadas como formas (polígonos)
+ * se quedan calculadas con el tamaño VIEJO, y terminan invisibles o
+ * fuera de lugar.
+ *
+ * La solución: vigilar el tamaño del recuadro del mapa todo el
+ * tiempo (ResizeObserver) y, cada vez que cambie, avisarle a Leaflet
+ * con "invalidateSize()" para que recalcule todo — esto es lo que
+ * faltaba.
+ */
+function ObservadorTamano() {
+  const map = useMap();
+  useEffect(() => {
+    const contenedor = map.getContainer();
+    const observador = new ResizeObserver(() => {
+      map.invalidateSize();
+    });
+    observador.observe(contenedor);
+    return () => observador.disconnect();
+  }, [map]);
+  return null;
+}
 function ControlCentrarMapa({ centro, zoomInicial, centroReal }) {
   const map = useMap();
   const yaSeCentroSolo = useRef(false);
@@ -116,6 +151,17 @@ const ANIOS_DISPONIBLES = {
   // uno): sin año disponible, nunca se armaba la consulta correcta.
   dip_federal: [2024],
   senador: [2024],
+};
+// 🆕 NUEVO — nombre bonito en español para cada tipo de elección, usado
+// en el título que ahora aparece arriba del mapa ("CAMPAÑA ELECTORAL
+// (TIPO DE ELECCIÓN)") y también reutilizable donde se necesite.
+const TIPO_ELECCION_LABEL = {
+  ayuntamiento: 'Ayuntamiento',
+  pres_comunidad: 'Presidencia de Comunidad',
+  gobernador: 'Gobernador',
+  dip_local: 'Diputación Local',
+  dip_federal: 'Diputación Federal',
+  senador: 'Senaduría',
 };
 function capasDeTerritorioDisponibles(territorioTipo) {
   if (territorioTipo === 'seccion') return ['secciones'];
@@ -937,6 +983,7 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
         </div>
       )}
       <MapContainer key={idMontajeMapa} center={centroTlaxcala} zoom={calcularZoomResponsive(11)} className="w-full h-full" zoomControl={false}>
+        <ObservadorTamano />
         <LayersControl position="bottomleft">
           <LayersControl.BaseLayer name="🌙 Oscuro (recomendado de noche)">
             <TileLayer
@@ -1169,6 +1216,16 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
           />
         )}
       </MapContainer>
+      {/* 🆕 NUEVO — título del mapa pedido: muestra siempre "CAMPAÑA
+          ELECTORAL" y, entre paréntesis, el tipo de elección real de
+          esta campaña (Ayuntamiento, Gobernador, etc.), para que sea
+          claro qué elección se está viendo sin tener que adivinar. */}
+      <div className="absolute top-2 left-2 z-[1000] bg-slate-900/95 backdrop-blur border border-slate-700 rounded-lg shadow-lg px-2.5 py-1.5 max-w-[62%] md:max-w-none">
+        <div className="text-[9px] md:text-[11px] font-black text-white uppercase tracking-wide leading-tight">
+          Campaña Electoral
+          <span className="text-indigo-400"> ({TIPO_ELECCION_LABEL[tipoEleccion] || tipoEleccion})</span>
+        </div>
+      </div>
       {concentrado && (
         <button onClick={() => setMostrarConcentrado(true)}
           className="absolute top-2 right-2 z-[1000] bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl shadow-xl px-3 py-2 flex items-center gap-2">
@@ -1638,8 +1695,8 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
                 <div className="text-[10px] text-slate-500 uppercase font-bold mb-1.5">👥 Quién trabaja aquí</div>
                 {fichaTecnica.equipo_en_seccion?.length > 0 ? (
                   <div className="space-y-1 mb-2">
-                    {fichaTecnica.equipo_en_seccion.map((m) => (
-                      <div key={m.id} className="flex justify-between text-[10px]">
+                    {fichaTecnica.equipo_en_seccion.map((m, i) => (
+                      <div key={`${m.nombre}-${i}`} className="flex justify-between text-[10px]">
                         <span className="text-slate-300">{m.nombre}</span>
                         <span className="text-slate-500 capitalize">{m.rol?.replace(/_/g, ' ')}</span>
                       </div>
@@ -1648,15 +1705,42 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
                 ) : (
                   <div className="text-[10px] text-red-400 mb-2">⚠️ Sin nadie asignado directo a esta sección</div>
                 )}
+                {/* 🆕 CORREGIDO — la jerarquía que se mostraba aquí (Distrito
+                    Federal / Distrito Local / Municipio) era SIEMPRE la
+                    misma sin importar el tipo de elección, y además nunca
+                    tuvo datos reales detrás (el backend no los mandaba,
+                    por eso SIEMPRE se veía "Sin asignar" en rojo). Ahora:
+                    - En campañas de Ayuntamiento/Presidencia de Comunidad
+                      (un solo municipio) se muestra la REGIÓN a la que
+                      pertenece esta sección — grupo interno de secciones
+                      que se arma desde Estructura → 🌎 Regiones — en vez
+                      de "Distrito Federal/Local", que ahí no organiza
+                      nada real del equipo de campaña.
+                    - En el resto de elecciones (Gobernador, Senaduría,
+                      Diputación) se mantiene Distrito Federal/Local, que
+                      ahí sí es la jerarquía real. */}
                 <div className="space-y-1 pt-1.5 border-t border-slate-700">
-                  <div className="flex justify-between text-[10px]">
-                    <span className="text-slate-500">Resp. Distrito Federal {fichaTecnica.distrito_federal}</span>
-                    <span className={fichaTecnica.responsable_distrito_federal ? 'text-slate-300' : 'text-red-400'}>{fichaTecnica.responsable_distrito_federal?.nombre || 'Sin asignar'}</span>
-                  </div>
-                  <div className="flex justify-between text-[10px]">
-                    <span className="text-slate-500">Resp. Distrito Local {fichaTecnica.distrito_local}</span>
-                    <span className={fichaTecnica.responsable_distrito_local ? 'text-slate-300' : 'text-red-400'}>{fichaTecnica.responsable_distrito_local?.nombre || 'Sin asignar'}</span>
-                  </div>
+                  {fichaTecnica.tipo_estructura === 'regional' ? (
+                    <div className="flex justify-between text-[10px]">
+                      <span className="text-slate-500">
+                        Resp. Región {fichaTecnica.region ? `— ${fichaTecnica.region.nombre}` : ''}
+                      </span>
+                      <span className={fichaTecnica.responsable_region ? 'text-slate-300' : 'text-red-400'}>
+                        {!fichaTecnica.region ? 'Sección sin región asignada' : (fichaTecnica.responsable_region?.nombre || 'Sin asignar')}
+                      </span>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="flex justify-between text-[10px]">
+                        <span className="text-slate-500">Resp. Distrito Federal {fichaTecnica.distrito_federal}</span>
+                        <span className={fichaTecnica.responsable_distrito_federal ? 'text-slate-300' : 'text-red-400'}>{fichaTecnica.responsable_distrito_federal?.nombre || 'Sin asignar'}</span>
+                      </div>
+                      <div className="flex justify-between text-[10px]">
+                        <span className="text-slate-500">Resp. Distrito Local {fichaTecnica.distrito_local}</span>
+                        <span className={fichaTecnica.responsable_distrito_local ? 'text-slate-300' : 'text-red-400'}>{fichaTecnica.responsable_distrito_local?.nombre || 'Sin asignar'}</span>
+                      </div>
+                    </>
+                  )}
                   <div className="flex justify-between text-[10px]">
                     <span className="text-slate-500">Resp. Municipio</span>
                     <span className={fichaTecnica.responsable_municipio ? 'text-slate-300' : 'text-red-400'}>{fichaTecnica.responsable_municipio?.nombre || 'Sin asignar'}</span>
