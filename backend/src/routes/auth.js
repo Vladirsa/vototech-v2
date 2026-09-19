@@ -8,7 +8,7 @@ import jwt from 'jsonwebtoken';
 import speakeasy from 'speakeasy';
 import QRCode from 'qrcode';
 import { query } from '../db/pool.js';
-import { generarToken, requiereAuth, generarRefreshToken, validarYRotarRefreshToken, revocarRefreshToken } from '../middleware/auth.js';
+import { generarToken, requiereAuth, requiereRol, generarRefreshToken, validarYRotarRefreshToken, revocarRefreshToken } from '../middleware/auth.js';
 
 const router = Router();
 
@@ -545,6 +545,51 @@ router.get('/mi-campana', requiereAuth, async (req, res) => {
   }
 
   res.json({ ok: true, data: { ...campana, territorio_nombre: territorioNombre } });
+});
+
+/**
+ * 🆕 PATCH /api/auth/mi-campana
+ * NUEVO — antes NO existía ninguna forma de cambiar la meta de votos
+ * ni la fecha de elección desde la app; había que pedir que alguien
+ * lo cambiara directo en la base de datos. Ahora el propio candidato
+ * o jefe de campaña lo puede hacer desde Administración →
+ * Configuración (ver ConfiguracionCampana.jsx), sin depender de
+ * soporte técnico.
+ *
+ * Solo 'candidato' y 'jefe_campana' pueden tocar esto — es
+ * configuración de toda la campaña, no algo que un coordinador o
+ * promotor deba poder cambiar.
+ */
+const esquemaActualizarCampana = z.object({
+  // La meta de votos alimenta directamente el medidor "Avance hacia
+  // la meta electoral" del Dashboard y el cálculo de ritmo diario
+  // necesario en Priorización.
+  meta_votos: z.number({ invalid_type_error: 'La meta de votos debe ser un número' }).int().positive().max(50000000).optional(),
+  fecha_eleccion: z.string().optional(),
+});
+
+router.patch('/mi-campana', requiereAuth, requiereRol('candidato', 'jefe_campana'), async (req, res) => {
+  const parseado = esquemaActualizarCampana.safeParse(req.body);
+  if (!parseado.success) {
+    return res.status(400).json({ ok: false, error: parseado.error.errors[0].message });
+  }
+  const datos = parseado.data;
+  if (Object.keys(datos).length === 0) {
+    return res.status(400).json({ ok: false, error: 'No se mandó ningún dato para actualizar' });
+  }
+
+  const columnas = [];
+  const valores = [];
+  let i = 1;
+  if (datos.meta_votos !== undefined) { columnas.push(`meta_votos=$${i++}`); valores.push(datos.meta_votos); }
+  if (datos.fecha_eleccion !== undefined) { columnas.push(`fecha_eleccion=$${i++}`); valores.push(datos.fecha_eleccion || null); }
+  valores.push(req.usuario.campana_id);
+
+  const resultado = await query(
+    `UPDATE campanas SET ${columnas.join(', ')} WHERE id=$${i} RETURNING meta_votos, fecha_eleccion`,
+    valores
+  );
+  res.json({ ok: true, data: resultado.rows[0], mensaje: '✅ Configuración de la campaña actualizada' });
 });
 
 /**
