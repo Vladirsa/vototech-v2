@@ -17,10 +17,16 @@
  * de Activos dentro de Administración necesita AMBAS claves,
  * 'finanzas' Y 'activos', juntas. Olvidar una de las dos rompe esa
  * pestaña en silencio (la página carga, pero esa pestaña da 403).
+ *
+ * 🆕 'bitacora' — Bitácora Diaria (Etapa 1 del rediseño). Vive como
+ * pestaña dentro de "Movilización y Operación", junto a Incidencias,
+ * así que se le da acceso exactamente a quien ya tiene 'incidencias'
+ * — es el mismo tipo de herramienta de campo (reporte rápido desde
+ * la calle), no tendría sentido que uno se viera y el otro no.
  */
 const TODOS_LOS_MODULOS = [
   'promovidos', 'priorizacion', 'estructura', 'reportes', 'agenda', 'logistica',
-  'dia-eleccion', 'incidencias', 'finanzas', 'activos', 'marketing', 'juridico',
+  'dia-eleccion', 'incidencias', 'bitacora', 'finanzas', 'activos', 'marketing', 'juridico',
   'centro-decisiones',
 ];
 
@@ -33,10 +39,10 @@ const MODULOS_POR_ROL = {
   // voluntarios, ni encargados de un área acotada como jurídico/finanzas).
   coord_distrital: TODOS_LOS_MODULOS.filter((m) => !['finanzas', 'activos', 'juridico'].includes(m)),
   coord_municipal: TODOS_LOS_MODULOS.filter((m) => !['finanzas', 'activos', 'juridico'].includes(m)),
-  coord_seccional: ['promovidos', 'estructura', 'dia-eleccion', 'incidencias', 'logistica', 'centro-decisiones'],
-  promotor: ['promovidos', 'dia-eleccion', 'incidencias'],
-  encargado_juridico: ['juridico', 'finanzas', 'activos', 'incidencias', 'promovidos'],
-  encargado_finanzas: ['finanzas', 'activos', 'promovidos', 'incidencias'],
+  coord_seccional: ['promovidos', 'estructura', 'dia-eleccion', 'incidencias', 'bitacora', 'logistica', 'centro-decisiones'],
+  promotor: ['promovidos', 'dia-eleccion', 'incidencias', 'bitacora'],
+  encargado_juridico: ['juridico', 'finanzas', 'activos', 'incidencias', 'bitacora', 'promovidos'],
+  encargado_finanzas: ['finanzas', 'activos', 'promovidos', 'incidencias', 'bitacora'],
   // 🆕 Representante de Casilla — acceso mínimo, solo lo que necesita
   // el día D para reportar el resultado de SU casilla. No ve
   // promovidos, finanzas, ni nada más del resto de la campaña.
