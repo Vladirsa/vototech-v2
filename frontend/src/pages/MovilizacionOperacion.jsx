@@ -4,8 +4,10 @@ import Promovidos from './Promovidos';
 import Agenda from './Agenda';
 import Logistica from './Logistica';
 import Incidencias from './Incidencias';
+import BitacoraDiaria from './BitacoraDiaria';
 
-/** 🆕 "Movilización y Operación" — 4 módulos combinados en pestañas. */
+/** 🆕 "Movilización y Operación" — 5 módulos combinados en pestañas.
+ * (Bitácora Diaria se agregó como Etapa 1 del rediseño de campo.) */
 export default function MovilizacionOperacion() {
   const [tab, setTab] = useState('promovidos');
   const TABS = [
@@ -13,6 +15,7 @@ export default function MovilizacionOperacion() {
     { id: 'agenda', ic: '📅', label: 'Agenda' },
     { id: 'logistica', ic: '🚚', label: 'Logística' },
     { id: 'incidencias', ic: '🚨', label: 'Incidencias' },
+    { id: 'bitacora', ic: '📔', label: 'Bitácora' },
   ];
 
   return (
@@ -39,6 +42,7 @@ export default function MovilizacionOperacion() {
           {tab === 'agenda' && <Agenda />}
           {tab === 'logistica' && <Logistica />}
           {tab === 'incidencias' && <Incidencias />}
+          {tab === 'bitacora' && <BitacoraDiaria />}
         </div>
       </div>
     </div>
