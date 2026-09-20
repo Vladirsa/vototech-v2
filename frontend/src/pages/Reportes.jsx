@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api, { descargarArchivo } from '../lib/api';
-import Ayuda from '../components/Ayuda';
 
 const PARTIDOS_COLOR = {
   morena: '#8B0000', pan: '#003DA5', pri: '#006847', pvem: '#2D7D27',
@@ -24,172 +23,6 @@ const ROL_LABEL = {
   encargado_juridico: 'Encargado Jurídico', encargado_finanzas: 'Encargado Finanzas', voluntario: 'Voluntario',
 };
 const ROL_ES_LIDER = ['candidato', 'jefe_campana', 'coord_general', 'coord_distrital', 'coord_municipal', 'coord_seccional'];
-
-/**
- * 🆕 Lenguaje estándar de meta — FALTANTE / META CUBIERTA / META
- * SUPERADA (skill de Inteligencia Electoral, sección 3). Nunca se
- * recorta ni se limita el valor real logrado, ni cuando supera la
- * meta — solo se etiqueta y se calcula el excedente.
- */
-function estadoMeta(logrado, meta) {
-  if (!meta || meta <= 0) return { label: 'Sin meta configurada', color: 'text-slate-500', excedente: null };
-  if (logrado < meta) return { label: 'FALTANTE', color: 'text-red-400', excedente: null, faltante: meta - logrado };
-  if (logrado === meta) return { label: 'META CUBIERTA', color: 'text-emerald-400', excedente: 0 };
-  return { label: 'META SUPERADA', color: 'text-emerald-400', excedente: logrado - meta };
-}
-
-/** 🆕 Resumen ejecutivo con IA — junta varias señales (avance, ritmo, estructura, finanzas) en una sola narrativa. */
-/**
- * 🆕 Motor de Detección de Inconsistencias (skill Inteligencia
- * Electoral, sección 9) — no busca datos "raros" a ojo, corre las
- * mismas 6 revisiones cada vez, y clasifica cada hallazgo por nivel.
- */
-const NIVEL_ESTILO = {
-  CRÍTICA: { bg: 'bg-red-500/10', border: 'border-red-500/30', color: 'text-red-400' },
-  IMPORTANTE: { bg: 'bg-orange-500/10', border: 'border-orange-500/30', color: 'text-orange-400' },
-  'ATENCIÓN': { bg: 'bg-amber-500/10', border: 'border-amber-500/30', color: 'text-amber-400' },
-  INFORMATIVA: { bg: 'bg-slate-500/10', border: 'border-slate-500/30', color: 'text-slate-400' },
-};
-
-function PanelAuditoria() {
-  const [cargando, setCargando] = useState(false);
-  const [resultado, setResultado] = useState(null);
-
-  const ejecutar = async () => {
-    setCargando(true);
-    try {
-      const { data } = await api.get('/reportes/auditoria-inconsistencias');
-      setResultado(data.data);
-    } catch (e) { /* se queda como está */ }
-    setCargando(false);
-  };
-
-  return (
-    <div className="space-y-3">
-      <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 text-[11px] text-amber-300">
-        🔍 Revisa 6 tipos de inconsistencia: secciones sin responsable, promovidos sin sección, estructura sin jefe directo, secciones sin actividad reciente, teléfonos duplicados, y registros incompletos. Superar una meta nunca se marca como error.
-      </div>
-      <button onClick={ejecutar} disabled={cargando} className="w-full py-3 rounded-xl bg-gradient-to-r from-amber-600 to-orange-600 text-white text-sm font-bold disabled:opacity-40">
-        {cargando ? '⏳ Auditando...' : resultado ? '🔄 Auditar de nuevo' : '🔍 Ejecutar auditoría'}
-      </button>
-
-      {resultado && (
-        <>
-          <div className="text-[10px] text-slate-500">Auditoría ejecutada: {new Date(resultado.fecha_auditoria).toLocaleString('es-MX')}</div>
-          {resultado.hallazgos.length === 0 ? (
-            <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-4 text-center text-sm text-emerald-400 font-bold">
-              ✅ Sin inconsistencias detectadas
-            </div>
-          ) : resultado.hallazgos.map((h, i) => {
-            const est = NIVEL_ESTILO[h.nivel] || NIVEL_ESTILO.INFORMATIVA;
-            return (
-              <div key={i} className={`${est.bg} border ${est.border} rounded-xl p-3`}>
-                <div className="flex items-center justify-between mb-1">
-                  <span className={`text-[9px] font-bold uppercase ${est.color}`}>{h.nivel}</span>
-                  <span className="text-[9px] text-slate-500">{h.modulo}</span>
-                </div>
-                <p className="text-xs text-slate-200 font-bold">{h.que}</p>
-                <p className="text-[10px] text-slate-500 mt-1">{h.donde}</p>
-              </div>
-            );
-          })}
-        </>
-      )}
-    </div>
-  );
-}
-
-function PanelResumenEjecutivoIA() {
-  const [cargando, setCargando] = useState(false);
-  const [resumen, setResumen] = useState('');
-  const [datos, setDatos] = useState(null);
-  const [error, setError] = useState('');
-  const [generadoEn, setGeneradoEn] = useState(null);
-
-  const generar = async () => {
-    setCargando(true);
-    setError('');
-    try {
-      const { data } = await api.get('/reportes/resumen-ejecutivo-ia');
-      setResumen(data.data.resumen);
-      setDatos(data.data.datos_usados);
-      setGeneradoEn(new Date());
-    } catch (e) { setError(e.response?.data?.error || 'No se pudo generar el resumen'); }
-    setCargando(false);
-  };
-
-  const copiar = () => { navigator.clipboard.writeText(resumen); alert('Copiado ✅'); };
-
-  return (
-    <div className="space-y-3">
-      <div className="bg-purple-500/10 border border-purple-500/30 rounded-xl p-3 text-[11px] text-purple-300">
-        🤖 Junta tu avance, ritmo, TODA tu estructura, cobertura territorial, finanzas y alertas en una sola narrativa — usando SOLO los números reales de tu campaña, sin inventar nada.
-      </div>
-      <button onClick={generar} disabled={cargando} className="w-full py-3 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 text-white text-sm font-bold disabled:opacity-40">
-        {cargando ? '⏳ Analizando tu campaña...' : resumen ? '🔄 Generar de nuevo' : '✨ Generar resumen ejecutivo'}
-      </button>
-      {error && <div className="bg-red-500/10 text-red-400 text-xs rounded-lg px-3 py-2">{error}</div>}
-
-      {datos && (
-        <>
-          {/* 🆕 Alertas — antes solo vivían dentro del texto de la IA;
-              ahora se ven aparte, claras y directas. */}
-          {datos.alertas.length > 0 && (
-            <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 space-y-1.5">
-              <div className="text-[10px] font-bold text-amber-300 uppercase">⚠️ Alertas activas</div>
-              {datos.alertas.map((a, i) => <p key={i} className="text-xs text-amber-200">• {a}</p>)}
-            </div>
-          )}
-
-          {/* 🆕 Gráficas reales de los mismos datos que usó la IA —
-              antes solo se leían en el párrafo de texto. */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3">
-              <div className="text-[9px] text-slate-500 uppercase font-bold mb-1">Estructura total</div>
-              <div className="text-xl font-black text-white">{datos.total_estructura}</div>
-              <div className="text-[9px] text-slate-500">personas en {Object.keys(datos.estructura_por_rol).length} roles distintos</div>
-            </div>
-            <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3">
-              <div className="text-[9px] text-slate-500 uppercase font-bold mb-1">Cobertura territorial</div>
-              <div className="text-xl font-black text-white">{datos.cobertura_secciones}</div>
-              <div className="text-[9px] text-slate-500">secciones con al menos 1 promovido</div>
-            </div>
-          </div>
-
-          <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
-            <h3 className="text-xs font-bold text-slate-400 uppercase mb-2">Estructura por rol</h3>
-            <div className="space-y-1.5">
-              {Object.entries(datos.estructura_por_rol).sort((a, b) => b[1] - a[1]).map(([rol, total]) => {
-                const max = Math.max(...Object.values(datos.estructura_por_rol));
-                return (
-                  <div key={rol}>
-                    <div className="flex justify-between text-[10px] mb-0.5"><span className="text-slate-300">{ROL_LABEL[rol] || rol}</span><span className="text-slate-400 font-bold">{total}</span></div>
-                    <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden"><div className="h-full bg-purple-500" style={{ width: `${(total / max) * 100}%` }} /></div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {datos.tope_gasto && (
-            <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
-              <div className="flex justify-between text-xs mb-1"><span className="text-slate-400">Gasto usado</span><span className="text-white font-bold">{datos.porcentaje_gasto_usado}%</span></div>
-              <div className="h-2 bg-slate-800 rounded-full overflow-hidden"><div className={`h-full ${datos.porcentaje_gasto_usado > 80 ? 'bg-red-500' : 'bg-emerald-500'}`} style={{ width: `${Math.min(100, datos.porcentaje_gasto_usado)}%` }} /></div>
-            </div>
-          )}
-        </>
-      )}
-
-      {resumen && (
-        <div className="bg-slate-900/60 border border-purple-500/30 rounded-xl p-4 space-y-3">
-          {generadoEn && <p className="text-[9px] text-slate-500">Generado {generadoEn.toLocaleString('es-MX')}</p>}
-          <p className="text-sm text-slate-200 whitespace-pre-wrap leading-relaxed">{resumen}</p>
-          <button onClick={copiar} className="w-full py-2 rounded-lg bg-slate-700 text-slate-300 text-xs font-bold">📋 Copiar</button>
-        </div>
-      )}
-    </div>
-  );
-}
 
 /**
  * 🆕 Resultados reales de una encuesta — qué contestó la gente,
@@ -295,23 +128,198 @@ function ModalResultadosEncuesta({ encuestaId, onCerrar }) {
   );
 }
 
+// 🆕 REPORTES PERSONALIZADOS — tablas dinámicas filtrables.
+// Sigue el motor de /reportes-vototech-skills: distingue DATOS
+// ORIGINALES (filas de la tabla) de CÁLCULOS (fila de totales),
+// nunca inventa cifras — todo sale directo del backend.
+const AGRUPACIONES_OPCIONES = [
+  { id: 'seccion', label: '📍 Por sección' },
+  { id: 'municipio', label: '🏘️ Por municipio' },
+  { id: 'distrito_local', label: '🗺️ Por región (Distrito Local)' },
+  { id: 'distrito_federal', label: '🗺️ Por región (Distrito Federal)' },
+  { id: 'estructura', label: '🏗️ Por estructura (rol)' },
+  { id: 'coordinador', label: '👤 Por coordinador' },
+  { id: 'clasificacion', label: '🎯 Por base (clasificación)' },
+  { id: 'detalle', label: '📋 Detalle de promovidos' },
+];
+
+function PanelReportesPersonalizados() {
+  const [agruparPor, setAgruparPor] = useState('seccion');
+  const [municipioId, setMunicipioId] = useState('');
+  const [seccionNumero, setSeccionNumero] = useState('');
+  const [rol, setRol] = useState('');
+  const [clasificacion, setClasificacion] = useState('');
+  const [fechaInicio, setFechaInicio] = useState('');
+  const [fechaFin, setFechaFin] = useState('');
+  const [resultado, setResultado] = useState(null);
+  const [cargando, setCargando] = useState(false);
+  const [error, setError] = useState('');
+
+  const construirParams = () => {
+    const p = { agrupar_por: agruparPor };
+    if (municipioId) p.municipio_id = municipioId;
+    if (seccionNumero) p.seccion_numero = seccionNumero;
+    if (rol) p.rol = rol;
+    if (clasificacion) p.clasificacion = clasificacion;
+    if (fechaInicio) p.fecha_inicio = fechaInicio;
+    if (fechaFin) p.fecha_fin = fechaFin;
+    return p;
+  };
+
+  const generar = async () => {
+    setCargando(true);
+    setError('');
+    try {
+      const { data } = await api.get('/reportes/personalizado', { params: construirParams() });
+      setResultado(data.data);
+    } catch (e) {
+      setError(e.response?.data?.error || 'No se pudo generar el reporte');
+      setResultado(null);
+    }
+    setCargando(false);
+  };
+
+  useEffect(() => { generar(); /* eslint-disable-next-line */ }, []);
+
+  const descargarExcel = () => {
+    const params = new URLSearchParams(construirParams()).toString();
+    descargarArchivo(`/reportes/personalizado/exportar?${params}`, `reporte_personalizado_${agruparPor}.xlsx`);
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Filtros */}
+      <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 space-y-3">
+        <div className="text-[10px] font-bold text-slate-500 uppercase">Agrupar por</div>
+        <div className="flex gap-2 flex-wrap">
+          {AGRUPACIONES_OPCIONES.map((o) => (
+            <button key={o.id} onClick={() => setAgruparPor(o.id)}
+              className={`px-3 py-1.5 rounded-full text-[11px] font-bold ${agruparPor === o.id ? 'bg-fuchsia-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
+              {o.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="text-[10px] font-bold text-slate-500 uppercase pt-1">Filtros opcionales</div>
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+          <input type="number" placeholder="N° de sección" value={seccionNumero} onChange={(e) => setSeccionNumero(e.target.value)}
+            className="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs" />
+          <select value={rol} onChange={(e) => setRol(e.target.value)} className="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs">
+            <option value="">Todos los roles</option>
+            {Object.entries(ROL_LABEL).map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+          </select>
+          <select value={clasificacion} onChange={(e) => setClasificacion(e.target.value)} className="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs">
+            <option value="">Todas las clasificaciones</option>
+            <option value="base">Base</option>
+            <option value="persuadible">Persuadible</option>
+            <option value="adversario">Adversario</option>
+          </select>
+          <input type="date" value={fechaInicio} onChange={(e) => setFechaInicio(e.target.value)}
+            className="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs" />
+          <input type="date" value={fechaFin} onChange={(e) => setFechaFin(e.target.value)}
+            className="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs" />
+        </div>
+
+        <div className="flex gap-2 pt-1">
+          <button onClick={generar} disabled={cargando}
+            className="px-4 py-2 rounded-lg bg-fuchsia-600 text-white text-xs font-bold disabled:opacity-40">
+            {cargando ? '⏳ Generando…' : '🔍 Generar reporte'}
+          </button>
+          <button onClick={descargarExcel}
+            className="px-4 py-2 rounded-lg bg-emerald-700/50 text-emerald-300 text-xs font-bold">
+            📥 Descargar Excel
+          </button>
+        </div>
+      </div>
+
+      {error && <p className="text-xs text-red-400">{error}</p>}
+
+      {/* Tabla dinámica */}
+      {resultado && !resultado.es_detalle && (
+        <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden">
+          <div className="px-4 py-2 bg-slate-800/60 text-xs font-bold text-slate-300">{resultado.nombre_agrupacion}</div>
+          <table className="w-full text-xs">
+            <thead className="bg-slate-800/40">
+              <tr>
+                <th className="text-left px-3 py-2 text-slate-400 font-bold">{resultado.nombre_agrupacion}</th>
+                <th className="text-center px-3 py-2 text-slate-400 font-bold">Total</th>
+                <th className="text-center px-3 py-2 text-slate-400 font-bold">Comprometidos</th>
+                <th className="text-center px-3 py-2 text-slate-400 font-bold">Base</th>
+                <th className="text-center px-3 py-2 text-slate-400 font-bold">Persuadible</th>
+                <th className="text-center px-3 py-2 text-slate-400 font-bold">Adversario</th>
+              </tr>
+            </thead>
+            <tbody>
+              {resultado.filas.length === 0 ? (
+                <tr><td colSpan={6} className="text-center text-slate-500 py-6">Sin datos para este filtro</td></tr>
+              ) : resultado.filas.map((f, i) => (
+                <tr key={i} className="border-t border-slate-800">
+                  <td className="px-3 py-2 text-white font-bold">{f.etiqueta}</td>
+                  <td className="px-3 py-2 text-center text-slate-300">{f.total}</td>
+                  <td className="px-3 py-2 text-center text-purple-400">{f.comprometidos}</td>
+                  <td className="px-3 py-2 text-center text-emerald-400">{f.base}</td>
+                  <td className="px-3 py-2 text-center text-amber-400">{f.persuadible}</td>
+                  <td className="px-3 py-2 text-center text-red-400">{f.adversario}</td>
+                </tr>
+              ))}
+            </tbody>
+            {resultado.filas.length > 0 && (
+              <tfoot>
+                <tr className="border-t-2 border-slate-700 bg-slate-800/40 font-black">
+                  <td className="px-3 py-2 text-white">TOTAL</td>
+                  <td className="px-3 py-2 text-center text-white">{resultado.totales.total}</td>
+                  <td className="px-3 py-2 text-center text-purple-300">{resultado.totales.comprometidos}</td>
+                  <td className="px-3 py-2 text-center text-emerald-300">{resultado.totales.base}</td>
+                  <td className="px-3 py-2 text-center text-amber-300">{resultado.totales.persuadible}</td>
+                  <td className="px-3 py-2 text-center text-red-300">{resultado.totales.adversario}</td>
+                </tr>
+              </tfoot>
+            )}
+          </table>
+        </div>
+      )}
+
+      {/* Detalle de promovidos (hasta 1000 filas) */}
+      {resultado && resultado.es_detalle && (
+        <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-x-auto">
+          <div className="px-4 py-2 bg-slate-800/60 text-xs font-bold text-slate-300">Detalle de promovidos — {resultado.filas.length} registros (máx. 1000)</div>
+          <table className="w-full text-xs min-w-[700px]">
+            <thead className="bg-slate-800/40">
+              <tr>
+                <th className="text-left px-3 py-2 text-slate-400 font-bold">Nombre</th>
+                <th className="text-left px-3 py-2 text-slate-400 font-bold">Teléfono</th>
+                <th className="text-center px-3 py-2 text-slate-400 font-bold">Sección</th>
+                <th className="text-left px-3 py-2 text-slate-400 font-bold">Municipio</th>
+                <th className="text-left px-3 py-2 text-slate-400 font-bold">Clasificación</th>
+                <th className="text-center px-3 py-2 text-slate-400 font-bold">Comprometido</th>
+                <th className="text-left px-3 py-2 text-slate-400 font-bold">Registrado por</th>
+              </tr>
+            </thead>
+            <tbody>
+              {resultado.filas.length === 0 ? (
+                <tr><td colSpan={7} className="text-center text-slate-500 py-6">Sin datos para este filtro</td></tr>
+              ) : resultado.filas.map((f, i) => (
+                <tr key={i} className="border-t border-slate-800">
+                  <td className="px-3 py-2 text-white font-bold whitespace-nowrap">{f.nombre}</td>
+                  <td className="px-3 py-2 text-slate-300 whitespace-nowrap">{f.telefono}</td>
+                  <td className="px-3 py-2 text-center text-slate-300">{f.seccion}</td>
+                  <td className="px-3 py-2 text-slate-300 whitespace-nowrap">{f.municipio}</td>
+                  <td className="px-3 py-2 text-slate-300">{f.clasificacion || 'Sin clasificar'}</td>
+                  <td className="px-3 py-2 text-center text-purple-400">{f.comprometido}</td>
+                  <td className="px-3 py-2 text-slate-400 whitespace-nowrap">{f.registrado_por || 'N/D'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Reportes() {
-  const [tab, setTab] = useState('diario');
-  // 🆕 "Análisis" agrupa 4 pestañas que antes estaban sueltas
-  // (Análisis histórico, Ficha del Estado, Senado/Dip., Estadística)
-  const [subTabAnalisis, setSubTabAnalisis] = useState('estadisticas');
+  const [tab, setTab] = useState('ficha-seccion');
   const [subTabActividad, setSubTabActividad] = useState('resumen');
-  const [fecha, setFecha] = useState(new Date().toISOString().slice(0, 10));
-  const [diario, setDiario] = useState([]);
-  const [tendencia, setTendencia] = useState([]);
-  // 🆕 Filtro por estructura — antes "Bitácora diaria" solo mostraba
-  // promotores; ahora se puede filtrar por cualquier nivel (líderes,
-  // coordinadores, etc.) o ver todos juntos.
-  const [filtroRolDiario, setFiltroRolDiario] = useState('todos');
-  const [metaObjetivoDia, setMetaObjetivoDia] = useState(0);
-  const [logradoHoy, setLogradoHoy] = useState(0);
-  const [estadisticas, setEstadisticas] = useState(null);
-  const [fichaEstado, setFichaEstado] = useState(null);
   // 🆕 Ficha Inteligente de Sección — a diferencia de la del estado,
   // esta se busca por número (no tiene sentido cargar las 634 de
   // una vez).
@@ -329,12 +337,6 @@ export default function Reportes() {
     } catch (e) { setErrorFicha(e.response?.data?.error || 'No se pudo cargar'); setFichaSeccion(null); }
     setBuscandoFicha(false);
   };
-  const [tipoAgregado, setTipoAgregado] = useState('dip_federal');
-  const [agregados, setAgregados] = useState(null);
-  const [probabilidad, setProbabilidad] = useState(null);
-  const [regresion, setRegresion] = useState(null);
-  const [pruebaRitmo, setPruebaRitmo] = useState(null);
-  const [caminoTriunfo, setCaminoTriunfo] = useState(null);
   const [actividadResumen, setActividadResumen] = useState(null);
   const [actividadPromotores, setActividadPromotores] = useState([]);
   const [actividadSecciones, setActividadSecciones] = useState([]);
@@ -346,54 +348,13 @@ export default function Reportes() {
   const [encuestasResumen, setEncuestasResumen] = useState(null);
   // 🆕 Ver los resultados reales de una encuesta específica
   const [encuestaDetalleId, setEncuestaDetalleId] = useState(null);
-  const [cargando, setCargando] = useState(true);
 
   useEffect(() => {
-    api.get(`/reportes/agregados/${tipoAgregado}`).then((r) => setAgregados(r.data.data)).catch(() => setAgregados(null));
-  }, [tipoAgregado]);
-
-  useEffect(() => {
-    setCargando(true);
-    api.get(`/reportes/diario?fecha=${fecha}`).then((r) => {
-      setDiario(r.data.data);
-      setMetaObjetivoDia(r.data.meta_objetivo_dia || 0);
-      setLogradoHoy(r.data.logrado_hoy || 0);
-    }).finally(() => setCargando(false));
-  }, [fecha]);
-
-  useEffect(() => {
-    api.get('/reportes/tendencia').then((r) => setTendencia(r.data.data));
-    api.get('/reportes/estadisticas').then((r) => setEstadisticas(r.data.data));
-    api.get('/reportes/ficha-estado').then((r) => setFichaEstado(r.data.data)).catch(() => setFichaEstado(null));
-    api.get('/reportes/probabilidad').then((r) => setProbabilidad(r.data.data));
-    api.get('/reportes/regresion-cobertura').then((r) => setRegresion(r.data.data));
-    api.get('/reportes/prueba-ritmo').then((r) => setPruebaRitmo(r.data.data));
-    api.get('/reportes/camino-triunfo').then((r) => setCaminoTriunfo(r.data.data));
     api.get('/reportes/actividad-resumen').then((r) => setActividadResumen(r.data.data));
     api.get('/reportes/actividad-por-promotor').then((r) => setActividadPromotores(r.data.data));
     api.get('/reportes/actividad-por-seccion').then((r) => setActividadSecciones(r.data.data));
     api.get('/reportes/encuestas-resumen').then((r) => setEncuestasResumen(r.data.data));
   }, []);
-
-  const maxTendencia = Math.max(1, ...tendencia.map((t) => t.promovidos));
-  const totalHoy = diario.reduce((s, d) => s + parseInt(d.promovidos_nuevos), 0);
-  const totalContactosHoy = diario.reduce((s, d) => s + parseInt(d.contactos_hechos), 0);
-
-  // 🆕 Filtro por estructura — "todos", "lideres" (candidato hasta
-  // coord. seccional), o un rol específico.
-  const diarioFiltrado = diario.filter((d) => {
-    if (filtroRolDiario === 'todos') return true;
-    if (filtroRolDiario === 'lideres') return ROL_ES_LIDER.includes(d.rol);
-    return d.rol === filtroRolDiario;
-  });
-  // Gráfica de barras — promovidos capturados HOY, agrupados por rol
-  const porRolHoy = {};
-  diario.forEach((d) => {
-    const clave = ROL_LABEL[d.rol] || d.rol;
-    porRolHoy[clave] = (porRolHoy[clave] || 0) + parseInt(d.promovidos_nuevos);
-  });
-  const maxPorRol = Math.max(1, ...Object.values(porRolHoy));
-  const rolesConDatos = [...new Set(diario.map((d) => d.rol))].filter(Boolean);
 
   // 🆕 Actividad de Campo — filtro por rol (misma lógica que Bitácora)
   const actividadPromotoresFiltrada = actividadPromotores.filter((p) => {
@@ -449,519 +410,12 @@ export default function Reportes() {
           </div>
         </div>
 
-        <div className="flex gap-2 flex-wrap">          <button onClick={() => setTab('diario')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'diario' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📋 Bitácora diaria</button>
-          <button onClick={() => setTab('analisis')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'analisis' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📊 Análisis</button>
+        <div className="flex gap-2 flex-wrap">
           <button onClick={() => setTab('ficha-seccion')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'ficha-seccion' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📍 Ficha de Sección</button>
           <button onClick={() => setTab('actividad')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'actividad' ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🎯 Actividad de Campo</button>
           <button onClick={() => setTab('encuestas')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'encuestas' ? 'bg-pink-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📋 Encuestas</button>
-          <button onClick={() => setTab('resumen-ia')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'resumen-ia' ? 'bg-purple-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🤖 Resumen con IA</button>
-          <button onClick={() => setTab('auditoria')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'auditoria' ? 'bg-amber-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🔍 Auditoría</button>
+          <button onClick={() => setTab('personalizado')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'personalizado' ? 'bg-fuchsia-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🧩 Reportes Personalizados</button>
         </div>
-
-        {/* 🆕 Sub-pestañas de "Análisis" — agrupa 4 vistas que antes
-            estaban sueltas en la barra principal. */}
-        {tab === 'analisis' && (
-          <div className="flex gap-2 flex-wrap -mt-1">
-            <button onClick={() => setSubTabAnalisis('estadisticas')} className={`px-3 py-1 rounded-full text-[11px] font-bold ${subTabAnalisis === 'estadisticas' ? 'bg-indigo-500 text-white' : 'bg-slate-800/60 text-slate-500'}`}>🗺️ Análisis histórico</button>
-            <button onClick={() => setSubTabAnalisis('ficha-estado')} className={`px-3 py-1 rounded-full text-[11px] font-bold ${subTabAnalisis === 'ficha-estado' ? 'bg-indigo-500 text-white' : 'bg-slate-800/60 text-slate-500'}`}>🏛️ Ficha del Estado</button>
-            <button onClick={() => setSubTabAnalisis('otros-cargos')} className={`px-3 py-1 rounded-full text-[11px] font-bold ${subTabAnalisis === 'otros-cargos' ? 'bg-indigo-500 text-white' : 'bg-slate-800/60 text-slate-500'}`}>🗳️ Senado / Fed. / Local</button>
-            <button onClick={() => setSubTabAnalisis('probabilidad')} className={`px-3 py-1 rounded-full text-[11px] font-bold ${subTabAnalisis === 'probabilidad' ? 'bg-purple-500 text-white' : 'bg-slate-800/60 text-slate-500'}`}>🎲 Estadística y Probabilidad</button>
-          </div>
-        )}
-
-        {tab === 'analisis' && subTabAnalisis === 'probabilidad' && probabilidad && (
-          <div className="space-y-4">
-            <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 text-[11px] text-amber-300">
-              ⚠️ <strong>Esto no es una encuesta científica.</strong> Se basa en tus propios promovidos (una muestra sesgada, no aleatoria) y en el comportamiento histórico real de tu territorio. Úsalo como termómetro de tendencia, no como certeza.
-            </div>
-
-            {/* Intervalo de confianza sobre promovidos */}
-            <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
-              <h3 className="text-xs font-bold text-slate-400 uppercase mb-1">📏 Intervalo de confianza — % de tus promovidos que son tu partido
-                <Ayuda texto="Es un RANGO en vez de un solo número, porque con una muestra chica nunca podemos estar 100% seguros del valor exacto. Entre más gente contactada, más angosto (y confiable) se vuelve el rango." />
-              </h3>
-              <p className="text-[10px] text-slate-500 mb-3">Método: Wilson score, 95% de confianza · muestra: {probabilidad.total_promovidos_muestra} promovidos con partido declarado</p>
-              {probabilidad.intervalo_confianza.centro == null ? (
-                <div className="text-xs text-slate-500 text-center py-4">Aún no hay suficientes promovidos con partido declarado</div>
-              ) : (
-                <div>
-                  <div className="text-3xl font-black text-white text-center mb-2">{probabilidad.intervalo_confianza.centro}%</div>
-                  <div className="relative h-3 bg-slate-800 rounded-full">
-                    <div className="absolute h-3 bg-indigo-500/40 rounded-full" style={{ left: `${probabilidad.intervalo_confianza.inferior}%`, width: `${probabilidad.intervalo_confianza.superior - probabilidad.intervalo_confianza.inferior}%` }} />
-                    <div className="absolute h-5 w-1 bg-white rounded-full -top-1" style={{ left: `${probabilidad.intervalo_confianza.centro}%` }} />
-                  </div>
-                  <div className="flex justify-between text-[9px] text-slate-500 mt-1">
-                    <span>{probabilidad.intervalo_confianza.inferior}% (mínimo probable)</span>
-                    <span>{probabilidad.intervalo_confianza.superior}% (máximo probable)</span>
-                  </div>
-                  {!probabilidad.muestra_suficiente && (
-                    <div className="mt-2 text-[10px] bg-amber-500/10 text-amber-300 rounded px-2 py-1">📊 Se necesitan mín. 30 promovidos con partido declarado para más confiabilidad (tienes {probabilidad.total_promovidos_muestra})</div>
-                  )}
-                  <div className="mt-2 text-[10px] text-slate-300 bg-slate-800/50 rounded-lg px-3 py-2">💬 <strong>¿Qué significa esto?</strong> {probabilidad.interpretacion_ic}</div>
-                </div>
-              )}
-            </div>
-
-            {/* Simulación Monte Carlo */}
-            {!probabilidad.simulacion_disponible ? (
-              <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 text-xs text-amber-300">⚠️ {probabilidad.mensaje}</div>
-            ) : (
-              <>
-                <div className="bg-gradient-to-br from-purple-950/60 to-indigo-950/40 border border-purple-800/30 rounded-xl p-5 text-center">
-                  <div className="text-[10px] font-bold text-purple-300 uppercase mb-1">🎲 Simulación Monte Carlo — {probabilidad.metodologia.corridas_simuladas.toLocaleString()} escenarios
-                    <Ayuda texto="Imagina que la elección se repite miles de veces con la incertidumbre real (¿y si sube el ánimo? ¿y si baja?). El % que ves es en cuántos de esos escenarios simulados ganas — no es una promesa, es una probabilidad." />
-                  </div>
-                  <div className={`text-4xl font-black ${probabilidad.probabilidad_triunfo >= 50 ? 'text-emerald-400' : 'text-red-400'}`}>{probabilidad.probabilidad_triunfo}%</div>
-                  <p className="text-[10px] text-slate-400 mt-1">de los escenarios simulados, ganas</p>
-                  <div className="mt-3 text-[10px] text-left text-slate-300 bg-slate-900/50 rounded-lg px-3 py-2">💬 <strong>¿Qué significa esto?</strong> {probabilidad.interpretacion_probabilidad}</div>
-                </div>
-
-                <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
-                  <h3 className="text-xs font-bold text-slate-400 uppercase mb-3">Rango de votos proyectados el día D</h3>
-                  <div className="grid grid-cols-3 gap-2 text-center">
-                    <div><div className="text-lg font-black text-slate-400">{probabilidad.proyeccion_votos.p10.toLocaleString()}</div><div className="text-[9px] text-slate-500">Escenario pesimista (p10)</div></div>
-                    <div><div className="text-lg font-black text-white">{probabilidad.proyeccion_votos.p50.toLocaleString()}</div><div className="text-[9px] text-slate-500">Escenario más probable (p50)</div></div>
-                    <div><div className="text-lg font-black text-emerald-400">{probabilidad.proyeccion_votos.p90.toLocaleString()}</div><div className="text-[9px] text-slate-500">Escenario optimista (p90)</div></div>
-                  </div>
-                  <p className="text-[10px] text-slate-500 mt-3">Tu oponente principal sacó {probabilidad.votos_oponente_referencia.toLocaleString()} votos en la última elección comparable.</p>
-                </div>
-
-                <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
-                  <h3 className="text-xs font-bold text-slate-400 uppercase mb-2">🔬 Metodología (transparencia total)</h3>
-                  <ul className="text-[10px] text-slate-400 space-y-1">
-                    <li>• {probabilidad.metodologia.bootstrap_real
-                      ? `Bootstrap no paramétrico: se remuestreó de ${probabilidad.metodologia.secciones_usadas_bootstrap} secciones reales — ${probabilidad.metodologia.metodo_bootstrap_descripcion}`
-                      : `Sin suficientes secciones comparables para bootstrap real — se usó un supuesto conservador de ±6% de volatilidad`}</li>
-                    <li>• Promovidos "Base" actuales: {probabilidad.metodologia.promovidos_base_actuales}, proyectados a {probabilidad.metodologia.promovidos_base_proyectados_dia_d} para el día de la elección ({probabilidad.metodologia.dias_restantes} días restantes)</li>
-                    <li>• Tasa de conversión de promovido a voto: simulada con incertidumbre (~60% ± 15%), no un valor fijo</li>
-                  </ul>
-                </div>
-              </>
-            )}
-
-            {/* 🛣️ CAMINO AL TRIUNFO — cuántas secciones necesitas ganar */}
-            {caminoTriunfo?.disponible && (
-              <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
-                <h3 className="text-xs font-bold text-slate-400 uppercase mb-1">🛣️ ¿Con cuántas secciones ganas la elección?</h3>
-                <div className="grid grid-cols-3 gap-2 text-center my-3">
-                  <div><div className="text-lg font-black text-emerald-400">{caminoTriunfo.secciones_ganadas_hoy}</div><div className="text-[9px] text-slate-500">Ganas hoy</div></div>
-                  <div><div className="text-lg font-black text-amber-400">{caminoTriunfo.secciones_necesarias_adicionales}</div><div className="text-[9px] text-slate-500">Necesitas voltear</div></div>
-                  <div><div className="text-lg font-black text-slate-400">{caminoTriunfo.total_secciones}</div><div className="text-[9px] text-slate-500">Total en tu territorio</div></div>
-                </div>
-                <div className="text-[10px] text-slate-300 bg-slate-800/50 rounded-lg px-3 py-2 mb-3">💬 <strong>¿Qué significa esto?</strong> {caminoTriunfo.interpretacion}</div>
-                {caminoTriunfo.top_secciones_camino?.length > 0 && (
-                  <div>
-                    <div className="text-[9px] font-bold text-slate-500 uppercase mb-1.5">Estas secciones son tu camino más corto</div>
-                    <div className="flex flex-wrap gap-1.5">
-                      {caminoTriunfo.top_secciones_camino.map((s) => (
-                        <span key={s.seccion} className="text-[10px] bg-amber-500/10 text-amber-300 px-2 py-1 rounded-full">Secc. {s.seccion} (-{s.deficit})</span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* 📈 REGRESIÓN — cobertura de promotores vs promovidos generados */}
-            <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
-              <h3 className="text-xs font-bold text-slate-400 uppercase mb-1">📈 Regresión: cobertura de promotores vs. promovidos generados
-                <Ayuda texto="Responde: ¿de verdad ayuda tener más promotores en una sección, o da igual? Si el número es alto, sí ayuda mucho. Si es bajo, probablemente importa más QUIÉN está ahí que CUÁNTOS son." />
-              </h3>
-              <p className="text-[10px] text-slate-500 mb-3">Método: mínimos cuadrados ordinarios (paramétrica)</p>
-              {!regresion ? (
-                <div className="text-xs text-slate-500 text-center py-4">⏳ Calculando...</div>
-              ) : !regresion.suficientes_datos ? (
-                <div className="text-[10px] bg-amber-500/10 text-amber-300 rounded-lg px-3 py-2">📊 {regresion.mensaje}</div>
-              ) : (
-                <>
-                  <div className="grid grid-cols-2 gap-3 mb-3">
-                    <div className="text-center"><div className="text-lg font-black text-white">{regresion.pendiente}</div><div className="text-[9px] text-slate-500">Promovidos extra por cada promotor</div></div>
-                    <div className="text-center"><div className="text-lg font-black text-indigo-400">{Math.round(regresion.r_cuadrada * 100)}%</div><div className="text-[9px] text-slate-500">Qué tanto explica esta relación (R²)</div></div>
-                  </div>
-                  <div className="text-[10px] text-slate-300 bg-slate-800/50 rounded-lg px-3 py-2">💬 <strong>¿Qué significa esto?</strong> {regresion.interpretacion}</div>
-                  <p className="text-[9px] text-slate-600 mt-2">Basado en {regresion.secciones_analizadas} secciones con datos de cobertura y promovidos</p>
-                </>
-              )}
-            </div>
-
-            {/* 🧪 PRUEBA DE HIPÓTESIS — ritmo actual vs necesario */}
-            <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
-              <h3 className="text-xs font-bold text-slate-400 uppercase mb-1">🧪 Prueba de hipótesis: ¿tu ritmo actual alcanza?
-                <Ayuda texto="Compara qué tan rápido está avanzando tu equipo contra qué tan rápido NECESITA avanzar para llegar a la meta. Te dice si la diferencia es real (hay que preocuparse) o solo variación normal del día a día." />
-              </h3>
-              <p className="text-[10px] text-slate-500 mb-3">Método: prueba t de una muestra (paramétrica), 14 días analizados</p>
-              {!pruebaRitmo ? (
-                <div className="text-xs text-slate-500 text-center py-4">⏳ Calculando...</div>
-              ) : pruebaRitmo.dias_analizados < 7 ? (
-                <div className="text-[10px] bg-amber-500/10 text-amber-300 rounded-lg px-3 py-2">📊 {pruebaRitmo.interpretacion}</div>
-              ) : (
-                <>
-                  <div className="grid grid-cols-2 gap-3 mb-3">
-                    <div className="text-center"><div className="text-lg font-black text-white">{pruebaRitmo.ritmo_real_promedio}</div><div className="text-[9px] text-slate-500">Tu ritmo real (promovidos/día)</div></div>
-                    <div className="text-center"><div className="text-lg font-black text-amber-400">{pruebaRitmo.ritmo_necesario}</div><div className="text-[9px] text-slate-500">Ritmo que necesitas</div></div>
-                  </div>
-                  <div className={`text-[9px] font-bold uppercase mb-2 ${pruebaRitmo.significativo ? (pruebaRitmo.ritmo_real_promedio > pruebaRitmo.ritmo_necesario ? 'text-emerald-400' : 'text-red-400') : 'text-slate-500'}`}>
-                    {pruebaRitmo.significativo ? '✅ Diferencia estadísticamente significativa' : '➖ Sin diferencia estadísticamente significativa'} (valor-p: {pruebaRitmo.valor_p})
-                  </div>
-                  <div className="text-[10px] text-slate-300 bg-slate-800/50 rounded-lg px-3 py-2">💬 <strong>¿Qué significa esto?</strong> {pruebaRitmo.interpretacion}</div>
-                </>
-              )}
-            </div>
-          </div>
-        )}
-
-        {tab === 'diario' && (
-          <div className="space-y-4">
-            {/* 🆕 Meta objetivo del día vs. logrado — con el lenguaje
-                estándar FALTANTE / META CUBIERTA / META SUPERADA. */}
-            <div className="bg-gradient-to-br from-indigo-500/10 to-purple-500/10 border border-indigo-500/30 rounded-xl p-4">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-bold text-indigo-300">🎯 Meta del día — toda la estructura</span>
-                <span className="text-lg font-black text-white">{logradoHoy} <span className="text-sm text-slate-500">/ {metaObjetivoDia}</span></span>
-              </div>
-              <div className="h-2.5 bg-slate-800 rounded-full overflow-hidden mb-1.5">
-                <div className="h-full bg-indigo-500" style={{ width: `${metaObjetivoDia > 0 ? Math.min(100, (logradoHoy / metaObjetivoDia) * 100) : 0}%` }} />
-              </div>
-              {(() => {
-                const est = estadoMeta(logradoHoy, metaObjetivoDia);
-                return (
-                  <div className={`text-xs font-bold ${est.color}`}>
-                    {est.label}
-                    {est.faltante != null && ` — faltan ${est.faltante}`}
-                    {est.excedente > 0 && ` — excedente: +${est.excedente}`}
-                  </div>
-                );
-              })()}
-            </div>
-
-            <div className="flex items-center gap-3 flex-wrap">
-              <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)}
-                className="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
-              {/* 🆕 Filtro por estructura — el pedido principal: ya no
-                  solo se ve "promotor", se puede ver por líderes, por
-                  coordinador específico, o todos juntos. */}
-              <select value={filtroRolDiario} onChange={(e) => setFiltroRolDiario(e.target.value)}
-                className="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
-                <option value="todos">Todos los niveles</option>
-                <option value="lideres">Solo líderes/coordinadores</option>
-                {rolesConDatos.map((r) => <option key={r} value={r}>{ROL_LABEL[r] || r}</option>)}
-              </select>
-              <span className="text-xs text-slate-400">Total del día: <strong className="text-white">{totalHoy}</strong> promovidos, <strong className="text-white">{totalContactosHoy}</strong> contactos</span>
-            </div>
-
-            {/* 🆕 Gráfica por rol — para ver de un vistazo qué nivel
-                de la estructura está aportando más hoy. */}
-            {rolesConDatos.length > 1 && (
-              <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
-                <h3 className="text-xs font-bold text-slate-400 uppercase mb-3">Promovidos de hoy, por nivel de estructura</h3>
-                <div className="space-y-2">
-                  {Object.entries(porRolHoy).sort((a, b) => b[1] - a[1]).map(([rol, total]) => (
-                    <div key={rol}>
-                      <div className="flex justify-between text-[10px] mb-0.5">
-                        <span className="text-slate-300">{rol}</span>
-                        <span className="text-slate-400 font-bold">{total}</span>
-                      </div>
-                      <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
-                        <div className="h-full bg-emerald-500" style={{ width: `${(total / maxPorRol) * 100}%` }} />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* 🆕 Tendencia — antes era una pestaña aparte, ahora vive
-                junto a la bitácora del día (mismo tema: ritmo de
-                campaña, solo distinta ventana de tiempo). */}
-            <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
-              <h3 className="text-xs font-bold text-slate-400 uppercase mb-3">📈 Tendencia — últimos 14 días</h3>
-              {tendencia.length === 0 ? (
-                <div className="text-xs text-slate-500 text-center py-6">Aún no hay suficiente actividad para mostrar tendencia</div>
-              ) : (
-                <div className="flex items-end gap-2 h-40">
-                  {tendencia.map((t) => (
-                    <div key={t.fecha} className="flex-1 flex flex-col items-center gap-1 group relative">
-                      <div className="w-full flex flex-col justify-end" style={{ height: '140px' }}>
-                        <div className="w-full bg-indigo-500 rounded-t hover:bg-indigo-400 transition-all relative"
-                          style={{ height: `${Math.max(4, (t.promovidos / maxTendencia) * 100)}%` }}>
-                          <div className="absolute -top-6 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 text-[9px] bg-slate-800 px-1.5 py-0.5 rounded text-white whitespace-nowrap transition-opacity">
-                            {t.promovidos} ({t.comprometidos} comp.)
-                          </div>
-                        </div>
-                      </div>
-                      <span className="text-[8px] text-slate-500">{new Date(t.fecha).toLocaleDateString('es-MX', { day: 'numeric', month: 'short' })}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {cargando ? (
-              <div className="text-center text-slate-500 py-10">⏳ Cargando...</div>
-            ) : diarioFiltrado.every((d) => parseInt(d.promovidos_nuevos) === 0 && parseInt(d.contactos_hechos) === 0) ? (
-              <div className="text-center text-slate-500 py-10">Sin actividad registrada este día para este filtro</div>
-            ) : (
-              <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden">
-                <table className="w-full text-xs">
-                  <thead className="bg-slate-800/60">
-                    <tr>
-                      <th className="text-left px-3 py-2 text-slate-400 font-bold">Nombre</th>
-                      <th className="text-left px-3 py-2 text-slate-400 font-bold">Rol</th>
-                      <th className="text-center px-3 py-2 text-slate-400 font-bold">Meta diaria</th>
-                      <th className="text-center px-3 py-2 text-slate-400 font-bold">Promovidos</th>
-                      <th className="text-center px-3 py-2 text-slate-400 font-bold">Comprometidos</th>
-                      <th className="text-center px-3 py-2 text-slate-400 font-bold">Contactos</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {diarioFiltrado.filter((d) => parseInt(d.promovidos_nuevos) > 0 || parseInt(d.contactos_hechos) > 0).map((d) => (
-                      <tr key={d.usuario_id} className="border-t border-slate-800">
-                        <td className="px-3 py-2 text-white font-bold">{d.nombre}</td>
-                        <td className="px-3 py-2 text-slate-400">{ROL_LABEL[d.rol] || d.rol}{d.puesto ? ` · ${d.puesto}` : ''}</td>
-                        <td className="px-3 py-2 text-center text-slate-500">{d.meta_diaria || '—'}</td>
-                        <td className="px-3 py-2 text-center text-emerald-400">{d.promovidos_nuevos}</td>
-                        <td className="px-3 py-2 text-center text-amber-400">{d.comprometidos_nuevos}</td>
-                        <td className="px-3 py-2 text-center text-indigo-400">{d.contactos_hechos}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        )}
-
-        {tab === 'analisis' && subTabAnalisis === 'estadisticas' && estadisticas && (
-          <div className="space-y-4">
-            <div className="bg-indigo-500/5 border border-indigo-500/20 rounded-xl p-3 text-[11px] text-indigo-200 leading-relaxed">
-              <strong>¿Para qué sirve esto?</strong> Es la foto general de TODO tu territorio en una elección histórica — cuántas secciones, tamaño del padrón, participación, votos totales.
-              No compara boletas entre sí (eso lo hace "Comparativa" en Promovidos → Analítica) — aquí ves el panorama completo de una sola elección.
-            </div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 text-center">
-                <div className="text-xl font-black text-white">{estadisticas.total_secciones}</div>
-                <div className="text-[9px] text-slate-500">Secciones analizadas</div>
-              </div>
-              <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 text-center">
-                <div className="text-xl font-black text-white">{estadisticas.lista_nominal_total?.toLocaleString()}</div>
-                <div className="text-[9px] text-slate-500">Padrón total</div>
-              </div>
-              <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 text-center">
-                <div className="text-xl font-black text-indigo-400">{estadisticas.participacion_promedio ?? 'N/D'}%</div>
-                <div className="text-[9px] text-slate-500">Participación promedio {estadisticas.anio_historico}</div>
-              </div>
-              <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 text-center">
-                <div className="text-xl font-black text-white">{estadisticas.total_votos_historico?.toLocaleString()}</div>
-                <div className="text-[9px] text-slate-500">Votos totales {estadisticas.anio_historico}</div>
-              </div>
-            </div>
-
-            {estadisticas.anio_historico ? (
-              <>
-                <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
-                  <h3 className="text-xs font-bold text-slate-400 uppercase mb-3">Resultados acumulados {estadisticas.anio_historico} (todo tu territorio)</h3>
-                  <div className="space-y-2">
-                    {Object.entries(estadisticas.votos_por_partido).sort((a, b) => b[1] - a[1]).map(([p, v]) => (
-                      <div key={p}>
-                        <div className="flex justify-between text-xs mb-1">
-                          <span className={`font-bold ${p === estadisticas.partido_campana ? 'text-indigo-300' : 'text-slate-300'}`}>
-                            {p === estadisticas.partido_campana && '⭐ '}{p.toUpperCase()}
-                          </span>
-                          <span className="text-slate-400">{v.toLocaleString()} ({Math.round(v / estadisticas.total_votos_historico * 100)}%)</span>
-                        </div>
-                        <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
-                          <div className="h-full rounded-full" style={{ width: `${v / estadisticas.total_votos_historico * 100}%`, background: PARTIDOS_COLOR[p] || '#64748b' }} />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* 📊 COMPARACIÓN 2024 → PROYECCIÓN 2027 */}
-                <div className="bg-gradient-to-br from-indigo-950/60 to-purple-950/40 border border-indigo-800/30 rounded-xl p-4">
-                  <h3 className="text-xs font-bold text-indigo-300 uppercase mb-1">📊 Comparación: {estadisticas.anio_historico} → Proyección 2027</h3>
-                  <p className="text-[10px] text-slate-500 mb-3">Resultado real de {estadisticas.anio_historico} + lo que aportan tus promovidos actuales (Base confirmada, con 65% de conversión a voto)</p>
-                  <div className="space-y-3">
-                    {Object.entries(estadisticas.votos_por_partido).sort((a, b) => b[1] - a[1]).map(([p]) => {
-                      const votos2024 = estadisticas.votos_por_partido[p] || 0;
-                      const votos2027 = estadisticas.proyeccion_2027[p] || votos2024;
-                      const cambio = votos2027 - votos2024;
-                      const totalProyectado = Object.values(estadisticas.proyeccion_2027).reduce((a, b) => a + b, 0);
-                      return (
-                        <div key={p}>
-                          <div className="flex justify-between text-xs mb-1">
-                            <span className={`font-bold ${p === estadisticas.partido_campana ? 'text-indigo-300' : 'text-slate-300'}`}>{p.toUpperCase()}</span>
-                            <span className="text-slate-400">
-                              {Math.round(votos2024).toLocaleString()} → <strong className="text-white">{Math.round(votos2027).toLocaleString()}</strong>
-                              {cambio > 0.5 && <span className="text-emerald-400"> (+{Math.round(cambio)})</span>}
-                            </span>
-                          </div>
-                          <div className="h-2.5 bg-slate-800 rounded-full overflow-hidden relative">
-                            <div className="h-full rounded-full opacity-40" style={{ width: `${votos2024 / totalProyectado * 100}%`, background: PARTIDOS_COLOR[p] || '#64748b' }} />
-                            <div className="h-full rounded-full absolute top-0" style={{ width: `${votos2027 / totalProyectado * 100}%`, background: PARTIDOS_COLOR[p] || '#64748b', opacity: 0.3, borderRight: '2px solid white' }} />
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                  <p className="text-[9px] text-slate-600 mt-3">⚠️ Es una proyección orientativa basada en tu avance actual, no un resultado garantizado — sirve para ver tendencia, no para confiarse.</p>
-                </div>
-              </>
-            ) : (
-              <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 text-xs text-amber-300">
-                ⚠️ Sin datos históricos cargados para este tipo de elección
-              </div>
-            )}
-
-            <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
-              <h3 className="text-xs font-bold text-slate-400 uppercase mb-3">Distribución de competitividad por sección</h3>
-              <p className="text-[10px] text-slate-500 mb-3">Según qué tan grande fue la diferencia entre el 1º y 2º lugar en cada sección</p>
-              <div className="grid grid-cols-4 gap-2">
-                {[
-                  ['arrasador', 'Dominio claro', 'text-emerald-400', 'bg-emerald-500/10', '+30% margen'],
-                  ['comodo', 'Cómodo', 'text-blue-400', 'bg-blue-500/10', '15-30% margen'],
-                  ['cerrado', 'Cerrado', 'text-amber-400', 'bg-amber-500/10', '5-15% margen'],
-                  ['empate', 'Prácticamente empate', 'text-red-400', 'bg-red-500/10', '<5% margen'],
-                ].map(([key, label, color, bg, sub]) => (
-                  <div key={key} className={`rounded-lg p-3 text-center ${bg}`}>
-                    <div className={`text-xl font-black ${color}`}>{estadisticas.distribucion_competitividad[key]}</div>
-                    <div className="text-[9px] text-slate-400">{label}</div>
-                    <div className="text-[8px] text-slate-600">{sub}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {Object.keys(estadisticas.promovidos_por_partido).length > 0 && (
-              <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
-                <h3 className="text-xs font-bold text-slate-400 uppercase mb-3">Partido declarado por tus promovidos (hoy)</h3>
-                <div className="flex flex-wrap gap-2">
-                  {Object.entries(estadisticas.promovidos_por_partido).sort((a, b) => b[1] - a[1]).map(([p, n]) => (
-                    <div key={p} className="flex items-center gap-1.5 bg-slate-800/50 rounded-full px-3 py-1.5 text-xs">
-                      <span className="w-2 h-2 rounded-full" style={{ background: PARTIDOS_COLOR[p] || '#64748b' }} />
-                      <span className="text-white font-bold">{n}</span>
-                      <span className="text-slate-400">{p.toUpperCase()}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {tab === 'analisis' && subTabAnalisis === 'ficha-estado' && fichaEstado && (
-          <div className="space-y-4">
-            <div className="bg-indigo-500/5 border border-indigo-500/20 rounded-xl p-3 text-[11px] text-indigo-200 leading-relaxed">
-              <strong>Diferencia con "Análisis histórico":</strong> esa pestaña usa SOLO los resultados que ya cargamos en el sistema, filtrados a tu territorio.
-              Esta ficha es información de referencia general del estado completo — geografía electoral, demografía, autoridades — para dar contexto amplio, no solo lo que hay en la base de datos.
-            </div>
-
-            <div className="grid grid-cols-3 gap-3">
-              <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 text-center">
-                <div className="text-2xl font-black text-white">{fichaEstado.total_secciones}</div>
-                <div className="text-[10px] text-slate-500">Secciones en el estado</div>
-              </div>
-              <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 text-center">
-                <div className="text-2xl font-black text-white">{fichaEstado.total_municipios}</div>
-                <div className="text-[10px] text-slate-500">Municipios</div>
-              </div>
-              <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 text-center">
-                <div className="text-2xl font-black text-white">{fichaEstado.lista_nominal_estado.toLocaleString()}</div>
-                <div className="text-[10px] text-slate-500">Lista nominal (nuestra BD)</div>
-              </div>
-            </div>
-
-            {/* ── Demografía electoral (referencia INE) ── */}
-            <details className="bg-slate-900/60 border border-slate-800 rounded-xl p-4" open>
-              <summary className="text-xs font-bold text-indigo-300 uppercase cursor-pointer">🗳️ Demografía Electoral</summary>
-              <div className="mt-3 space-y-2 text-[11px] text-slate-300 leading-relaxed">
-                <p>Lista Nominal: <strong className="text-white">1,035,742 electores</strong> (1.1% del total nacional). Mujeres: <strong className="text-white">52.5%</strong> (544,118) · Hombres: <strong className="text-white">47.5%</strong> (491,621). Voto desde el extranjero: 4,618 registrados.</p>
-                <p><strong className="text-white">Municipios con mayor peso electoral:</strong> Tlaxcala Capital (80,240) · Huamantla (73,323) · Apizaco (68,406).</p>
-              </div>
-            </details>
-
-            {/* ── Distritación ── */}
-            <details className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
-              <summary className="text-xs font-bold text-indigo-300 uppercase cursor-pointer">🗺️ Geografía y Distritación</summary>
-              <div className="mt-3 space-y-2 text-[11px] text-slate-300 leading-relaxed">
-                <p><strong className="text-white">3 Distritos Federales:</strong> Distrito 01 (cabecera Apizaco, 19 municipios) · Distrito 02 (cabecera Tlaxcala, 24 municipios) · Distrito 03 (cabecera Zacatelco, 17 municipios). Circunscripción: 4ta (cabecera Ciudad de México).</p>
-                <p><strong className="text-white">15 Distritos Locales</strong> — el congreso local se compone de 15 diputaciones de mayoría relativa.</p>
-                <p><strong className="text-white">Presidencias de Comunidad (Usos y Costumbres):</strong> de más de 290 comunidades, 94 eligen autoridades por asamblea/mano alzada, el resto por voto en urna.</p>
-              </div>
-            </details>
-
-            {/* ── Autoridades ── */}
-            <details className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
-              <summary className="text-xs font-bold text-indigo-300 uppercase cursor-pointer">🏢 Autoridades Electorales</summary>
-              <div className="mt-3 space-y-1.5 text-[11px] text-slate-300 leading-relaxed">
-                <p><strong className="text-white">INE Junta Local Ejecutiva</strong> (federal) — Tlaxcala de Xicohténcatl. 3 Juntas Distritales: 01 Apizaco, 02 Tlaxcala, 03 Zacatelco.</p>
-                <p><strong className="text-white">Instituto Tlaxcalteca de Elecciones (ITE)</strong> — organiza elecciones de Gobernador, Diputados Locales y Ayuntamientos.</p>
-                <p><strong className="text-white">Tribunal Electoral de Tlaxcala (TET)</strong> — resuelve impugnaciones y controversias locales.</p>
-              </div>
-            </details>
-
-            {/* ── Segmentación por edad ── */}
-            <details className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
-              <summary className="text-xs font-bold text-indigo-300 uppercase cursor-pointer">📊 Lista Nominal por Edad (referencia estatal)</summary>
-              <div className="mt-3 space-y-1.5">
-                {[['18-24', 16.8], ['25-29', 11.4], ['30-34', 11.1], ['35-39', 10.1], ['40-44', 9.4], ['45-49', 8.9], ['50-54', 8.1], ['55-59', 6.6], ['60-64', 5.6], ['65+', 12.0]].map(([rango, pct]) => (
-                  <div key={rango} className="flex items-center gap-2">
-                    <span className="text-[10px] text-slate-400 w-14">{rango} años</span>
-                    <div className="flex-1 h-2 bg-slate-800 rounded-full overflow-hidden"><div className="h-full bg-indigo-500" style={{ width: `${pct * 5}%` }} /></div>
-                    <span className="text-[10px] text-slate-300 w-10">{pct}%</span>
-                  </div>
-                ))}
-              </div>
-            </details>
-
-            {/* ── Participación histórica ── */}
-            <details className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
-              <summary className="text-xs font-bold text-indigo-300 uppercase cursor-pointer">📉 Participación Ciudadana Histórica</summary>
-              <div className="mt-3 space-y-2 text-[11px] text-slate-300 leading-relaxed">
-                <p>Tlaxcala se sitúa entre los 3 estados con mayor participación de México — habitualmente 5 a 10 puntos por arriba de la media nacional.</p>
-                <p><strong className="text-white">2016:</strong> 65.6% · <strong className="text-white">2021:</strong> 64.7%-67.2% · <strong className="text-white">2024:</strong> 70.1% (récord histórico, 2° lugar nacional).</p>
-                <p><strong className="text-white">Por género:</strong> mujeres 66%-68% de participación vs. hombres 56%-58% — la brecha se explica en parte por movilidad laboral/migración masculina fuera del estado.</p>
-              </div>
-            </details>
-
-            {/* ── Comportamiento electoral / particularidades ── */}
-            <details className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
-              <summary className="text-xs font-bold text-indigo-300 uppercase cursor-pointer">🔍 Particularidades del Voto en Tlaxcala</summary>
-              <div className="mt-3 space-y-2 text-[11px] text-slate-300 leading-relaxed">
-                <p><strong className="text-white">Votos nulos altos (4.5%-5.5%):</strong> de los más elevados de México — la boleta especial de Presidencia de Comunidad genera confusión al elector.</p>
-                <p><strong className="text-white">Voto cruzado (18%-22%):</strong> en elecciones concurrentes, buena parte del electorado vota distinto para cargos federales vs. locales/municipales.</p>
-                <p><strong className="text-white">Umbral de registro local (3%):</strong> los partidos locales deben sacar al menos 3% en diputaciones locales para conservar registro — esto hace que el mapa de partidos cambie cada 3 años.</p>
-                <p><strong className="text-white">Fuerzas actuales:</strong> Morena y aliados 47%-49% · Oposición (PRI-PAN-PRD) 34%-37% · Partidos locales y minorías 14%-16%.</p>
-              </div>
-            </details>
-
-            {fichaEstado.historico && (
-              <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
-                <div className="text-xs font-bold text-slate-400 uppercase mb-3">
-                  Resultado estatal agregado en nuestra base — {fichaEstado.historico.anio} ({fichaEstado.tipo_eleccion.replace('_', ' ')})
-                </div>
-                <div className="space-y-2">
-                  {fichaEstado.historico.por_partido.map((p, i) => (
-                    <div key={p.partido}>
-                      <div className="flex justify-between text-xs mb-0.5">
-                        <span className={`font-bold ${i === 0 ? 'text-white' : 'text-slate-400'}`}>{i === 0 && '👑 '}{p.partido.toUpperCase()}</span>
-                        <span className="text-slate-300">{p.votos.toLocaleString()} ({p.pct}%)</span>
-                      </div>
-                      <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
-                        <div className={`h-full ${i === 0 ? 'bg-emerald-500' : 'bg-slate-600'}`} style={{ width: `${p.pct}%` }} />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl px-3 py-2 text-[11px] text-emerald-300">
-              📊 Tu campaña lleva {fichaEstado.tus_promovidos_totales} promovidos capturados en tu territorio.
-            </div>
-            <p className="text-[9px] text-slate-600">Fuentes de referencia: INE, ITE Tlaxcala. Los porcentajes de demografía/participación son de contexto general del estado, no se recalculan en vivo desde nuestra base de datos.</p>
-          </div>
-        )}
 
         {tab === 'ficha-seccion' && (
           <div className="space-y-3">
@@ -1135,50 +589,6 @@ export default function Reportes() {
                     ))}
                   </div>
                 )}
-              </div>
-            )}
-          </div>
-        )}
-
-        {tab === 'analisis' && subTabAnalisis === 'otros-cargos' && (
-          <div className="space-y-4">
-            <div className="bg-indigo-500/5 border border-indigo-500/20 rounded-xl p-3 text-[11px] text-indigo-200 leading-relaxed">
-              Estos cargos no se reportan sección por sección como Ayuntamiento — aquí están los resultados 2024 por distrito y a nivel estatal.
-            </div>
-            <div className="flex gap-2">
-              <button onClick={() => setTipoAgregado('senaduria')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tipoAgregado === 'senaduria' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>Senadurías</button>
-              <button onClick={() => setTipoAgregado('dip_federal')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tipoAgregado === 'dip_federal' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>Dip. Federal</button>
-              <button onClick={() => setTipoAgregado('dip_local')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tipoAgregado === 'dip_local' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>Dip. Local</button>
-            </div>
-
-            {!agregados?.disponible ? (
-              <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-6 text-center text-sm text-amber-300">⚠️ Sin datos cargados todavía para este cargo</div>
-            ) : (
-              <div className="space-y-3">
-                {agregados.grupos.map((g, i) => (
-                  <div key={i} className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
-                    <div className="text-xs font-bold text-slate-400 uppercase mb-2">
-                      {g.nivel === 'estado' ? `Consolidado estatal ${agregados.anio}` : `Distrito ${g.distrito_numero} — ${g.distrito_cabecera} (${agregados.anio})`}
-                    </div>
-                    <div className="space-y-2">
-                      {g.resultados.map((r, j) => (
-                        <div key={j}>
-                          <div className="flex justify-between text-xs mb-0.5">
-                            <span className={`font-bold flex items-center gap-1 ${r.gano ? 'text-white' : 'text-slate-400'}`}>
-                              {r.gano && '👑 '}{r.partido === 'nulos' ? 'NULOS' : r.partido.toUpperCase()}
-                              {r.candidato && <span className="font-normal text-slate-500">— {r.candidato}</span>}
-                            </span>
-                            <span className="text-slate-300">{r.votos ? `${parseInt(r.votos).toLocaleString()} · ` : ''}{r.porcentaje}%{r.alcaldias_ganadas ? ` · ${r.alcaldias_ganadas} alcaldías` : ''}</span>
-                          </div>
-                          <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                            <div className={`h-full ${r.gano ? 'bg-emerald-500' : 'bg-slate-600'}`} style={{ width: `${r.porcentaje}%` }} />
-                          </div>
-                          {r.notas && <p className="text-[9px] text-slate-500 mt-0.5">{r.notas}</p>}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
               </div>
             )}
           </div>
@@ -1407,8 +817,8 @@ export default function Reportes() {
           </div>
         )}
 
-        {tab === 'resumen-ia' && <PanelResumenEjecutivoIA />}
-        {tab === 'auditoria' && <PanelAuditoria />}
+        {/* 🧩 REPORTES PERSONALIZADOS — tablas dinámicas filtrables */}
+        {tab === 'personalizado' && <PanelReportesPersonalizados />}
 
         {encuestaDetalleId && <ModalResultadosEncuesta encuestaId={encuestaDetalleId} onCerrar={() => setEncuestaDetalleId(null)} />}
     </div>
