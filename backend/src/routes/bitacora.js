@@ -1,11 +1,16 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import Anthropic from '@anthropic-ai/sdk';
 import { query } from '../db/pool.js';
 import { requiereAuth } from '../middleware/auth.js';
 import { registrarAuditoria } from '../lib/auditoria.js';
 
 const router = Router();
 router.use(requiereAuth);
+
+// 🆕 sub-fase 1d — mismo cliente de IA que ya usa Reportes
+// (resumen-ejecutivo-ia) — no se duplica configuración.
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 /**
  * 🆕 MÓDULO BITÁCORA DIARIA (Etapa 1 del rediseño)
@@ -111,7 +116,8 @@ router.get('/', async (req, res) => {
             b.seccion_id, s.numero as seccion_numero, s.distrito_federal, s.distrito_local,
             b.municipio_id, COALESCE(m.nombre, mSeccion.nombre) as municipio_nombre,
             b.vinculado_tipo, b.vinculado_id, b.ubicacion_lat, b.ubicacion_lng,
-            b.creado_en, b.usuario_id, u.nombre as usuario_nombre, u.rol as usuario_rol
+            b.creado_en, b.usuario_id, u.nombre as usuario_nombre, u.rol as usuario_rol,
+            (SELECT COUNT(*) FROM fotos f WHERE f.contexto='bitacora' AND f.referencia_id = b.id) as total_evidencias
      FROM bitacora_eventos b
      JOIN usuarios u ON u.id = b.usuario_id
      LEFT JOIN secciones s ON s.id = b.seccion_id
@@ -491,6 +497,178 @@ router.post('/cierre-jornada', async (req, res) => {
   );
 
   res.status(201).json({ ok: true, data: resultado.rows[0] });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// 🆕 sub-fase 1d — GET /api/bitacora/estadisticas
+// Gráficas + heatmap para entender el RITMO de la campaña día a día:
+// por tipo de registro, por día (últimos 14), por sección, y un
+// heatmap día-de-semana × hora-del-día para ver a qué horas/días se
+// captura más (útil para planear brigadas).
+// ═══════════════════════════════════════════════════════════════
+router.get('/estadisticas', async (req, res) => {
+  const campanaId = req.usuario.campana_id;
+
+  const [porTipoRes, porDiaRes, porSeccionRes, horaDiaRes] = await Promise.all([
+    query(
+      `SELECT tipo, COUNT(*) as total FROM bitacora_eventos
+       WHERE campana_id=$1 AND creado_en > now() - interval '30 days'
+       GROUP BY tipo ORDER BY total DESC`,
+      [campanaId]
+    ),
+    query(
+      `SELECT creado_en::date as fecha, COUNT(*) as total FROM bitacora_eventos
+       WHERE campana_id=$1 AND creado_en > now() - interval '14 days'
+       GROUP BY creado_en::date ORDER BY fecha`,
+      [campanaId]
+    ),
+    query(
+      `SELECT s.numero as seccion, COUNT(*) as total FROM bitacora_eventos b
+       JOIN secciones s ON s.id = b.seccion_id
+       WHERE b.campana_id=$1 AND b.creado_en > now() - interval '30 days'
+       GROUP BY s.numero ORDER BY total DESC LIMIT 10`,
+      [campanaId]
+    ),
+    // 🆕 Heatmap: día de la semana (0=domingo..6=sábado) × hora del
+    // día (0-23) — dónde se concentra la captura en la semana típica.
+    query(
+      `SELECT EXTRACT(DOW FROM creado_en) as dia_semana, EXTRACT(HOUR FROM creado_en) as hora, COUNT(*) as total
+       FROM bitacora_eventos WHERE campana_id=$1 AND creado_en > now() - interval '30 days'
+       GROUP BY dia_semana, hora`,
+      [campanaId]
+    ),
+  ]);
+
+  const porTipo = porTipoRes.rows.map((r) => ({ tipo: r.tipo, etiqueta: ETIQUETA_TIPO[r.tipo] || r.tipo, icono: ICONO_TIPO[r.tipo] || '📄', total: parseInt(r.total) }));
+  const porDia = porDiaRes.rows.map((r) => ({ fecha: r.fecha, total: parseInt(r.total) }));
+  const porSeccion = porSeccionRes.rows.map((r) => ({ seccion: r.seccion, total: parseInt(r.total) }));
+
+  // Heatmap como matriz 7×24 (0 si no hubo registros esa celda)
+  const heatmap = Array.from({ length: 7 }, () => Array.from({ length: 24 }, () => 0));
+  horaDiaRes.rows.forEach((r) => {
+    heatmap[parseInt(r.dia_semana)][parseInt(r.hora)] = parseInt(r.total);
+  });
+
+  res.json({ ok: true, data: { por_tipo: porTipo, por_dia: porDia, por_seccion: porSeccion, heatmap_dia_hora: heatmap } });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// 🆕 sub-fase 1d — GET /api/bitacora/analizar-jornada (IA)
+// Mismo patrón que /api/reportes/resumen-ejecutivo-ia: solo usa
+// números reales de la bitácora de HOY, nunca inventa cifras.
+// ═══════════════════════════════════════════════════════════════
+router.get('/analizar-jornada', async (req, res) => {
+  const campanaId = req.usuario.campana_id;
+  const hoy = new Date().toISOString().slice(0, 10);
+
+  const [eventosHoyRes, porTipoRes, pendientesAbiertosRes, incidenciasRes] = await Promise.all([
+    query(`SELECT COUNT(*) as total FROM bitacora_eventos WHERE campana_id=$1 AND creado_en::date=$2::date`, [campanaId, hoy]),
+    query(`SELECT tipo, COUNT(*) as total FROM bitacora_eventos WHERE campana_id=$1 AND creado_en::date=$2::date GROUP BY tipo`, [campanaId, hoy]),
+    query(`SELECT COUNT(*) as total FROM bitacora_eventos WHERE campana_id=$1 AND tipo='pendiente' AND estado != 'resuelto'`, [campanaId]),
+    query(`SELECT COUNT(*) as total, COUNT(*) FILTER (WHERE urgencia IN ('urgente','alta')) as urgentes FROM incidencias WHERE campana_id=$1 AND estado != 'resuelta'`, [campanaId]),
+  ]);
+
+  const datosParaIA = {
+    fecha: hoy,
+    total_eventos_hoy: parseInt(eventosHoyRes.rows[0].total),
+    por_tipo_hoy: porTipoRes.rows.reduce((acc, r) => ({ ...acc, [ETIQUETA_TIPO[r.tipo] || r.tipo]: parseInt(r.total) }), {}),
+    pendientes_abiertos_total: parseInt(pendientesAbiertosRes.rows[0].total),
+    incidencias_abiertas_total: parseInt(incidenciasRes.rows[0].total),
+    incidencias_urgentes: parseInt(incidenciasRes.rows[0].urgentes),
+  };
+
+  try {
+    const respuesta = await anthropic.messages.create({
+      model: 'claude-sonnet-5',
+      max_tokens: 500,
+      messages: [{
+        role: 'user',
+        content: `Eres analista de campana politica en Mexico. Con estos datos REALES de la bitacora de HOY de una campana, escribe un analisis breve de 2-3 parrafos cortos, en espanol claro, dirigido al candidato o coordinador.
+
+Datos de hoy:
+${JSON.stringify(datosParaIA, null, 2)}
+
+Estructura sugerida:
+1. Que tan activa estuvo la jornada (cuanto se registro, de que tipo).
+2. Si hay pendientes o incidencias abiertas, explica que implican y si urge atenderlas.
+3. Una recomendacion concreta para manana.
+
+Reglas OBLIGATORIAS:
+- Usa UNICAMENTE los numeros del JSON, nunca inventes una cifra.
+- Si un numero es 0, dilo con naturalidad (ej. "no hubo incidencias hoy"), no lo omitas.
+- Se directo, no autocomplaciente.`,
+      }],
+    });
+    const texto = respuesta.content[0]?.text || '';
+    res.json({ ok: true, data: { analisis: texto, datos_usados: datosParaIA } });
+  } catch (e) {
+    console.error('Error analizando jornada con IA:', e);
+    res.status(500).json({ ok: false, error: 'No se pudo generar el análisis. Intenta de nuevo.' });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════
+// 🆕 sub-fase 1d — GET /api/bitacora/detectar-inconsistencias
+// Mismo espíritu que /api/reportes/auditoria-inconsistencias, pero
+// enfocado en la bitácora: pendientes olvidados, posibles registros
+// duplicados, y secciones mencionadas sin responsable asignado.
+// ═══════════════════════════════════════════════════════════════
+router.get('/detectar-inconsistencias', async (req, res) => {
+  const campanaId = req.usuario.campana_id;
+
+  const [pendientesViejos, duplicadosPosibles, seccionesSinResponsable] = await Promise.all([
+    // Pendientes abiertos hace más de 3 días — se están "enfriando"
+    query(
+      `SELECT titulo, prioridad, creado_en FROM bitacora_eventos
+       WHERE campana_id=$1 AND tipo='pendiente' AND estado != 'resuelto' AND creado_en < now() - interval '3 days'
+       ORDER BY creado_en ASC LIMIT 20`,
+      [campanaId]
+    ),
+    // Mismo usuario, mismo tipo, mismo título, en menos de 5 minutos — probable doble captura
+    query(
+      `SELECT b1.titulo, b1.tipo, u.nombre as usuario_nombre, COUNT(*) as total
+       FROM bitacora_eventos b1
+       JOIN bitacora_eventos b2 ON b2.campana_id = b1.campana_id AND b2.usuario_id = b1.usuario_id
+         AND b2.titulo = b1.titulo AND b2.tipo = b1.tipo AND b2.id != b1.id
+         AND ABS(EXTRACT(EPOCH FROM (b2.creado_en - b1.creado_en))) < 300
+       JOIN usuarios u ON u.id = b1.usuario_id
+       WHERE b1.campana_id=$1 AND b1.creado_en > now() - interval '30 days'
+       GROUP BY b1.titulo, b1.tipo, u.nombre
+       LIMIT 20`,
+      [campanaId]
+    ).catch(() => ({ rows: [] })),
+    // Secciones que aparecen en la bitácora pero sin nadie de la estructura asignado a esa sección
+    query(
+      `SELECT DISTINCT s.numero FROM bitacora_eventos b
+       JOIN secciones s ON s.id = b.seccion_id
+       WHERE b.campana_id=$1 AND NOT EXISTS (
+         SELECT 1 FROM usuarios u WHERE u.campana_id=$1 AND u.territorio_tipo='seccion' AND u.territorio_id=s.numero AND u.activo != false
+       ) LIMIT 20`,
+      [campanaId]
+    ).catch(() => ({ rows: [] })),
+  ]);
+
+  const hallazgos = [];
+  if (pendientesViejos.rows.length > 0) {
+    hallazgos.push({
+      nivel: 'IMPORTANTE', modulo: 'Bitácora', que: `${pendientesViejos.rows.length} pendiente(s) llevan más de 3 días sin resolverse`,
+      donde: pendientesViejos.rows.slice(0, 5).map((p) => p.titulo).join(', '),
+    });
+  }
+  if (duplicadosPosibles.rows.length > 0) {
+    hallazgos.push({
+      nivel: 'ATENCIÓN', modulo: 'Bitácora', que: `${duplicadosPosibles.rows.length} posible(s) registro(s) duplicado(s) (mismo título y tipo, capturados en menos de 5 minutos)`,
+      donde: duplicadosPosibles.rows.slice(0, 5).map((d) => `"${d.titulo}" por ${d.usuario_nombre}`).join(', '),
+    });
+  }
+  if (seccionesSinResponsable.rows.length > 0) {
+    hallazgos.push({
+      nivel: 'ATENCIÓN', modulo: 'Bitácora', que: `${seccionesSinResponsable.rows.length} sección(es) mencionadas en la bitácora sin nadie de tu equipo asignado ahí`,
+      donde: seccionesSinResponsable.rows.slice(0, 10).map((s) => String(s.numero).padStart(3, '0')).join(', '),
+    });
+  }
+
+  res.json({ ok: true, data: { hallazgos, total: hallazgos.length, fecha_deteccion: new Date().toISOString() } });
 });
 
 export default router;
