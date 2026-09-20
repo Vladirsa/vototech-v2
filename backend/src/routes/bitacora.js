@@ -191,6 +191,114 @@ router.get('/resumen-dia', async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════
+// 🆕 GET /api/bitacora/resumen-texto — sub-fase 1b del Banco de
+// Ideas: "¿QUÉ PASÓ HOY?" (resumen en una frase, armado solo con
+// conteos reales — nunca se inventa ni interpreta nada) y
+// "¿QUÉ CAMBIÓ?" (HOY vs AYER, y ESTA SEMANA vs SEMANA ANTERIOR).
+// Nunca se dice si un cambio es "bueno" o "malo" — solo se muestra
+// el número, la persona decide cómo leerlo (como pide el documento).
+// ═══════════════════════════════════════════════════════════════
+router.get('/resumen-texto', async (req, res) => {
+  const campanaId = req.usuario.campana_id;
+  const fecha = req.query.fecha || new Date().toISOString().slice(0, 10);
+  const ayer = new Date(`${fecha}T00:00:00`);
+  ayer.setDate(ayer.getDate() - 1);
+  const fechaAyer = ayer.toISOString().slice(0, 10);
+
+  const inicioSemana = new Date(`${fecha}T00:00:00`);
+  const diaSemana = (inicioSemana.getDay() + 6) % 7;
+  inicioSemana.setDate(inicioSemana.getDate() - diaSemana);
+  const finSemana = new Date(inicioSemana); finSemana.setDate(inicioSemana.getDate() + 6);
+  const inicioSemanaAnterior = new Date(inicioSemana); inicioSemanaAnterior.setDate(inicioSemana.getDate() - 7);
+  const finSemanaAnterior = new Date(inicioSemana); finSemanaAnterior.setDate(inicioSemana.getDate() - 1);
+  const fISO = (d) => d.toISOString().slice(0, 10);
+
+  // Conteo genérico reutilizable: eventos por tipo en un rango de fechas.
+  async function conteoRango(inicio, fin) {
+    const r = await query(
+      `SELECT tipo, COUNT(*) as total, COUNT(*) FILTER (WHERE seccion_id IS NOT NULL OR municipio_id IS NOT NULL) as con_ubicacion
+       FROM bitacora_eventos WHERE campana_id=$1 AND creado_en::date BETWEEN $2 AND $3 GROUP BY tipo`,
+      [campanaId, inicio, fin]
+    );
+    const porTipo = {};
+    let total = 0;
+    r.rows.forEach((row) => { porTipo[row.tipo] = parseInt(row.total); total += parseInt(row.total); });
+    return { total, porTipo };
+  }
+
+  const [hoyC, ayerC, semanaC, semanaAnteriorC, pendientesHoy] = await Promise.all([
+    conteoRango(fecha, fecha),
+    conteoRango(fechaAyer, fechaAyer),
+    conteoRango(fISO(inicioSemana), fISO(finSemana)),
+    conteoRango(fISO(inicioSemanaAnterior), fISO(finSemanaAnterior)),
+    query(`SELECT COUNT(*) as total FROM bitacora_eventos WHERE campana_id=$1 AND tipo='pendiente' AND estado != 'resuelto' AND creado_en::date=$2`, [campanaId, fecha]),
+  ]);
+
+  const incidenciasHoy = hoyC.porTipo.incidencia || 0;
+  const seguimientosHoy = hoyC.porTipo.seguimiento || 0;
+  const evidenciasHoy = hoyC.porTipo.evidencia || 0;
+  const pendHoy = parseInt(pendientesHoy.rows[0].total);
+
+  // "¿Qué pasó hoy?" — una frase armada solo con los números reales.
+  const partesResumen = [`Se registraron ${hoyC.total} movimiento(s) durante el día.`];
+  if (incidenciasHoy > 0 || seguimientosHoy > 0) {
+    partesResumen.push(`${incidenciasHoy} corresponden a incidencias y ${seguimientosHoy} a seguimientos.`);
+  }
+  if (evidenciasHoy > 0) partesResumen.push(`Se registraron ${evidenciasHoy} evidencia(s).`);
+  if (pendHoy > 0) partesResumen.push(`Permanecen ${pendHoy} asunto(s) pendiente(s) de seguimiento.`);
+  const resumenTexto = partesResumen.join(' ');
+
+  // "¿Qué cambió?" — cada renglón es un hecho, sin calificarlo.
+  function comparar(actualPorTipo, anteriorPorTipo, actualTotal, anteriorTotal) {
+    const tipos = new Set([...Object.keys(actualPorTipo), ...Object.keys(anteriorPorTipo)]);
+    const cambios = [...tipos].map((tipo) => ({
+      tipo,
+      etiqueta: ETIQUETA_TIPO[tipo] || tipo,
+      anterior: anteriorPorTipo[tipo] || 0,
+      actual: actualPorTipo[tipo] || 0,
+      cambio: (actualPorTipo[tipo] || 0) - (anteriorPorTipo[tipo] || 0),
+    })).filter((c) => c.anterior > 0 || c.actual > 0)
+      .sort((a, b) => Math.abs(b.cambio) - Math.abs(a.cambio));
+    return { anterior: anteriorTotal, actual: actualTotal, cambio: actualTotal - anteriorTotal, detalle: cambios };
+  }
+
+  res.json({
+    ok: true,
+    data: {
+      fecha,
+      resumen_texto: resumenTexto,
+      que_cambio: {
+        hoy_vs_ayer: comparar(hoyC.porTipo, ayerC.porTipo, hoyC.total, ayerC.total),
+        semana_vs_semana_anterior: comparar(semanaC.porTipo, semanaAnteriorC.porTipo, semanaC.total, semanaAnteriorC.total),
+      },
+    },
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// 🆕 GET /api/bitacora/incidencias-abiertas — para el panel de
+// Incidencias directamente dentro de la Bitácora (sub-fase 1b), sin
+// tener que salir a la pestaña de Incidencias para ver qué sigue
+// abierto. Reutiliza la tabla incidencias — no duplica datos.
+// ═══════════════════════════════════════════════════════════════
+router.get('/incidencias-abiertas', async (req, res) => {
+  const resultado = await query(
+    `SELECT i.id, i.tipo, i.urgencia, i.descripcion, i.estado, i.creado_en,
+            s.numero as seccion_numero, m.nombre as municipio_nombre,
+            u.nombre as reportado_por_nombre
+     FROM incidencias i
+     LEFT JOIN secciones s ON s.id = i.seccion_id
+     LEFT JOIN municipios m ON m.id = s.municipio_id
+     LEFT JOIN usuarios u ON u.id = i.reportado_por
+     WHERE i.campana_id=$1 AND i.estado != 'resuelta'
+     ORDER BY CASE i.urgencia WHEN 'urgente' THEN 4 WHEN 'alta' THEN 3 WHEN 'media' THEN 2 ELSE 1 END DESC, i.creado_en DESC
+     LIMIT 50`,
+    [req.usuario.campana_id]
+  );
+  res.json({ ok: true, data: resultado.rows });
+});
+
+// ═══════════════════════════════════════════════════════════════
 // GET /api/bitacora/pendientes — todos los pendientes abiertos,
 // sin importar el día en que se crearon (para la pestaña "Pendientes").
 // ═══════════════════════════════════════════════════════════════
