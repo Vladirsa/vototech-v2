@@ -214,6 +214,16 @@ router.get('/secciones-de-municipio/:claveMunicipio', async (req, res) => {
  * tenía su propia ficha). Secciones: resumen, responsable,
  * territorio, integrantes, actividad, incidencias, histórico.
  */
+// 🆕 Municipios que en verdad le corresponden a ESTA campaña (no
+// todo el estado) — para el selector de "🗂️ Ficha de Estructura" en
+// Reportes. Devuelve municipios.id de verdad (antes el selector usaba
+// clave_ine de /geo/municipios, que no coincide con el id que espera
+// /ficha-estructura/:municipioId — por eso a veces no cargaba nada).
+router.get('/municipios-disponibles', async (req, res) => {
+  const unidades = await obtenerUnidadesDisponibles(req.usuario.campana_id, req.usuario.estado_id, 'municipio');
+  res.json({ ok: true, data: unidades });
+});
+
 router.get('/ficha-estructura/:municipioId', async (req, res) => {
   const campanaId = req.usuario.campana_id;
   const municipioId = parseInt(req.params.municipioId);
@@ -254,6 +264,65 @@ router.get('/ficha-estructura/:municipioId', async (req, res) => {
     ).catch(() => ({ rows: [] })),
   ]);
 
+  // 🆕 RAMIFICACIONES — el árbol de equipo del responsable, con datos
+  // BRUTOS (sin promediar ni interpretar) de promotores y promovidos
+  // de cada quien — para que en Reportes se vea de un vistazo quién
+  // reporta a quién y qué ha producido cada persona realmente.
+  // Sigue el mismo criterio que /estructura/:id/reporte-equipo.
+  let ramificaciones = null;
+  const responsable = responsableMunicipio.rows[0];
+  if (responsable) {
+    const directos = await query(
+      'SELECT id, nombre, rol, puesto FROM usuarios WHERE parent_id=$1 AND campana_id=$2 ORDER BY nombre',
+      [responsable.id, campanaId]
+    );
+    const ramas = [];
+    for (const nivelIntermedio of directos.rows) {
+      const hijos = await query(
+        'SELECT id, nombre, rol FROM usuarios WHERE parent_id=$1 AND campana_id=$2 ORDER BY nombre',
+        [nivelIntermedio.id, campanaId]
+      );
+      const detalleHijos = [];
+      let totalRama = 0;
+      let comprometidosRama = 0;
+      let duplicadosRama = 0;
+      for (const h of hijos.rows) {
+        const conteo = await query(
+          `SELECT COUNT(*) as total,
+                  COUNT(*) FILTER (WHERE comprometido) as comprometidos,
+                  COUNT(*) FILTER (WHERE dup.veces > 1) as duplicados
+           FROM promovidos prom
+           LEFT JOIN (
+             SELECT nombre, seccion_id, COUNT(*) as veces
+             FROM promovidos WHERE campana_id=$1
+             GROUP BY nombre, seccion_id
+           ) dup ON dup.nombre = prom.nombre AND dup.seccion_id = prom.seccion_id
+           WHERE prom.campana_id=$1 AND prom.registrado_por=$2`,
+          [campanaId, h.id]
+        );
+        const total = parseInt(conteo.rows[0].total);
+        const comprometidos = parseInt(conteo.rows[0].comprometidos);
+        const dups = parseInt(conteo.rows[0].duplicados);
+        totalRama += total; comprometidosRama += comprometidos; duplicadosRama += dups;
+        detalleHijos.push({ id: h.id, nombre: h.nombre, rol: h.rol, total_promovidos: total, comprometidos, duplicados: dups });
+      }
+      // También cuenta lo que el propio nivel intermedio capturó directamente (sin equipo)
+      const propio = await query(
+        `SELECT COUNT(*) as total, COUNT(*) FILTER (WHERE comprometido) as comprometidos FROM promovidos WHERE campana_id=$1 AND registrado_por=$2`,
+        [campanaId, nivelIntermedio.id]
+      );
+      ramas.push({
+        id: nivelIntermedio.id, nombre: nivelIntermedio.nombre, rol: nivelIntermedio.rol, puesto: nivelIntermedio.puesto,
+        total_personas_directas: hijos.rows.length,
+        propio_total_promovidos: parseInt(propio.rows[0].total),
+        propio_comprometidos: parseInt(propio.rows[0].comprometidos),
+        total_promovidos: totalRama, total_comprometidos: comprometidosRama, total_duplicados: duplicadosRama,
+        promotores: detalleHijos,
+      });
+    }
+    ramificaciones = { responsable_id: responsable.id, ramas };
+  }
+
   res.json({
     ok: true,
     data: {
@@ -264,6 +333,7 @@ router.get('/ficha-estructura/:municipioId', async (req, res) => {
       actividad_30d: parseInt(actividad.rows[0].total),
       incidencias: incidencias.rows,
       historico: historico.rows,
+      ramificaciones,
     },
   });
 });
@@ -1366,17 +1436,61 @@ async function obtenerUnidadTipo(campanaId) {
   return campana.rows[0]?.territorio_tipo === 'municipio' ? 'seccion' : 'municipio';
 }
 
+// 🆕 Devuelve SOLO las secciones/municipios que en verdad le
+// corresponden a la campaña, según su territorio real
+// (campanas.territorio_tipo / territorio_id) — mismo criterio que ya
+// se usa en Mapa, Priorización y Cobertura de Casillas. Antes el
+// selector de "Regiones" siempre pedía las 634 secciones o los 60
+// municipios de TODO el estado, sin importar que la campaña fuera de
+// un solo municipio.
+async function obtenerUnidadesDisponibles(campanaId, estadoId, unidadTipo) {
+  const campana = await query('SELECT territorio_tipo, territorio_id FROM campanas WHERE id=$1', [campanaId]);
+  const { territorio_tipo, territorio_id } = campana.rows[0] || {};
+
+  if (unidadTipo === 'seccion') {
+    // Campaña de un solo municipio — las unidades son las secciones DE ESE municipio.
+    let filtro = '';
+    const params = [estadoId];
+    if (territorio_tipo === 'municipio' && territorio_id) {
+      filtro = 'AND s.municipio_id = (SELECT id FROM municipios WHERE estado_id=$1 AND clave_ine=$2)';
+      params.push(territorio_id);
+    }
+    const r = await query(
+      `SELECT s.numero as id, s.numero as nombre FROM secciones s WHERE s.estado_id=$1 ${filtro} ORDER BY s.numero`,
+      params
+    );
+    return r.rows.map((x) => ({ id: x.id, nombre: `Sección ${String(x.nombre).padStart(3, '0')}` }));
+  }
+
+  // Campaña de distrito/estado — las unidades son los municipios DENTRO de ese territorio.
+  let filtro = '';
+  const params = [estadoId];
+  if (territorio_tipo === 'distrito_local' && territorio_id) {
+    filtro = 'AND m.id IN (SELECT DISTINCT municipio_id FROM secciones WHERE estado_id=$1 AND distrito_local=$2)';
+    params.push(territorio_id);
+  } else if (territorio_tipo === 'distrito_federal' && territorio_id) {
+    filtro = 'AND m.id IN (SELECT DISTINCT municipio_id FROM secciones WHERE estado_id=$1 AND distrito_federal=$2)';
+    params.push(territorio_id);
+  }
+  // territorio_tipo 'estatal' (Gobernador/Senador) o sin definir — le corresponde todo el estado.
+  const r = await query(`SELECT m.id, m.nombre FROM municipios m WHERE m.estado_id=$1 ${filtro} ORDER BY m.nombre`, params);
+  return r.rows;
+}
+
 router.get('/regiones', async (req, res) => {
   const unidadTipo = await obtenerUnidadTipo(req.usuario.campana_id);
-  const resultado = await query(
-    `SELECT r.*, u.nombre as coordinador_nombre,
-       (SELECT COUNT(*) FROM usuarios u2 WHERE u2.region_id = r.id) as total_equipo
-     FROM regiones_campana r
-     LEFT JOIN usuarios u ON u.region_id = r.id AND u.rol = 'coord_regional'
-     WHERE r.campana_id = $1 ORDER BY r.nombre`,
-    [req.usuario.campana_id]
-  );
-  res.json({ ok: true, data: resultado.rows, unidad_tipo: unidadTipo });
+  const [resultado, unidades] = await Promise.all([
+    query(
+      `SELECT r.*, u.nombre as coordinador_nombre,
+         (SELECT COUNT(*) FROM usuarios u2 WHERE u2.region_id = r.id) as total_equipo
+       FROM regiones_campana r
+       LEFT JOIN usuarios u ON u.region_id = r.id AND u.rol = 'coord_regional'
+       WHERE r.campana_id = $1 ORDER BY r.nombre`,
+      [req.usuario.campana_id]
+    ),
+    obtenerUnidadesDisponibles(req.usuario.campana_id, req.usuario.estado_id, unidadTipo),
+  ]);
+  res.json({ ok: true, data: resultado.rows, unidad_tipo: unidadTipo, unidades });
 });
 
 const esquemaRegion = z.object({
