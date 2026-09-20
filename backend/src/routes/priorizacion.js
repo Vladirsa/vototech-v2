@@ -572,8 +572,17 @@ router.get('/municipio/:claveIne', async (req, res) => {
     const seccionIds = secciones.rows.map((s) => s.id);
     const listaNominalTotal = secciones.rows.reduce((s, r) => s + (r.lista_nominal || 0), 0);
 
-    const anioRes = await query('SELECT MAX(anio) as anio FROM resultados_historicos WHERE tipo_eleccion=$1', [campana.tipo_eleccion]);
-    const anio = anioRes.rows[0]?.anio;
+    // 🆕 CORRECCIÓN — antes este endpoint SIEMPRE usaba el año más
+    // reciente (MAX(anio)), sin importar qué año seleccionara el
+    // usuario arriba en el mapa. Por eso la ficha técnica del
+    // municipio se quedaba pegada en 2024 aunque cambiaras a 2021.
+    // Ahora, si el frontend manda ?anio=2021, se respeta ese año.
+    const anioSolicitado = req.query.anio ? parseInt(req.query.anio) : null;
+    let anio = anioSolicitado;
+    if (!anio) {
+      const anioRes = await query('SELECT MAX(anio) as anio FROM resultados_historicos WHERE tipo_eleccion=$1', [campana.tipo_eleccion]);
+      anio = anioRes.rows[0]?.anio;
+    }
 
     let votosPorPartido = {}, totalVotos = 0, totalCasillas = 0, ganador = null;
     let semaforo = { ganamos: 0, disputa: 0, recuperar: 0 };
