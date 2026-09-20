@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import PDFDocument from 'pdfkit';
+import ExcelJS from 'exceljs';
 import Anthropic from '@anthropic-ai/sdk';
 import { query } from '../db/pool.js';
 import { requiereAuth } from '../middleware/auth.js';
@@ -1814,6 +1815,140 @@ router.get('/encuestas/:encuestaId/resultados', async (req, res) => {
       preguntas: resultadosPorPregunta,
     },
   });
+});
+
+// ============================================================
+// 🆕 REPORTES PERSONALIZADOS — tablas dinámicas filtrables
+// Sigue el motor de agrupación de VOTOTECH_REPORTING_INTELLIGENCE:
+// distingue DATOS ORIGINALES (filas) de CÁLCULOS (totales),
+// nunca inventa cifras, siempre respeta campana_id (multi-tenant).
+// ============================================================
+
+const AGRUPACIONES = {
+  seccion: { etiqueta: "COALESCE(s.numero::text, 'Sin sección')", nombreEtiqueta: 'Sección' },
+  municipio: { etiqueta: "COALESCE(m.nombre, 'Sin municipio')", nombreEtiqueta: 'Municipio' },
+  distrito_federal: { etiqueta: "CASE WHEN s.distrito_federal IS NULL THEN 'Sin distrito' ELSE 'Distrito Federal ' || s.distrito_federal END", nombreEtiqueta: 'Región (Distrito Federal)' },
+  distrito_local: { etiqueta: "CASE WHEN s.distrito_local IS NULL THEN 'Sin distrito' ELSE 'Distrito Local ' || s.distrito_local END", nombreEtiqueta: 'Región (Distrito Local)' },
+  estructura: { etiqueta: "COALESCE(u.rol, 'Sin registrador')", nombreEtiqueta: 'Estructura (rol)' },
+  coordinador: { etiqueta: "COALESCE(u.nombre, 'Sin registrador')", nombreEtiqueta: 'Coordinador / Responsable' },
+  clasificacion: { etiqueta: "COALESCE(p.clasificacion, 'Sin clasificar')", nombreEtiqueta: 'Base (clasificación)' },
+};
+
+async function obtenerReportePersonalizado(campanaId, params) {
+  const { agrupar_por, municipio_id, seccion_numero, rol, clasificacion, fecha_inicio, fecha_fin } = params;
+  const condiciones = ['p.campana_id = $1'];
+  const valores = [campanaId];
+  let i = 2;
+  if (municipio_id) { condiciones.push(`m.id = $${i++}`); valores.push(municipio_id); }
+  if (seccion_numero) { condiciones.push(`s.numero = $${i++}`); valores.push(seccion_numero); }
+  if (rol) { condiciones.push(`u.rol = $${i++}`); valores.push(rol); }
+  if (clasificacion) { condiciones.push(`p.clasificacion = $${i++}`); valores.push(clasificacion); }
+  if (fecha_inicio) { condiciones.push(`p.creado_en::date >= $${i++}`); valores.push(fecha_inicio); }
+  if (fecha_fin) { condiciones.push(`p.creado_en::date <= $${i++}`); valores.push(fecha_fin); }
+  const where = condiciones.join(' AND ');
+  const baseJoin = `FROM promovidos p
+    LEFT JOIN secciones s ON s.id = p.seccion_id
+    LEFT JOIN municipios m ON m.id = s.municipio_id
+    LEFT JOIN usuarios u ON u.id = p.registrado_por
+    WHERE ${where}`;
+
+  if (agrupar_por === 'detalle') {
+    const filas = await query(
+      `SELECT p.nombre, p.telefono, s.numero as seccion, m.nombre as municipio,
+              s.distrito_local, s.distrito_federal, p.clasificacion,
+              CASE WHEN p.comprometido THEN 'Sí' ELSE 'No' END as comprometido,
+              u.nombre as registrado_por, u.rol as rol_registrador, p.creado_en
+       ${baseJoin}
+       ORDER BY p.creado_en DESC LIMIT 1000`,
+      valores
+    );
+    return { agrupar_por, es_detalle: true, filas: filas.rows };
+  }
+
+  const conf = AGRUPACIONES[agrupar_por];
+  if (!conf) throw new Error('agrupar_por inválido. Usa: seccion, municipio, distrito_federal, distrito_local, estructura, coordinador, clasificacion o detalle');
+
+  const filas = await query(
+    `SELECT ${conf.etiqueta} as etiqueta, COUNT(*) as total,
+            COUNT(*) FILTER (WHERE p.comprometido) as comprometidos,
+            COUNT(*) FILTER (WHERE p.clasificacion = 'base') as base,
+            COUNT(*) FILTER (WHERE p.clasificacion = 'persuadible') as persuadible,
+            COUNT(*) FILTER (WHERE p.clasificacion = 'adversario') as adversario
+     ${baseJoin}
+     GROUP BY ${conf.etiqueta}
+     ORDER BY total DESC`,
+    valores
+  );
+
+  const totales = filas.rows.reduce((acc, f) => ({
+    total: acc.total + parseInt(f.total),
+    comprometidos: acc.comprometidos + parseInt(f.comprometidos),
+    base: acc.base + parseInt(f.base),
+    persuadible: acc.persuadible + parseInt(f.persuadible),
+    adversario: acc.adversario + parseInt(f.adversario),
+  }), { total: 0, comprometidos: 0, base: 0, persuadible: 0, adversario: 0 });
+
+  return {
+    agrupar_por, nombre_agrupacion: conf.nombreEtiqueta, es_detalle: false,
+    filas: filas.rows.map((f) => ({ etiqueta: f.etiqueta, total: parseInt(f.total), comprometidos: parseInt(f.comprometidos), base: parseInt(f.base), persuadible: parseInt(f.persuadible), adversario: parseInt(f.adversario) })),
+    totales,
+  };
+}
+
+// GET /reportes/personalizado — tabla dinámica en JSON (para pintar en pantalla)
+router.get('/personalizado', async (req, res) => {
+  try {
+    const resultado = await obtenerReportePersonalizado(req.usuario.campana_id, req.query);
+    res.json({ ok: true, data: resultado });
+  } catch (e) {
+    res.status(400).json({ ok: false, error: e.message || 'No se pudo generar el reporte' });
+  }
+});
+
+// GET /reportes/personalizado/exportar — mismo reporte pero como Excel descargable
+router.get('/personalizado/exportar', async (req, res) => {
+  try {
+    const resultado = await obtenerReportePersonalizado(req.usuario.campana_id, req.query);
+    const libro = new ExcelJS.Workbook();
+    const hoja = libro.addWorksheet('Reporte personalizado');
+    if (resultado.es_detalle) {
+      hoja.columns = [
+        { header: 'Nombre', key: 'nombre', width: 28 },
+        { header: 'Teléfono', key: 'telefono', width: 14 },
+        { header: 'Sección', key: 'seccion', width: 9 },
+        { header: 'Municipio', key: 'municipio', width: 20 },
+        { header: 'Distrito Local', key: 'distrito_local', width: 12 },
+        { header: 'Distrito Federal', key: 'distrito_federal', width: 12 },
+        { header: 'Clasificación', key: 'clasificacion', width: 13 },
+        { header: 'Comprometido', key: 'comprometido', width: 13 },
+        { header: 'Registrado por', key: 'registrado_por', width: 22 },
+        { header: 'Rol', key: 'rol_registrador', width: 16 },
+        { header: 'Fecha registro', key: 'creado_en', width: 16 },
+      ];
+      resultado.filas.forEach((f) => hoja.addRow(f));
+    } else {
+      hoja.columns = [
+        { header: resultado.nombre_agrupacion, key: 'etiqueta', width: 26 },
+        { header: 'Total promovidos', key: 'total', width: 16 },
+        { header: 'Comprometidos', key: 'comprometidos', width: 14 },
+        { header: 'Base', key: 'base', width: 10 },
+        { header: 'Persuadible', key: 'persuadible', width: 12 },
+        { header: 'Adversario', key: 'adversario', width: 12 },
+      ];
+      resultado.filas.forEach((f) => hoja.addRow(f));
+      hoja.addRow({});
+      const filaTotal = hoja.addRow({ etiqueta: 'TOTAL', ...resultado.totales });
+      filaTotal.font = { bold: true };
+    }
+    hoja.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    hoja.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4F46E5' } };
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename=reporte_personalizado_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    await libro.xlsx.write(res);
+    res.end();
+  } catch (e) {
+    res.status(400).json({ ok: false, error: e.message || 'No se pudo exportar el reporte' });
+  }
 });
 
 export default router;
