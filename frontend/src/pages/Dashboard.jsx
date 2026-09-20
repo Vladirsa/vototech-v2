@@ -8,6 +8,10 @@ const ROL_CORTO = { coord_general: 'Coord. General', coord_distrital: 'Coord. Di
 const ICONO_ACTIVO = { espectacular: '📺', barda: '🧱', manta: '🎏', ine_representante: '🗳️', utilitario: '👕' };
 const NOMBRE_ACTIVO = { espectacular: 'Espectaculares', barda: 'Bardas', manta: 'Mantas', ine_representante: 'Representantes', utilitario: 'Utilitarios' };
 
+// 🆕 Etiquetas para el módulo "Actividad de campo" según cómo venga
+// agrupado desde el backend (unidad_actividad) — ver dashboard.js.
+const ETIQUETA_UNIDAD_ACTIVIDAD = { seccion: 'por sección', distrito: 'por distrito', municipio: 'por municipio' };
+
 // 🆕 AGRANDADO — antes viewBox 180x100 en un recuadro w-40 h-24; se
 // pidió que el avance hacia la meta se vea MÁS GRANDE (es lo primero
 // que el candidato debe poder leer de un vistazo). Mismo dibujo, más
@@ -176,6 +180,10 @@ export default function Dashboard() {
 
   const fmt = (n) => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }).format(n || 0);
   const maxDistrito = Math.max(1, ...d.actividad_por_distrito.map((a) => parseInt(a.total)));
+  // 🆕 Etiqueta dinámica — antes decía siempre "por distrito local"
+  // sin importar el tipo de campaña. Ver ETIQUETA_UNIDAD_ACTIVIDAD
+  // y dashboard.js (unidad_actividad).
+  const etiquetaUnidadActividad = ETIQUETA_UNIDAD_ACTIVIDAD[d.unidad_actividad] || 'por distrito';
   const ALERTA_ESTILO = {
     critica: 'bg-red-500/10 border-red-500/40 text-red-300',
     advertencia: 'bg-amber-500/10 border-amber-500/40 text-amber-300',
@@ -351,8 +359,16 @@ export default function Dashboard() {
           </div>
         </div>
 
+        {/* 🆕 CORRECCIÓN REAL — el título ya no dice "por distrito
+            local" a fuerza. Ahora usa etiquetaUnidadActividad, que
+            viene del backend según el tipo de campaña: "por sección"
+            en campañas municipales (Ayuntamiento/Presidencia de
+            Comunidad — un solo municipio, agrupar por distrito no
+            servía de nada), "por municipio" en campañas de Distrito
+            Federal/Local o estatales, y "por distrito" solo en
+            campañas que de verdad están organizadas por distrito. */}
         <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
-          <h3 className="text-xs font-bold text-slate-400 uppercase mb-3">🔥 Actividad de campo — últimos 7 días por distrito local</h3>
+          <h3 className="text-xs font-bold text-slate-400 uppercase mb-3">🔥 Actividad de campo — últimos 7 días {etiquetaUnidadActividad}</h3>
           {d.actividad_por_distrito.length === 0 ? (
             <div className="text-xs text-slate-500 text-center py-2">Sin actividad reciente registrada</div>
           ) : (
@@ -362,8 +378,8 @@ export default function Dashboard() {
                   const intensidad = parseInt(a.total) / maxDistrito;
                   const color = intensidad > 0.66 ? '#22c55e' : intensidad > 0.33 ? '#eab308' : '#ef4444';
                   return (
-                    <div key={a.distrito_local} className="w-11 h-11 rounded-lg flex items-center justify-center text-xs font-black text-white" style={{ background: color, opacity: 0.3 + intensidad * 0.7 }} title={`${a.total} contactos`}>
-                      {a.distrito_local}
+                    <div key={a.clave} className="w-11 h-11 rounded-lg flex items-center justify-center text-[10px] font-black text-white text-center leading-tight" style={{ background: color, opacity: 0.3 + intensidad * 0.7 }} title={`${a.total} contactos`}>
+                      {a.clave}
                     </div>
                   );
                 })}
