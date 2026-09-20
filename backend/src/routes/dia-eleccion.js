@@ -579,7 +579,7 @@ router.post('/resultados', async (req, res) => {
  */
 router.get('/conteo-rapido', async (req, res) => {
   const campanaId = req.usuario.campana_id;
-  const resultados = await query(`SELECT votos, nulos, lista_nominal FROM resultados_casilla WHERE campana_id=$1`, [campanaId]);
+  const resultados = await query(`SELECT votos, nulos, lista_nominal, capturado_en FROM resultados_casilla WHERE campana_id=$1`, [campanaId]);
   const totalCasillasRes = await query(`SELECT COUNT(*) as total FROM casillas WHERE campana_id=$1`, [campanaId]);
 
   const sumaPartidos = {};
@@ -593,6 +593,36 @@ router.get('/conteo-rapido', async (req, res) => {
   const totalCasillasEsperadas = parseInt(totalCasillasRes.rows[0].total) || 1;
   const porcentajeReportado = Math.min(100, +((resultados.rows.length / totalCasillasEsperadas) * 100).toFixed(1));
 
+  // 🆕 ESTADÍSTICOS — para que el candidato vea no solo la suma, sino
+  // cómo va el RITMO del conteo (para saber cuándo esperar el cierre)
+  // y qué tan cerrada va la contienda (margen 1°-2°). Todo calculado
+  // sobre datos reales ya capturados, nunca proyectado hacia afuera.
+  const partidosOrdenados = Object.entries(sumaPartidos).sort((a, b) => b[1] - a[1]);
+  let margen = null;
+  if (partidosOrdenados.length >= 2) {
+    const [p1, v1] = partidosOrdenados[0];
+    const [p2, v2] = partidosOrdenados[1];
+    margen = {
+      partido_1: p1, votos_1: v1,
+      partido_2: p2, votos_2: v2,
+      diferencia_votos: v1 - v2,
+      diferencia_pct: totalVotos > 0 ? +(((v1 - v2) / totalVotos) * 100).toFixed(1) : 0,
+    };
+  }
+  const horasCapturadas = resultados.rows.map((r) => new Date(r.capturado_en).getTime()).filter(Boolean);
+  let ritmoCasillasPorHora = null, proyeccionMinutosRestantes = null, horaPrimerReporte = null, horaUltimoReporte = null;
+  if (horasCapturadas.length > 0) {
+    const minMs = Math.min(...horasCapturadas), maxMs = Math.max(...horasCapturadas);
+    horaPrimerReporte = new Date(minMs).toISOString();
+    horaUltimoReporte = new Date(maxMs).toISOString();
+    const horasTranscurridas = Math.max((Date.now() - minMs) / 3600000, 1 / 60); // mínimo 1 minuto, para no dividir entre ~0
+    ritmoCasillasPorHora = +(resultados.rows.length / horasTranscurridas).toFixed(1);
+    const casillasFaltantes = totalCasillasEsperadas - resultados.rows.length;
+    if (ritmoCasillasPorHora > 0 && casillasFaltantes > 0) {
+      proyeccionMinutosRestantes = Math.round((casillasFaltantes / ritmoCasillasPorHora) * 60);
+    }
+  }
+
   res.json({
     ok: true,
     data: {
@@ -603,8 +633,34 @@ router.get('/conteo-rapido', async (req, res) => {
       total_votos: totalVotos,
       total_nulos: totalNulos,
       participacion_pct: totalListaNominal > 0 ? +((totalVotos / totalListaNominal) * 100).toFixed(1) : null,
+      // 🆕 estadísticos nuevos:
+      margen_1_2: margen,
+      promedio_votos_por_casilla: resultados.rows.length > 0 ? Math.round(totalVotos / resultados.rows.length) : null,
+      ritmo_casillas_por_hora: ritmoCasillasPorHora,
+      proyeccion_minutos_restantes: proyeccionMinutosRestantes,
+      hora_primer_reporte: horaPrimerReporte,
+      hora_ultimo_reporte: horaUltimoReporte,
     },
   });
+});
+
+/**
+ * GET /api/dia-eleccion/ultimos-reportes
+ * 🆕 Las últimas casillas en transmitir su resultado — para la lista
+ * de notificaciones de "Avance en vivo" (qué casilla acaba de subir),
+ * tanto al cargar la pantalla como de respaldo si se perdió algún
+ * evento en vivo por el socket.
+ */
+router.get('/ultimos-reportes', async (req, res) => {
+  const resultado = await query(
+    `SELECT r.id, s.numero as seccion_numero, r.casilla, u.nombre as capturado_por_nombre, r.capturado_en
+     FROM resultados_casilla r
+     JOIN secciones s ON s.id = r.seccion_id
+     JOIN usuarios u ON u.id = r.capturado_por
+     WHERE r.campana_id = $1 ORDER BY r.capturado_en DESC LIMIT 10`,
+    [req.usuario.campana_id]
+  );
+  res.json({ ok: true, data: resultado.rows });
 });
 
 /**
