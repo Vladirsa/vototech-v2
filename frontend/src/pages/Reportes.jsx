@@ -317,6 +317,136 @@ function PanelReportesPersonalizados() {
   );
 }
 
+// 🗂️ FICHA DE ESTRUCTURA — reporte a nivel MUNICIPIO (se movió aquí
+// desde Estructura: era un reporte de solo lectura, no gestión
+// operativa del equipo, así que tiene más sentido junto con Ficha de
+// Sección). Muestra quién es el encargado, sus ramificaciones (equipo
+// completo) y los DATOS BRUTOS de promotores/promovidos de cada
+// quien — sin promediar ni interpretar, tal como los pide el motor de
+// reportes de /reportes-vototech-skills.
+function PanelFichaEstructura() {
+  const [municipios, setMunicipios] = useState([]);
+  const [municipioId, setMunicipioId] = useState('');
+  const [ficha, setFicha] = useState(null);
+  const [cargando, setCargando] = useState(false);
+
+  useEffect(() => {
+    api.get('/estructura/municipios-disponibles').then((r) => setMunicipios(r.data.data)).catch(() => setMunicipios([]));
+  }, []);
+
+  useEffect(() => {
+    if (!municipioId) { setFicha(null); return; }
+    setCargando(true);
+    api.get(`/estructura/ficha-estructura/${municipioId}`)
+      .then((r) => setFicha(r.data.data))
+      .catch(() => setFicha(null))
+      .finally(() => setCargando(false));
+  }, [municipioId]);
+
+  return (
+    <div className="space-y-3">
+      <select value={municipioId} onChange={(e) => setMunicipioId(e.target.value)}
+        className="w-full px-3 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-white text-sm">
+        <option value="">Elige un municipio de tu campaña...</option>
+        {municipios.map((m) => <option key={m.id} value={m.id}>{m.nombre}</option>)}
+      </select>
+
+      {cargando && <div className="text-center text-slate-500 py-6 text-sm">⏳ Cargando...</div>}
+
+      {ficha && !cargando && (
+        <div className="space-y-3">
+          <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-black text-white">{ficha.municipio.nombre}</h2>
+              <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${ficha.estado === 'ACTIVA' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}`}>{ficha.estado}</span>
+            </div>
+          </div>
+
+          <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+            <h3 className="text-xs font-bold text-slate-400 uppercase mb-2">👤 Encargado del municipio</h3>
+            {ficha.responsable ? (
+              <p className="text-sm text-white font-bold">{ficha.responsable.nombre} <span className="text-slate-500 font-normal">— {ficha.responsable.puesto || ficha.responsable.rol}</span></p>
+            ) : (
+              <p className="text-xs text-red-400">Sin responsable directo asignado a este municipio</p>
+            )}
+          </div>
+
+          {/* 🆕 Ramificaciones — el árbol del encargado, con datos
+              BRUTOS de promotores y promovidos de cada persona */}
+          {ficha.ramificaciones && ficha.ramificaciones.ramas.length > 0 && (
+            <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+              <h3 className="text-xs font-bold text-slate-400 uppercase mb-3">🌳 Ramificaciones — datos brutos por rama</h3>
+              <div className="space-y-3">
+                {ficha.ramificaciones.ramas.map((rama) => (
+                  <div key={rama.id} className="bg-slate-800/40 rounded-xl p-3">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <div>
+                        <div className="text-sm font-bold text-white">{rama.nombre}</div>
+                        <div className="text-[9px] text-slate-500">{rama.puesto || ROL_LABEL[rama.rol]} · {rama.total_personas_directas} promotores a su cargo</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-sm font-black text-emerald-400">{rama.total_promovidos}</div>
+                        <div className="text-[9px] text-slate-500">promovidos en la rama</div>
+                      </div>
+                    </div>
+                    <div className="flex gap-3 text-[10px] text-slate-400 mb-2">
+                      <span>✋ Propio: {rama.propio_total_promovidos} ({rama.propio_comprometidos} comprometidos)</span>
+                      <span className="text-purple-400">{rama.total_comprometidos} comprometidos en total</span>
+                      {rama.total_duplicados > 0 && <span className="text-red-400">⚠️ {rama.total_duplicados} duplicados</span>}
+                    </div>
+                    {rama.promotores.length > 0 && (
+                      <div className="space-y-1 border-t border-slate-700 pt-2">
+                        {rama.promotores.map((p) => (
+                          <div key={p.id} className="flex justify-between text-[10px]">
+                            <span className="text-slate-300">{p.nombre} <span className="text-slate-600">({ROL_LABEL[p.rol] || p.rol})</span></span>
+                            <span className={p.duplicados > 0 ? 'text-red-400' : 'text-slate-400'}>
+                              {p.total_promovidos} promovidos{p.comprometidos > 0 && ` · ${p.comprometidos} comp.`}{p.duplicados > 0 && ` · ${p.duplicados} dup.`}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+            <h3 className="text-xs font-bold text-slate-400 uppercase mb-2">👥 Integrantes Autorizados — {ficha.integrantes.length}</h3>
+            {ficha.integrantes.length === 0 ? (
+              <p className="text-[11px] text-slate-500">Sin nadie asignado a secciones de este municipio</p>
+            ) : ficha.integrantes.map((i) => (
+              <p key={i.id} className="text-xs text-slate-300">{i.nombre} — {i.rol}</p>
+            ))}
+          </div>
+
+          <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+            <h3 className="text-xs font-bold text-slate-400 uppercase mb-1">📈 Actividad (30 días)</h3>
+            <p className="text-sm text-white font-bold">{ficha.actividad_30d} promovidos capturados</p>
+          </div>
+
+          {ficha.incidencias.length > 0 && (
+            <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4">
+              <h3 className="text-xs font-bold text-red-400 uppercase mb-2">🚨 Incidencias abiertas — {ficha.incidencias.length}</h3>
+              {ficha.incidencias.map((i) => <p key={i.id} className="text-xs text-red-300">{i.tipo} — {i.urgencia}</p>)}
+            </div>
+          )}
+
+          {ficha.historico.length > 0 && (
+            <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+              <h3 className="text-xs font-bold text-slate-400 uppercase mb-2">🕐 Histórico</h3>
+              {ficha.historico.map((h, i) => (
+                <p key={i} className="text-[11px] text-slate-400">{h.motivo} — {new Date(h.creado_en).toLocaleDateString('es-MX')}</p>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Reportes() {
   const [tab, setTab] = useState('ficha-seccion');
   const [subTabActividad, setSubTabActividad] = useState('resumen');
@@ -412,6 +542,7 @@ export default function Reportes() {
 
         <div className="flex gap-2 flex-wrap">
           <button onClick={() => setTab('ficha-seccion')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'ficha-seccion' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📍 Ficha de Sección</button>
+          <button onClick={() => setTab('ficha-estructura')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'ficha-estructura' ? 'bg-teal-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🗂️ Ficha de Estructura</button>
           <button onClick={() => setTab('actividad')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'actividad' ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🎯 Actividad de Campo</button>
           <button onClick={() => setTab('encuestas')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'encuestas' ? 'bg-pink-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📋 Encuestas</button>
           <button onClick={() => setTab('personalizado')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'personalizado' ? 'bg-fuchsia-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🧩 Reportes Personalizados</button>
@@ -593,6 +724,9 @@ export default function Reportes() {
             )}
           </div>
         )}
+
+        {/* 🗂️ FICHA DE ESTRUCTURA — reporte a nivel municipio */}
+        {tab === 'ficha-estructura' && <PanelFichaEstructura />}
 
         {/* ── 🎯 ACTIVIDAD DE CAMPO — Resumen / Por promotor / Por sección ── */}
         {tab === 'actividad' && (

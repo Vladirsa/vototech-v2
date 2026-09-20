@@ -225,8 +225,24 @@ function ModalAyudaEstructura({ onCerrar }) {
   );
 }
 
-function ModalAgregarMiembro({ miembros, onCerrar, onGuardado }) {
-  const [form, setForm] = useState({ nombre: '', email: '', password: '', telefono: '', rol: 'coord_seccional', puesto: '', parent_id: '', territorio_tipo: 'seccion', territorio_id: '', region_id: '', meta_diaria: '' });
+// 🆕 A partir del puesto vacante (ej. "Coordinador Jurídico") adivina
+// el nivel jerárquico correcto, buscando en qué lista de
+// PUESTOS_POR_ROL aparece — así al dar de alta una vacante no hay
+// que volver a elegir el rol a mano.
+function rolPorPuesto(puesto) {
+  for (const [rol, lista] of Object.entries(PUESTOS_POR_ROL)) {
+    if (lista.includes(puesto)) return rol;
+  }
+  return null;
+}
+
+function ModalAgregarMiembro({ miembros, onCerrar, onGuardado, puestoInicial }) {
+  const [form, setForm] = useState({
+    nombre: '', email: '', password: '', telefono: '',
+    rol: (puestoInicial && rolPorPuesto(puestoInicial)) || 'coord_seccional',
+    puesto: puestoInicial || '',
+    parent_id: '', territorio_tipo: 'seccion', territorio_id: '', region_id: '', meta_diaria: '',
+  });
   const [sugerencia, setSugerencia] = useState(null);
   // 🆕 Lista de regiones — solo se necesita si eligen el rol
   // Coordinador Regional.
@@ -258,6 +274,11 @@ function ModalAgregarMiembro({ miembros, onCerrar, onGuardado }) {
     <div className="fixed inset-0 bg-black/70 flex items-end md:items-center justify-center z-50">
       <div className="bg-slate-900 border border-slate-700 rounded-t-2xl md:rounded-2xl w-full max-w-md p-5 space-y-3 max-h-[90vh] overflow-y-auto">
         <h2 className="text-lg font-black text-white">+ Agregar al Organigrama</h2>
+        {puestoInicial && (
+          <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2 text-[11px] text-amber-300">
+            🈳 Dando de alta a la vacante <strong>{puestoInicial}</strong> — ya se preseleccionó el nivel jerárquico correcto.
+          </div>
+        )}
         {error && <div className="bg-red-500/10 text-red-400 text-xs rounded-lg px-3 py-2">{error}</div>}
         <input placeholder="Nombre completo" value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })}
           className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
@@ -873,59 +894,6 @@ function PanelPermisosPorRol() {
   );
 }
 
-// ═══════════════════════════════════════════════════════════════
-// 🔁 PANEL DE DUPLICADOS — NUEVO
-// Mismo nombre + misma sección, capturado por 2 o más personas
-// distintas — para detectar de un vistazo cuando varios promotores
-// están trabajando la misma calle sin saberlo.
-// ═══════════════════════════════════════════════════════════════
-function PanelDuplicados() {
-  const [duplicados, setDuplicados] = useState(null);
-  const [error, setError] = useState('');
-
-  useEffect(() => {
-    api.get('/estructura/duplicados')
-      .then((r) => setDuplicados(r.data.data))
-      .catch((err) => setError(err.response?.data?.error || 'No se pudieron cargar los duplicados'));
-  }, []);
-
-  if (error) return <div className="bg-red-500/10 text-red-400 text-xs rounded-lg p-4">{error}</div>;
-  if (!duplicados) return <div className="text-center text-slate-500 text-sm py-10">⏳ Cargando...</div>;
-
-  return (
-    <div className="space-y-3">
-      <p className="text-[11px] text-slate-500">
-        Mismo nombre + misma sección, capturado por más de una persona — útil para saber si dos promotores están trabajando la misma calle sin darse cuenta.
-      </p>
-      {duplicados.length === 0 ? (
-        <div className="text-center text-slate-500 text-sm py-10">✅ Sin duplicados detectados por ahora</div>
-      ) : (
-        <div className="space-y-1.5">
-          {duplicados.map((d, i) => (
-            <div key={i} className="bg-slate-900/60 border border-orange-800/30 rounded-xl p-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-sm font-bold text-white">{d.nombre}</div>
-                  <div className="text-[10px] text-slate-500">Sección {d.seccion_numero}</div>
-                </div>
-                <div className="text-right">
-                  <div className="text-sm font-black text-orange-400">{d.personas_distintas} {d.personas_distintas == 1 ? 'persona' : 'personas'}</div>
-                  <div className="text-[9px] text-slate-500">{d.veces_registrado} intentos en total</div>
-                </div>
-              </div>
-              <div className="mt-1.5 flex flex-wrap gap-1">
-                {(d.registrado_por_nombres || []).filter(Boolean).map((n, j) => (
-                  <span key={j} className="text-[9px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full">{n}</span>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 /**
  * 🆕 Panel de Representantes de Casilla — vive en Estructura porque es
  * información sensible del equipo (quién está asignado dónde), no en
@@ -1201,22 +1169,17 @@ function PanelRegiones() {
   const [guardando, setGuardando] = useState(false);
   const [buscarUnidad, setBuscarUnidad] = useState('');
 
+  // 🆕 CORREGIDO — antes esto siempre pedía las 634 secciones o los
+  // 60 municipios de TODO Tlaxcala (vía /geo/...), sin importar el
+  // territorio real de la campaña. Ahora /estructura/regiones ya
+  // regresa "unidades" recortadas al territorio de la campaña
+  // (mismo criterio que Mapa, Priorización y Cobertura de Casillas),
+  // así que ya no hace falta ninguna llamada extra a /geo/.
   const cargar = () => {
     api.get('/estructura/regiones').then((r) => {
       setRegiones(r.data.data);
       setUnidadTipo(r.data.unidad_tipo);
-      // Solo se piden las unidades correctas UNA vez que sabemos cuál
-      // tipo toca — evita pedir los 60 municipios cuando en realidad
-      // se necesitan las secciones (o al revés).
-      if (r.data.unidad_tipo === 'seccion') {
-        api.get('/geo/secciones/29').then((geo) => {
-          setUnidades(geo.data.data.features.map((f) => ({ id: f.properties.seccion, nombre: `Sección ${String(f.properties.seccion).padStart(3, '0')}` })).sort((a, b) => a.id - b.id));
-        });
-      } else {
-        api.get('/geo/municipios/29').then((r2) => {
-          setUnidades(r2.data.data.map((m) => ({ id: m.clave_ine, nombre: m.nombre })).sort((a, b) => a.nombre.localeCompare(b.nombre)));
-        });
-      }
+      setUnidades(r.data.unidades || []);
     });
   };
   useEffect(cargar, []);
@@ -1326,6 +1289,10 @@ export default function Estructura() {
   const [miembros, setMiembros] = useState([]);
   const [salud, setSalud] = useState(null);
   const [mostrarModal, setMostrarModal] = useState(false);
+  // 🆕 Vacante que se tocó en "🈳 Puestos aún vacantes" — al dar clic
+  // se abre el modal de Agregar ya con ese puesto (y su nivel
+  // jerárquico) preseleccionado, en vez de solo mostrarlo como texto.
+  const [vacantePreseleccionada, setVacantePreseleccionada] = useState('');
   const [mostrarAyuda, setMostrarAyuda] = useState(false);
   const [miembroDetalle, setMiembroDetalle] = useState(null);
   const [vista, setVista] = useState('organigrama');
@@ -1365,7 +1332,6 @@ export default function Estructura() {
   }, [busqueda, miembros]);
   const [vacantes, setVacantes] = useState([]);
   const [alertasRama, setAlertasRama] = useState([]);
-  const [ranking, setRanking] = useState([]);
   // 🆕 Ficha de Persona — buscar a cualquiera del equipo y ver todo
   // lo que ha hecho: avance, duplicados, secciones trabajadas,
   // reuniones, materiales, y si es coordinador, cada subordinado.
@@ -1386,15 +1352,10 @@ export default function Estructura() {
   // 🆕 Histórico de asignaciones — toda la campaña
   const [historico, setHistorico] = useState(null);
   useEffect(() => { if (vista === 'historico') api.get('/estructura/historial-completo').then((r) => setHistorico(r.data.data)).catch(() => setHistorico([])); }, [vista]);
-  // 🆕 Ficha de Estructura — a nivel municipio
-  const [municipiosLista, setMunicipiosLista] = useState([]);
-  const [municipioSeleccionado, setMunicipioSeleccionado] = useState('');
-  const [fichaEstructura, setFichaEstructura] = useState(null);
-  useEffect(() => { if (vista === 'ficha-estructura') api.get('/geo/municipios/29').then((r) => setMunicipiosLista(r.data.data)).catch(() => setMunicipiosLista([])); }, [vista]);
-  useEffect(() => {
-    if (!municipioSeleccionado) { setFichaEstructura(null); return; }
-    api.get(`/estructura/ficha-estructura/${municipioSeleccionado}`).then((r) => setFichaEstructura(r.data.data)).catch(() => setFichaEstructura(null));
-  }, [municipioSeleccionado]);
+  // 🆕 "Ficha de Estructura" (reporte a nivel municipio) se movió a
+  // Reportes → 🗂️ Ficha de Estructura — tiene más sentido junto con
+  // Ficha de Sección, ya que ambas son reportes de solo lectura, no
+  // gestión operativa del equipo.
   const confirmarAsignacion = async (usuarioId) => {
     if (!formAsignar.territorio_id) return;
     await api.patch(`/estructura/${usuarioId}/asignar-territorio`, formAsignar);
@@ -1437,7 +1398,6 @@ export default function Estructura() {
       });
     api.get('/estructura/vacantes/catalogo').then((r) => setVacantes(r.data.data)).catch(() => setVacantes([]));
     api.get('/estructura/alertas/rama-dormida').then((r) => setAlertasRama(r.data.data)).catch(() => setAlertasRama([]));
-    api.get('/estructura/ranking/coordinadores').then((r) => setRanking(r.data.data)).catch(() => setRanking([]));
     api.get('/estructura/representantes-ine').then((r) => setRepresentantesIne(r.data.data)).catch(() => setRepresentantesIne([]));
     api.get('/estructura/gamificacion').then((r) => setGamificacion(r.data.data)).catch(() => setGamificacion([]));
     api.get('/estructura/cobertura-casillas').then((r) => setCobertura(r.data.data)).catch(() => setCobertura(null));
@@ -1500,7 +1460,7 @@ export default function Estructura() {
             <button onClick={() => setMostrarAyuda(true)} className="px-3 py-2.5 rounded-xl bg-slate-800 text-indigo-300 text-sm font-bold" title="¿Cómo funciona esto?">
               ❓ Ayuda
             </button>
-            <button onClick={() => setMostrarModal(true)} className="px-4 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-bold">+ Agregar</button>
+            <button onClick={() => { setVacantePreseleccionada(''); setMostrarModal(true); }} className="px-4 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-bold">+ Agregar</button>
           </div>
         </div>
 
@@ -1571,9 +1531,14 @@ export default function Estructura() {
         )}
         {vacantes.length > 0 && (
           <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-3">
-            <div className="text-[10px] font-bold text-amber-300 uppercase mb-1.5">🈳 Puestos aún vacantes</div>
+            <div className="text-[10px] font-bold text-amber-300 uppercase mb-1.5">🈳 Puestos aún vacantes — toca uno para darlo de alta</div>
             <div className="flex flex-wrap gap-1.5">
-              {vacantes.map((v) => <span key={v} className="text-[10px] bg-slate-800 text-slate-400 px-2 py-1 rounded-full">{v}</span>)}
+              {vacantes.map((v) => (
+                <button key={v} onClick={() => { setVacantePreseleccionada(v); setMostrarModal(true); }}
+                  className="text-[10px] bg-slate-800 hover:bg-amber-600 hover:text-white text-slate-400 px-2 py-1 rounded-full font-bold transition-colors">
+                  + {v}
+                </button>
+              ))}
             </div>
           </div>
         )}
@@ -1582,17 +1547,15 @@ export default function Estructura() {
             <button onClick={() => setVista('ficha-persona')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'ficha-persona' ? 'bg-teal-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🔍 Ficha de Persona</button>
             <button onClick={() => setVista('detector-responsables')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'detector-responsables' ? 'bg-amber-600 text-white' : 'bg-slate-800 text-slate-400'}`}>⚠️ Auditoría de Estructura</button>
             <button onClick={() => setVista('historico')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'historico' ? 'bg-slate-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🕐 Histórico</button>
-            <button onClick={() => setVista('ficha-estructura')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'ficha-estructura' ? 'bg-teal-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🗂️ Ficha de Estructura</button>
             <button onClick={() => setVista('organigrama')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'organigrama' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🌳 Organigrama</button>
             <button onClick={() => setVista('lista')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'lista' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📋 Lista</button>
-            <button onClick={() => setVista('ranking')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'ranking' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🏆 Ranking</button>
             <button onClick={() => setVista('codigos')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'codigos' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🎟️ Códigos masivos</button>
             {esAltoMando && (
               <>
                 <button onClick={() => setVista('representantes-ine')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'representantes-ine' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🗳️ Representante de Casilla</button>
               </>
             )}
-            <button onClick={() => setVista('gamificacion')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'gamificacion' ? 'bg-amber-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🏆 Ranking del Equipo</button>
+            <button onClick={() => setVista('gamificacion')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'gamificacion' ? 'bg-amber-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🏆 Ranking</button>
             {esAltoMando && (
               <button onClick={() => setVista('cobertura-casillas')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'cobertura-casillas' ? 'bg-red-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🗳️ Cobertura de Casillas</button>
             )}
@@ -1600,10 +1563,12 @@ export default function Estructura() {
               <button onClick={() => setVista('regiones')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'regiones' ? 'bg-cyan-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🌎 Regiones</button>
             )}
             <button onClick={() => setVista('permisos')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'permisos' ? 'bg-purple-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🔐 Permisos por Rol</button>
-            <button onClick={() => setVista('duplicados')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${vista === 'duplicados' ? 'bg-orange-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🔁 Duplicados</button>
           </div>
           {vista === 'ficha-persona' && (
             <div className="space-y-4">
+              <div className="bg-teal-500/10 border border-teal-500/30 rounded-xl p-3 text-[11px] text-teal-300">
+                🔍 Reporte de desempeño de UNA persona — busca a cualquiera y ve su rama completa, duplicados, materiales y reuniones. Para editar sus datos o reasignar su equipo, usa "📋 Lista".
+              </div>
               <div className="relative">
                 <input placeholder="🔍 Busca por nombre..." value={buscarPersonaTexto} onChange={(e) => setBuscarPersonaTexto(e.target.value)}
                   className="w-full px-4 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-white text-sm" />
@@ -1887,66 +1852,6 @@ export default function Estructura() {
             </div>
           )}
 
-          {vista === 'ficha-estructura' && (
-            <div className="space-y-3">
-              <select value={municipioSeleccionado} onChange={(e) => setMunicipioSeleccionado(e.target.value)}
-                className="w-full px-3 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-white text-sm">
-                <option value="">Elige un municipio...</option>
-                {municipiosLista.map((m) => <option key={m.id} value={m.id}>{m.nombre}</option>)}
-              </select>
-
-              {fichaEstructura && (
-                <div className="space-y-3">
-                  <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
-                    <div className="flex items-center justify-between">
-                      <h2 className="text-lg font-black text-white">{fichaEstructura.municipio.nombre}</h2>
-                      <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${fichaEstructura.estado === 'ACTIVA' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}`}>{fichaEstructura.estado}</span>
-                    </div>
-                  </div>
-
-                  <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
-                    <h3 className="text-xs font-bold text-slate-400 uppercase mb-2">👤 Responsable</h3>
-                    {fichaEstructura.responsable ? (
-                      <p className="text-sm text-white font-bold">{fichaEstructura.responsable.nombre} <span className="text-slate-500 font-normal">— {fichaEstructura.responsable.rol}</span></p>
-                    ) : (
-                      <p className="text-xs text-red-400">Sin responsable directo asignado a este municipio</p>
-                    )}
-                  </div>
-
-                  <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
-                    <h3 className="text-xs font-bold text-slate-400 uppercase mb-2">👥 Integrantes Autorizados — {fichaEstructura.integrantes.length}</h3>
-                    {fichaEstructura.integrantes.length === 0 ? (
-                      <p className="text-[11px] text-slate-500">Sin nadie asignado a secciones de este municipio</p>
-                    ) : fichaEstructura.integrantes.map((i) => (
-                      <p key={i.id} className="text-xs text-slate-300">{i.nombre} — {i.rol}</p>
-                    ))}
-                  </div>
-
-                  <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
-                    <h3 className="text-xs font-bold text-slate-400 uppercase mb-1">📈 Actividad (30 días)</h3>
-                    <p className="text-sm text-white font-bold">{fichaEstructura.actividad_30d} promovidos capturados</p>
-                  </div>
-
-                  {fichaEstructura.incidencias.length > 0 && (
-                    <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4">
-                      <h3 className="text-xs font-bold text-red-400 uppercase mb-2">🚨 Incidencias abiertas — {fichaEstructura.incidencias.length}</h3>
-                      {fichaEstructura.incidencias.map((i) => <p key={i.id} className="text-xs text-red-300">{i.tipo} — {i.urgencia}</p>)}
-                    </div>
-                  )}
-
-                  {fichaEstructura.historico.length > 0 && (
-                    <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
-                      <h3 className="text-xs font-bold text-slate-400 uppercase mb-2">🕐 Histórico</h3>
-                      {fichaEstructura.historico.map((h, i) => (
-                        <p key={i} className="text-[11px] text-slate-400">{h.motivo} — {new Date(h.creado_en).toLocaleDateString('es-MX')}</p>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-
           {vista === 'organigrama' && (
             <div className="flex gap-2 items-center flex-wrap">
               <input placeholder="🔍 Buscar por nombre o puesto..." value={busqueda} onChange={(e) => setBusqueda(e.target.value)}
@@ -1970,31 +1875,6 @@ export default function Estructura() {
               ) : raiz.map((m) => <NodoOrganigrama key={m.id} miembro={m} hijos={miembros} onClick={setMiembroDetalle} esRaiz busqueda={busqueda} expandidos={nodosExpandidos} onToggle={toggleNodo} />)}
             </div>
             <p className="text-center text-[10px] text-slate-600 mt-4">Toca cualquier persona para ver su detalle, código de invitación, cadena, y editar</p>
-          </div>
-        ) : vista === 'ranking' ? (
-          <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden">
-            <table className="w-full text-xs">
-              <thead className="bg-slate-800/60">
-                <tr>
-                  <th className="text-left px-3 py-2 text-slate-400 font-bold">#</th>
-                  <th className="text-left px-3 py-2 text-slate-400 font-bold">Coordinador</th>
-                  <th className="text-left px-3 py-2 text-slate-400 font-bold">Puesto</th>
-                  <th className="text-center px-3 py-2 text-slate-400 font-bold">Personas en su rama</th>
-                  <th className="text-center px-3 py-2 text-slate-400 font-bold">Promovidos generados</th>
-                </tr>
-              </thead>
-              <tbody>
-                {ranking.map((r, i) => (
-                  <tr key={r.id} className="border-t border-slate-800 cursor-pointer hover:bg-slate-800/40" onClick={() => setMiembroDetalle(miembros.find(m => m.id === r.id))}>
-                    <td className="px-3 py-2 font-black text-white">{i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `#${i + 1}`}</td>
-                    <td className="px-3 py-2 text-white font-bold">{r.nombre}</td>
-                    <td className="px-3 py-2 text-slate-400">{r.puesto || ROL_LABEL[r.rol]}</td>
-                    <td className="px-3 py-2 text-center text-slate-300">{r.personas_en_rama}</td>
-                    <td className="px-3 py-2 text-center text-emerald-400 font-bold">{r.promovidos_rama}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
           </div>
         ) : vista === 'representantes-ine' && esAltoMando ? (
           <PanelCasillas />
@@ -2079,10 +1959,11 @@ export default function Estructura() {
           <PanelRegiones />
         ) : vista === 'permisos' ? (
           <PanelPermisosPorRol />
-        ) : vista === 'duplicados' ? (
-          <PanelDuplicados />
         ) : (
           <div className="space-y-2">
+            <div className="bg-indigo-500/10 border border-indigo-500/30 rounded-xl p-3 text-[11px] text-indigo-200">
+              📋 Directorio operativo — toca a cualquiera para editar sus datos, ver su código de invitación, o reasignar todo su equipo a otro coordinador. Para ver su desempeño (rama, duplicados, materiales), usa "🔍 Ficha de Persona".
+            </div>
             {miembros.map((m) => {
               const est = SALUD_ESTILO[m.salud] || SALUD_ESTILO.na;
               const actividad = estaActivoReciente(m.ultimo_acceso);
@@ -2103,7 +1984,11 @@ export default function Estructura() {
           </div>
         )}
       </div>
-      {mostrarModal && <ModalAgregarMiembro miembros={miembros} onCerrar={() => setMostrarModal(false)} onGuardado={() => { setMostrarModal(false); cargar(); }} />}
+      {mostrarModal && (
+        <ModalAgregarMiembro miembros={miembros} puestoInicial={vacantePreseleccionada}
+          onCerrar={() => { setMostrarModal(false); setVacantePreseleccionada(''); }}
+          onGuardado={() => { setMostrarModal(false); setVacantePreseleccionada(''); cargar(); }} />
+      )}
       {miembroDetalle && <ModalDetalleMiembro miembro={miembroDetalle} miembros={miembros} onCerrar={() => setMiembroDetalle(null)} onActualizado={cargar} />}
       {mostrarAyuda && <ModalAyudaEstructura onCerrar={() => setMostrarAyuda(false)} />}
     </div>
