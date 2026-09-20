@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../lib/api';
 import { useAuth } from '../lib/authStore';
+import BitacoraDiaria from './BitacoraDiaria';
 
 const ESTADO_ESTILO = {
   pendiente: { bg: 'bg-slate-500/10', border: 'border-slate-500/30', color: 'text-slate-400', label: 'Pendiente' },
@@ -778,6 +779,8 @@ export default function CentroDecisiones() {
 
         <div className="flex gap-2">
           <button onClick={() => setTab('bitacora')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'bitacora' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📋 Bitácora de Decisiones</button>
+          {/* 🆕 Bitácora de Campo (antes vivía en "Movilización y Operación") — distinta de la Bitácora de Decisiones de arriba: esta es el registro diario de campo (recorridos, incidencias, pendientes, etc.), no las decisiones tomadas. */}
+          <button onClick={() => setTab('bitacora-campo')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'bitacora-campo' ? 'bg-fuchsia-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📔 Bitácora de Campo</button>
           <button onClick={() => setTab('tareas')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'tareas' ? 'bg-teal-600 text-white' : 'bg-slate-800 text-slate-400'}`}>✅ Centro de Tareas</button>
           <button onClick={() => setTab('alertas')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'alertas' ? 'bg-amber-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🚨 Motor de Alertas</button>
           <button onClick={() => setTab('que-cambio')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'que-cambio' ? 'bg-purple-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📈 ¿Qué Cambió?</button>
@@ -853,6 +856,7 @@ export default function CentroDecisiones() {
         </>
         )}
 
+        {tab === 'bitacora-campo' && <BitacoraDiaria />}
         {tab === 'tareas' && <PanelCentroTareas />}
         {tab === 'alertas' && <PanelMotorAlertas />}
         {tab === 'que-cambio' && <PanelQueCambio />}

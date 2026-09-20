@@ -1,5 +1,5 @@
-import { useEffect, useState, useCallback } from 'react';
-import api from '../lib/api';
+import { useEffect, useState, useCallback, useRef } from 'react';
+import api, { descargarArchivo } from '../lib/api';
 
 /**
  * 🆕 BITÁCORA DIARIA (Etapa 1 del rediseño)
@@ -30,6 +30,15 @@ import api from '../lib/api';
  * - Buscador de texto libre sobre título y descripción.
  * - Vista Día / Semana / Mes — antes solo existía un selector de un
  *   solo día.
+ *
+ * 🆕 NUEVO EN ESTA VERSIÓN (sub-fase 1c del Banco de Ideas):
+ * - Repositorio de Evidencias: cada registro de la línea de tiempo
+ *   puede llevar fotos (hasta 8), reutilizando el mismo sistema de
+ *   subida/compresión que ya usan Incidencias/Actas/Casas — no se
+ *   duplica infraestructura.
+ * - Botón "Descargar reporte de cierre" (PDF) dentro del modal de
+ *   Cerrar jornada: resumen del día + incidencias abiertas + línea
+ *   de tiempo completa, listo para imprimir o compartir.
  */
 
 const TIPOS = [
@@ -212,6 +221,11 @@ export default function BitacoraDiaria() {
             className={`px-4 py-2 rounded-lg text-sm font-bold transition-colors whitespace-nowrap ${vista === 'incidencias' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
             ⚠️ Incidencias {incidenciasAbiertas.length > 0 && `(${incidenciasAbiertas.length})`}
           </button>
+          {/* 🆕 sub-fase 1d — Gráficas, heatmap, "Analizar jornada" IA y detección de inconsistencias */}
+          <button onClick={() => setVista('estadisticas')}
+            className={`px-4 py-2 rounded-lg text-sm font-bold transition-colors whitespace-nowrap ${vista === 'estadisticas' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
+            📊 Estadísticas
+          </button>
         </div>
 
         {vista === 'incidencias' && (
@@ -223,6 +237,8 @@ export default function BitacoraDiaria() {
             )}
           </div>
         )}
+
+        {vista === 'estadisticas' && <PanelEstadisticas />}
 
         {vista === 'hoy' ? (
           <>
@@ -415,8 +431,99 @@ function TarjetaEvento({ evento, onResuelto, mostrarFecha }) {
               {resolviendo ? 'Guardando…' : '✓ Marcar como resuelto'}
             </button>
           )}
+          {/* 🆕 sub-fase 1c — Evidencias fotográficas del registro */}
+          <EvidenciasEvento eventoId={evento.id} totalInicial={evento.total_evidencias} />
         </div>
       </div>
+    </div>
+  );
+}
+
+// 🆕 Repositorio de Evidencias por registro de bitácora. Reutiliza el
+// endpoint genérico de fotos (POST /api/fotos/subir, contexto='bitacora')
+// que ya usan Incidencias/Actas/Casas — no se sube nada a un sistema
+// aparte. Máximo 8 fotos por registro (lo controla el backend).
+function EvidenciasEvento({ eventoId, totalInicial }) {
+  const [abierto, setAbierto] = useState(false);
+  const [fotos, setFotos] = useState(null); // null = aún no se han cargado
+  const [subiendo, setSubiendo] = useState(false);
+  const [error, setError] = useState('');
+  const inputRef = useRef(null);
+  const total = fotos ? fotos.length : (totalInicial || 0);
+
+  const cargarFotos = useCallback(() => {
+    api.get(`/fotos/bitacora/${eventoId}`)
+      .then((r) => setFotos(r.data.data))
+      .catch(() => setError('No se pudieron cargar las evidencias.'));
+  }, [eventoId]);
+
+  function alternar() {
+    const siguiente = !abierto;
+    setAbierto(siguiente);
+    if (siguiente && fotos === null) cargarFotos();
+  }
+
+  async function subirFoto(e) {
+    const archivo = e.target.files?.[0];
+    if (!archivo) return;
+    setSubiendo(true);
+    setError('');
+    try {
+      const datos = new FormData();
+      datos.append('foto', archivo);
+      datos.append('contexto', 'bitacora');
+      datos.append('referencia_id', eventoId);
+      await api.post('/fotos/subir', datos, { headers: { 'Content-Type': 'multipart/form-data' } });
+      cargarFotos();
+    } catch (err) {
+      setError(err?.response?.data?.error || 'No se pudo subir la foto. Intenta de nuevo.');
+    } finally {
+      setSubiendo(false);
+      if (inputRef.current) inputRef.current.value = '';
+    }
+  }
+
+  async function borrarFoto(id) {
+    if (!confirm('¿Borrar esta foto?')) return;
+    try {
+      await api.delete(`/fotos/${id}`);
+      setFotos((prev) => prev.filter((f) => f.id !== id));
+    } catch {
+      setError('No se pudo borrar la foto.');
+    }
+  }
+
+  return (
+    <div className="mt-2">
+      <button onClick={alternar} className="text-[11px] font-bold text-slate-400 hover:text-slate-300 flex items-center gap-1">
+        📷 Evidencias {total > 0 && `(${total})`} {abierto ? '▾' : '▸'}
+      </button>
+      {abierto && (
+        <div className="mt-1.5">
+          {fotos === null ? (
+            <p className="text-[11px] text-slate-500">Cargando…</p>
+          ) : (
+            <div className="flex flex-wrap gap-1.5">
+              {fotos.map((f) => (
+                <div key={f.id} className="relative w-16 h-16 flex-shrink-0">
+                  <a href={f.url} target="_blank" rel="noreferrer">
+                    <img src={f.url} alt="Evidencia" className="w-16 h-16 object-cover rounded-lg border border-slate-700" />
+                  </a>
+                  <button onClick={() => borrarFoto(f.id)}
+                    className="absolute -top-1.5 -right-1.5 bg-red-600 text-white text-[10px] w-4 h-4 rounded-full flex items-center justify-center leading-none">✕</button>
+                </div>
+              ))}
+              {(fotos.length < 8) && (
+                <label className="w-16 h-16 flex-shrink-0 rounded-lg border-2 border-dashed border-slate-700 flex items-center justify-center text-slate-500 text-xl cursor-pointer">
+                  {subiendo ? '…' : '+'}
+                  <input ref={inputRef} type="file" accept="image/*" capture="environment" onChange={subirFoto} disabled={subiendo} className="hidden" />
+                </label>
+              )}
+            </div>
+          )}
+          {error && <p className="text-[10px] text-red-400 mt-1">{error}</p>}
+        </div>
+      )}
     </div>
   );
 }
@@ -462,6 +569,194 @@ function TarjetaIncidencia({ incidencia }) {
         {incidencia.municipio_nombre && <span className="bg-slate-800 px-1.5 py-0.5 rounded">{incidencia.municipio_nombre}</span>}
         {incidencia.seccion_numero && <span className="bg-slate-800 px-1.5 py-0.5 rounded">Sección {incidencia.seccion_numero}</span>}
         <span>{new Date(incidencia.creado_en).toLocaleDateString('es-MX')}</span>
+      </div>
+    </div>
+  );
+}
+
+// 🆕 sub-fase 1d — "Estadísticas": gráficas + heatmap de la bitácora,
+// botón "✨ Analizar jornada" (IA, solo con datos reales) y detección
+// de inconsistencias. Todo se carga bajo demanda, solo al abrir esta
+// pestaña, para no pedirle datos de más al backend en cada visita a
+// Bitácora Diaria.
+const NIVEL_ESTILO_BITACORA = {
+  CRÍTICA: { bg: 'bg-red-500/10', border: 'border-red-500/30', color: 'text-red-400' },
+  IMPORTANTE: { bg: 'bg-orange-500/10', border: 'border-orange-500/30', color: 'text-orange-400' },
+  'ATENCIÓN': { bg: 'bg-amber-500/10', border: 'border-amber-500/30', color: 'text-amber-400' },
+  INFORMATIVA: { bg: 'bg-slate-500/10', border: 'border-slate-500/30', color: 'text-slate-400' },
+};
+const DIAS_SEMANA_CORTO = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+
+function PanelEstadisticas() {
+  const [datos, setDatos] = useState(null);
+  const [cargando, setCargando] = useState(true);
+  const [analizando, setAnalizando] = useState(false);
+  const [analisis, setAnalisis] = useState('');
+  const [errorAnalisis, setErrorAnalisis] = useState('');
+  const [detectando, setDetectando] = useState(false);
+  const [hallazgos, setHallazgos] = useState(null);
+
+  useEffect(() => {
+    api.get('/bitacora/estadisticas').then((r) => setDatos(r.data.data)).finally(() => setCargando(false));
+  }, []);
+
+  async function analizarJornada() {
+    setAnalizando(true);
+    setErrorAnalisis('');
+    try {
+      const { data } = await api.get('/bitacora/analizar-jornada');
+      setAnalisis(data.data.analisis);
+    } catch (e) {
+      setErrorAnalisis(e?.response?.data?.error || 'No se pudo generar el análisis.');
+    } finally {
+      setAnalizando(false);
+    }
+  }
+
+  async function detectarInconsistencias() {
+    setDetectando(true);
+    try {
+      const { data } = await api.get('/bitacora/detectar-inconsistencias');
+      setHallazgos(data.data.hallazgos);
+    } catch {
+      setHallazgos([]);
+    } finally {
+      setDetectando(false);
+    }
+  }
+
+  if (cargando) return <p className="text-sm text-slate-500 text-center py-8">Cargando estadísticas…</p>;
+  if (!datos) return <EstadoVacio texto="No se pudieron cargar las estadísticas." />;
+
+  const maxPorTipo = Math.max(1, ...datos.por_tipo.map((t) => t.total));
+  const maxPorDia = Math.max(1, ...datos.por_dia.map((d) => d.total));
+  const maxHeatmap = Math.max(1, ...datos.heatmap_dia_hora.flat());
+  // Horas con actividad — para no dibujar 24 columnas si de noche nunca hay nada
+  const horasConDatos = [...new Set(datos.heatmap_dia_hora.flatMap((fila) => fila.map((v, h) => (v > 0 ? h : null)).filter((h) => h !== null)))].sort((a, b) => a - b);
+  const horas = horasConDatos.length > 0 ? horasConDatos : Array.from({ length: 24 }, (_, i) => i);
+
+  return (
+    <div className="space-y-4">
+      {/* ✨ Analizar jornada (IA) */}
+      <div className="bg-purple-500/10 border border-purple-500/30 rounded-xl p-3 space-y-2">
+        <p className="text-[11px] text-purple-300">🤖 Analiza la jornada de hoy usando solo los números reales de tu bitácora — sin inventar nada.</p>
+        <button onClick={analizarJornada} disabled={analizando}
+          className="w-full py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 text-white text-sm font-bold disabled:opacity-40">
+          {analizando ? '⏳ Analizando...' : analisis ? '🔄 Analizar de nuevo' : '✨ Analizar jornada'}
+        </button>
+        {errorAnalisis && <p className="text-xs text-red-400">{errorAnalisis}</p>}
+        {analisis && <p className="text-sm text-slate-200 whitespace-pre-wrap leading-relaxed bg-slate-900/60 rounded-lg p-3">{analisis}</p>}
+      </div>
+
+      {/* Por tipo de registro (últimos 30 días) */}
+      {datos.por_tipo.length > 0 && (
+        <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+          <h3 className="text-xs font-bold text-slate-400 uppercase mb-3">Registros por tipo — últimos 30 días</h3>
+          <div className="space-y-2">
+            {datos.por_tipo.map((t) => (
+              <div key={t.tipo}>
+                <div className="flex justify-between text-[11px] mb-0.5">
+                  <span className="text-slate-300">{t.icono} {t.etiqueta}</span>
+                  <span className="text-slate-400 font-bold">{t.total}</span>
+                </div>
+                <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
+                  <div className="h-full bg-indigo-500" style={{ width: `${(t.total / maxPorTipo) * 100}%` }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Por día (últimos 14 días) */}
+      <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+        <h3 className="text-xs font-bold text-slate-400 uppercase mb-3">Registros por día — últimos 14 días</h3>
+        {datos.por_dia.length === 0 ? (
+          <p className="text-xs text-slate-500 text-center py-4">Sin actividad todavía</p>
+        ) : (
+          <div className="flex items-end gap-1.5 h-32">
+            {datos.por_dia.map((d) => (
+              <div key={d.fecha} className="flex-1 flex flex-col items-center gap-1 group relative">
+                <div className="w-full flex flex-col justify-end" style={{ height: '100px' }}>
+                  <div className="w-full bg-indigo-500 rounded-t" style={{ height: `${Math.max(4, (d.total / maxPorDia) * 100)}%` }} />
+                </div>
+                <span className="text-[7px] text-slate-500">{new Date(d.fecha).toLocaleDateString('es-MX', { day: 'numeric', month: 'short' })}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Heatmap día × hora */}
+      <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 overflow-x-auto">
+        <h3 className="text-xs font-bold text-slate-400 uppercase mb-3">Cuándo se captura más — últimos 30 días</h3>
+        {maxHeatmap <= 1 ? (
+          <p className="text-xs text-slate-500 text-center py-4">Aún no hay suficiente actividad para ver un patrón</p>
+        ) : (
+          <div className="inline-block min-w-full">
+            <div className="flex gap-0.5 mb-1 pl-7">
+              {horas.map((h) => <div key={h} className="w-4 text-[6px] text-slate-600 text-center flex-shrink-0">{h}</div>)}
+            </div>
+            {DIAS_SEMANA_CORTO.map((etiquetaDia, dia) => (
+              <div key={dia} className="flex items-center gap-0.5 mb-0.5">
+                <span className="w-6 text-[8px] text-slate-500 flex-shrink-0">{etiquetaDia}</span>
+                {horas.map((h) => {
+                  const v = datos.heatmap_dia_hora[dia][h];
+                  const intensidad = v / maxHeatmap;
+                  return (
+                    <div key={h} title={`${etiquetaDia} ${h}:00 — ${v} registro(s)`}
+                      className="w-4 h-4 rounded-sm flex-shrink-0"
+                      style={{ background: v === 0 ? 'rgba(100,116,139,0.15)' : `rgba(99,102,241,${0.2 + intensidad * 0.8})` }} />
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Top secciones con más registros */}
+      {datos.por_seccion.length > 0 && (
+        <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+          <h3 className="text-xs font-bold text-slate-400 uppercase mb-3">Secciones con más actividad — últimos 30 días</h3>
+          <div className="flex flex-wrap gap-1.5">
+            {datos.por_seccion.map((s) => (
+              <span key={s.seccion} className="text-[10px] bg-slate-800 text-slate-300 px-2 py-1 rounded-full">
+                Sección {String(s.seccion).padStart(3, '0')} · {s.total}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 🔍 Detección de inconsistencias */}
+      <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 space-y-2">
+        <p className="text-[11px] text-amber-300">🔍 Revisa pendientes olvidados, posibles registros duplicados, y secciones mencionadas en la bitácora sin responsable asignado.</p>
+        <button onClick={detectarInconsistencias} disabled={detectando}
+          className="w-full py-2.5 rounded-xl bg-gradient-to-r from-amber-600 to-orange-600 text-white text-sm font-bold disabled:opacity-40">
+          {detectando ? '⏳ Revisando...' : hallazgos ? '🔄 Revisar de nuevo' : '🔍 Detectar inconsistencias'}
+        </button>
+        {hallazgos && (
+          hallazgos.length === 0 ? (
+            <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-3 text-center text-xs text-emerald-400 font-bold">✅ Sin inconsistencias detectadas</div>
+          ) : (
+            <div className="space-y-2">
+              {hallazgos.map((h, i) => {
+                const est = NIVEL_ESTILO_BITACORA[h.nivel] || NIVEL_ESTILO_BITACORA.INFORMATIVA;
+                return (
+                  <div key={i} className={`${est.bg} border ${est.border} rounded-lg p-2.5`}>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className={`text-[9px] font-bold uppercase ${est.color}`}>{h.nivel}</span>
+                      <span className="text-[9px] text-slate-500">{h.modulo}</span>
+                    </div>
+                    <p className="text-xs text-slate-200 font-bold">{h.que}</p>
+                    <p className="text-[10px] text-slate-500 mt-0.5">{h.donde}</p>
+                  </div>
+                );
+              })}
+            </div>
+          )
+        )}
       </div>
     </div>
   );
@@ -583,6 +878,7 @@ function ModalCierre({ onCerrar, onGuardado }) {
   const [resumen, setResumen] = useState('');
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState('');
+  const hoy = new Date().toISOString().slice(0, 10);
 
   async function cerrar() {
     setGuardando(true);
@@ -604,6 +900,13 @@ function ModalCierre({ onCerrar, onGuardado }) {
         <p className="text-xs text-slate-400">Se guarda un resumen automático de todo lo registrado hoy. Puedes agregar una nota final si quieres.</p>
         <textarea value={resumen} onChange={(e) => setResumen(e.target.value)} placeholder="Nota final del día (opcional)" rows={3}
           className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-slate-500 resize-none" />
+        {/* 🆕 sub-fase 1c — Reporte de cierre en PDF: resumen del día +
+            incidencias abiertas + línea de tiempo completa. Se puede
+            descargar antes o después de cerrar la jornada. */}
+        <button onClick={() => descargarArchivo(`/reportes/pdf/bitacora-cierre?fecha=${hoy}`, 'reporte_cierre_jornada.pdf')}
+          className="w-full bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-2.5 rounded-xl text-xs">
+          📄 Descargar reporte de cierre (PDF)
+        </button>
         {error && <p className="text-xs text-red-400">{error}</p>}
         <div className="flex gap-2">
           <button onClick={onCerrar} className="flex-1 bg-slate-800 text-slate-300 font-bold py-3 rounded-xl text-sm">Cancelar</button>

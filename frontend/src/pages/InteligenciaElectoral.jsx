@@ -1,11 +1,15 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import CentroMando from './CentroMando';
 import Reportes from './Reportes';
 import Priorizacion from './Priorizacion';
+import EstadisticaProbabilidad from './EstadisticaProbabilidad';
+import BitacoraDiaria from './BitacoraDiaria';
 import api from '../lib/api';
 
 /**
- * 🆕 "Inteligencia Electoral" — Reportes y Priorización combinados en pestañas.
+ * 🆕 "Inteligencia Electoral" — Centro de Mando, Reportes,
+ * Priorización y Estadística y Probabilidad combinados en pestañas.
  *
  * 🆕 NUEVO — el bloque de alertas inteligentes ("🧠 Inteligencia
  * Electoral") que antes vivía en el Dashboard se movió aquí, arriba
@@ -13,13 +17,33 @@ import api from '../lib/api';
  * inteligencia electoral vivan DENTRO del módulo de Inteligencia
  * Electoral, no mezcladas con el resumen operativo del día a día del
  * Dashboard.
+ *
+ * 🆕 NUEVO — "Centro de Mando" (antes vivía en "Día E y Centro de
+ * Comando") se movió aquí, a la misma jerarquía que Reportes y
+ * Priorización, y es la pestaña que se abre primero — tiene más
+ * sentido que el mando de la campaña viva junto con la inteligencia
+ * que lo alimenta.
+ *
+ * 🆕 NUEVO — "Estadística y Probabilidad" (antes era una sub-pestaña
+ * escondida dentro de "Análisis", en Reportes) también se subió a
+ * pestaña principal — es contenido de decisión, no un sub-reporte.
+ * El resto de "Análisis" (Análisis histórico, Ficha del Estado,
+ * Senado/Fed./Local) se retiró del sistema.
+ *
+ * 🆕 NUEVO — "Bitácora" (antes vivía en "Movilización y Operación")
+ * también se movió aquí — la bitácora de campo alimenta directamente
+ * la inteligencia electoral, tiene más sentido tenerla junto con
+ * Reportes/Priorización que escondida en la operación diaria.
  */
 export default function InteligenciaElectoral() {
-  const [tab, setTab] = useState('reportes');
+  const [tab, setTab] = useState('centro-mando');
   const [alertas, setAlertas] = useState([]);
   const TABS = [
+    { id: 'centro-mando', ic: '🎯', label: 'Centro de Mando' },
     { id: 'reportes', ic: '📊', label: 'Reportes' },
     { id: 'priorizacion', ic: '🎯', label: 'Priorización' },
+    { id: 'estadistica-probabilidad', ic: '🎲', label: 'Estadística y Probabilidad' },
+    { id: 'bitacora', ic: '📔', label: 'Bitácora' },
   ];
 
   useEffect(() => {
@@ -52,7 +76,7 @@ export default function InteligenciaElectoral() {
           </div>
         )}
 
-        <div className="flex gap-2 border-b border-slate-800 pb-2">
+        <div className="flex gap-2 border-b border-slate-800 pb-2 flex-wrap">
           {TABS.map((t) => (
             <button key={t.id} onClick={() => setTab(t.id)}
               className={`px-4 py-2 rounded-lg text-sm font-bold transition-colors ${
@@ -64,8 +88,11 @@ export default function InteligenciaElectoral() {
         </div>
 
         <div>
+          {tab === 'centro-mando' && <CentroMando />}
           {tab === 'reportes' && <Reportes />}
           {tab === 'priorizacion' && <Priorizacion />}
+          {tab === 'estadistica-probabilidad' && <EstadisticaProbabilidad />}
+          {tab === 'bitacora' && <BitacoraDiaria />}
         </div>
       </div>
     </div>
