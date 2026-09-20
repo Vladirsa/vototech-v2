@@ -1,4 +1,4 @@
-[Resource from Github at repo://Vladirsa/vototech-v2/sha/0dbba1aba4abe29e1cf1337e64c8ed6a42848010/contents/frontend/src/components/MapaElectoral.jsx] import { useEffect, useState, useMemo, useRef } from 'react';
+import { useEffect, useState, useMemo, useRef } from 'react';
 import { MapContainer, TileLayer, GeoJSON, Marker, Popup, Polyline, LayersControl, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 // NOTA: se probó importar 'leaflet/dist/leaflet.css' aquí, pero eso
