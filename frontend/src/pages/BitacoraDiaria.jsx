@@ -1,5 +1,4 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Link } from 'react-router-dom';
 import api from '../lib/api';
 
 /**
@@ -9,6 +8,11 @@ import api from '../lib/api';
  * incidencias, pendientes y notas libres, con línea de tiempo y
  * cierre de día. Mobile-first — pensado para capturarse parado en
  * la calle, con el celular en una mano.
+ *
+ * Vive como PESTAÑA dentro de "Movilización y Operación" (mismo
+ * patrón que Promovidos/Agenda/Logística/Incidencias) — por eso NO
+ * trae su propio encabezado de página ni el link "← Dashboard": eso
+ * ya lo pone MovilizacionOperacion.jsx, que es quien la monta.
  *
  * Dónde se conecta:
  * - Al registrar una "Incidencia" con sección, se espeja automático
@@ -75,13 +79,7 @@ export default function BitacoraDiaria() {
   useEffect(() => { cargarTodo(); }, [cargarTodo]);
 
   return (
-    <div className="min-h-screen bg-slate-950 pb-24">
-      <div className="max-w-3xl mx-auto p-4 md:p-8 space-y-4">
-        <div>
-          <h1 className="text-2xl font-black text-white">📔 Bitácora Diaria</h1>
-          <Link to="/dashboard" className="text-xs text-indigo-400">← Dashboard</Link>
-        </div>
-
+    <div className="space-y-4 pb-24">
         {error && (
           <div className="bg-red-500/10 border border-red-500/40 rounded-xl p-3 text-xs text-red-300">{error}</div>
         )}
@@ -145,7 +143,6 @@ export default function BitacoraDiaria() {
             )}
           </div>
         )}
-      </div>
 
       {/* ── Botones flotantes ──────────────────────────────────── */}
       <div className="fixed bottom-5 right-5 flex flex-col gap-3 items-end">
@@ -292,7 +289,7 @@ function FormularioRegistro({ onCerrar, onGuardado, guardando, setGuardando }) {
   const [tipo, setTipo] = useState('recorrido');
   const [titulo, setTitulo] = useState('');
   const [descripcion, setDescripcion] = useState('');
-  const [seccionId, setSeccionId] = useState('');
+  const [seccionNumero, setSeccionNumero] = useState('');
   const [prioridad, setPrioridad] = useState('media');
   const [error, setError] = useState('');
 
@@ -303,7 +300,7 @@ function FormularioRegistro({ onCerrar, onGuardado, guardando, setGuardando }) {
     try {
       await api.post('/bitacora', {
         tipo, titulo: titulo.trim(), descripcion: descripcion.trim() || undefined,
-        seccion_id: seccionId ? parseInt(seccionId) : undefined,
+        seccion_numero: seccionNumero ? parseInt(seccionNumero) : undefined,
         prioridad: tipo === 'pendiente' ? prioridad : undefined,
       });
       onGuardado();
@@ -340,7 +337,7 @@ function FormularioRegistro({ onCerrar, onGuardado, guardando, setGuardando }) {
         <textarea value={descripcion} onChange={(e) => setDescripcion(e.target.value)} placeholder="Detalle (opcional)" rows={3}
           className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-slate-500 resize-none" />
 
-        <input value={seccionId} onChange={(e) => setSeccionId(e.target.value.replace(/\D/g, ''))} placeholder="Número de sección (opcional)" inputMode="numeric"
+        <input value={seccionNumero} onChange={(e) => setSeccionNumero(e.target.value.replace(/\D/g, ''))} placeholder="Número de sección (opcional)" inputMode="numeric"
           className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-slate-500" />
 
         {tipo === 'pendiente' && (
