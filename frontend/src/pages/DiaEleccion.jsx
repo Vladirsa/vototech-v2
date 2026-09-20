@@ -7,6 +7,19 @@ import { guardarEnColaOffline } from '../lib/colaOffline';
 import SubidaFotos from '../components/SubidaFotos';
 
 const PARTIDOS = ['morena', 'pan', 'pri', 'prd', 'mc', 'pvem', 'pt', 'pac'];
+// 🆕 Nombres completos de los partidos grandes — para "Avance en
+// vivo" no basta con las siglas, se necesita que el candidato
+// reconozca de un vistazo a quién le está viendo el número.
+const PARTIDOS_NOMBRE = {
+  morena: 'MORENA', pan: 'PAN — Acción Nacional', pri: 'PRI — Revolucionario Institucional',
+  prd: 'PRD — Revolución Democrática', mc: 'Movimiento Ciudadano', pvem: 'Partido Verde (PVEM)',
+  pt: 'PT — Partido del Trabajo', pac: 'PAC', rsp: 'RSP', fxm: 'Fuerza x México', panalt: 'Panal',
+  somos: 'SOMOS', paz: 'Partido PAZ',
+};
+const nombrePartido = (codigo) => PARTIDOS_NOMBRE[codigo] || codigo.toUpperCase();
+// Roles que pueden ver "Avance en vivo" — el conteo agregado de TODA
+// la campaña en tiempo real es lo más sensible que existe en Día D.
+const ROLES_AVANCE_EN_VIVO = ['candidato', 'jefe_campana', 'coord_general'];
 const ROLES_ALTOS = ['candidato', 'jefe_campana', 'coord_general'];
 // Quien va a su propia casilla a capturar no necesita ver el avance
 // de TODA la campaña — eso lo distrae y no le sirve para su tarea.
@@ -172,6 +185,11 @@ function PanelPrep({ prep }) {
 export default function DiaEleccion() {
   const usuario = useAuth((s) => s.usuario);
   const esAltoMando = ROLES_ALTOS.includes(usuario?.rol);
+  // 🆕 "Avance en vivo" solo lo puede ver el Candidato y "el
+  // coordinador" (Jefe de Campaña o Coordinador General) — es el
+  // conteo agregado de TODA la campaña en tiempo real, el dato más
+  // sensible del día de la elección.
+  const puedeVerAvanceEnVivo = ROLES_AVANCE_EN_VIVO.includes(usuario?.rol);
   const vistaSimple = ROLES_VISTA_SIMPLE.includes(usuario?.rol);
   const [tab, setTab] = useState('captura');
   const [resultados, setResultados] = useState([]);
@@ -185,18 +203,49 @@ export default function DiaEleccion() {
   const [esDemo, setEsDemo] = useState(false);
   const [simulando, setSimulando] = useState(false);
   const [mensajeSimulacion, setMensajeSimulacion] = useState('');
+  // 🆕 Notificaciones de "qué casilla acaba de subir" — se llenan al
+  // cargar (últimos reportes reales) y se van empujando en vivo cada
+  // que llega un resultado nuevo por socket.
+  const [notificaciones, setNotificaciones] = useState([]);
+  const [ultimaActualizacion, setUltimaActualizacion] = useState(null);
+  // 🆕 "hace Xs" que se recalcula solo, sin esperar a que llegue un
+  // resultado nuevo — así "🔴 EN VIVO" se ve realmente vivo.
+  const [, forzarTick] = useState(0);
+
+  const cargarConteo = () => {
+    api.get('/dia-eleccion/conteo-rapido').then((r) => { setConteoRapido(r.data.data); setUltimaActualizacion(new Date()); });
+  };
 
   const cargarTodo = () => {
     api.get('/dia-eleccion/resultados').then((r) => setResultados(r.data.data));
     api.get('/dia-eleccion/caceria').then((r) => setCaceria(r.data.data));
     api.get('/dia-eleccion/prep').then((r) => { setPrep(r.data.data); setCapturaCerrada(r.data.data.captura_cerrada); });
-    api.get('/dia-eleccion/conteo-rapido').then((r) => setConteoRapido(r.data.data));
+    cargarConteo();
     api.get('/dia-eleccion/alertas-sin-reportar').then((r) => setAlertasSinReportar(r.data.data));
+    if (puedeVerAvanceEnVivo) api.get('/dia-eleccion/ultimos-reportes').then((r) => setNotificaciones(r.data.data)).catch(() => {});
     if (!vistaSimple) api.get('/dia-eleccion/avance-estructura').then((r) => setAvanceEstructura(r.data.data)).catch(() => {});
     if (!vistaSimple) api.get('/dia-eleccion/avance-por-seccion').then((r) => setAvancePorSeccion(r.data.data)).catch(() => {});
     api.get('/auth/mi-campana').then((r) => setEsDemo(r.data.data.es_demo)).catch(() => {});
   };
   useEffect(cargarTodo, []);
+
+  // 🆕 Llenado minuto a minuto — de respaldo, por si algún evento del
+  // socket no llegó (red inestable en una casilla real). El socket
+  // sigue siendo lo primero (instantáneo); esto es la red de
+  // seguridad para que "Avance en vivo" nunca se quede pasmado.
+  useEffect(() => {
+    if (tab !== 'conteo' || !puedeVerAvanceEnVivo) return;
+    const intervalo = setInterval(cargarConteo, 60000);
+    return () => clearInterval(intervalo);
+  }, [tab, puedeVerAvanceEnVivo]);
+
+  // 🆕 Refresca el "hace Xs" cada 5 segundos, sin volver a pedir nada
+  // al servidor — solo para que el reloj de "🔴 EN VIVO" se sienta vivo.
+  useEffect(() => {
+    if (tab !== 'conteo') return;
+    const t = setInterval(() => forzarTick((n) => n + 1), 5000);
+    return () => clearInterval(t);
+  }, [tab]);
 
   const iniciarSimulacion = async () => {
     setSimulando(true);
@@ -219,11 +268,22 @@ export default function DiaEleccion() {
   // regresa a Captura — nunca debe quedarse mostrando una pantalla
   // que ya no le toca ver.
   useEffect(() => {
-    if (!esAltoMando && (tab === 'prep' || tab === 'conteo')) setTab('captura');
-  }, [esAltoMando, tab]);
+    if (!esAltoMando && tab === 'prep') setTab('captura');
+    if (!puedeVerAvanceEnVivo && tab === 'conteo') setTab('captura');
+  }, [esAltoMando, puedeVerAvanceEnVivo, tab]);
 
   useSocket({
-    resultado_actualizado: () => cargarTodo(),
+    resultado_actualizado: (p) => {
+      cargarTodo();
+      // 🆕 Notificación en vivo de qué casilla acaba de reportar —
+      // solo para quien puede ver Avance en Vivo (mismo dato sensible).
+      if (puedeVerAvanceEnVivo && p && !p.reinicio) {
+        setNotificaciones((prev) => [
+          { id: p.id, seccion_numero: p.seccion_numero, casilla: p.casilla, capturado_por_nombre: p.capturado_por_nombre, capturado_en: p.capturado_en || new Date().toISOString() },
+          ...prev.filter((n) => n.id !== p.id),
+        ].slice(0, 10));
+      }
+    },
     voto_confirmado: (p) => {
       setCaceria((prev) => prev.filter((c) => c.id !== p.id));
       // 🆕 Antes solo se actualizaba la lista de Cacería — el panel
@@ -287,10 +347,10 @@ export default function DiaEleccion() {
               información sensible de estructura — así que ahora solo
               se ven para Candidato/Jefe de Campaña/Coord. General. */}
           {esAltoMando && (
-            <>
-              <button onClick={() => setTab('prep')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'prep' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>✅ Prep</button>
-              <button onClick={() => setTab('conteo')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'conteo' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📊 Avance en vivo</button>
-            </>
+            <button onClick={() => setTab('prep')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'prep' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>✅ Prep</button>
+          )}
+          {puedeVerAvanceEnVivo && (
+            <button onClick={() => setTab('conteo')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'conteo' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📊 Avance en vivo</button>
           )}
         </div>
 
@@ -359,8 +419,20 @@ export default function DiaEleccion() {
           </div>
         )}
 
-        {tab === 'conteo' && esAltoMando && conteoRapido && (
+        {tab === 'conteo' && puedeVerAvanceEnVivo && conteoRapido && (
           <div className="space-y-3">
+            {/* 🆕 Indicador "EN VIVO" — se actualiza solo cada minuto
+                (respaldo del socket), y el reloj de "hace Xs" corre
+                aunque no llegue ningún resultado nuevo. */}
+            <div className="flex items-center justify-between bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-1.5">
+              <span className="text-[10px] font-bold text-red-400 flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" /> EN VIVO — se actualiza solo
+              </span>
+              <span className="text-[9px] text-slate-500">
+                {ultimaActualizacion ? `Hace ${Math.max(0, Math.round((Date.now() - ultimaActualizacion.getTime()) / 1000))}s` : '—'}
+              </span>
+            </div>
+
             {/* Medidor grande de avance — lo primero que se ve */}
             <div className="bg-gradient-to-br from-slate-900 to-indigo-950/40 border border-indigo-800/30 rounded-2xl p-5 text-center">
               <div className="text-4xl font-black text-white">{conteoRapido.porcentaje_reportado}%</div>
@@ -373,6 +445,47 @@ export default function DiaEleccion() {
               )}
             </div>
 
+            {/* 🆕 Estadísticos del conteo — ritmo, margen y proyección.
+                Todo calculado sobre casillas YA capturadas, nunca una
+                encuesta ni una suposición de quién va ganando. */}
+            <div className="grid grid-cols-2 gap-2">
+              <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 text-center">
+                <div className="text-lg font-black text-white">{conteoRapido.ritmo_casillas_por_hora ?? '—'}</div>
+                <div className="text-[9px] text-slate-500">Casillas/hora (ritmo real)</div>
+              </div>
+              <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 text-center">
+                <div className="text-lg font-black text-white">
+                  {conteoRapido.proyeccion_minutos_restantes != null ? `~${conteoRapido.proyeccion_minutos_restantes} min` : '—'}
+                </div>
+                <div className="text-[9px] text-slate-500">Para terminar de reportar</div>
+              </div>
+              <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 text-center">
+                <div className="text-lg font-black text-white">{conteoRapido.promedio_votos_por_casilla ?? '—'}</div>
+                <div className="text-[9px] text-slate-500">Votos promedio por casilla</div>
+              </div>
+              {conteoRapido.margen_1_2 && (
+                <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 text-center">
+                  <div className="text-lg font-black text-emerald-400">{conteoRapido.margen_1_2.diferencia_pct}%</div>
+                  <div className="text-[9px] text-slate-500">Margen {nombrePartido(conteoRapido.margen_1_2.partido_1)} vs {nombrePartido(conteoRapido.margen_1_2.partido_2)}</div>
+                </div>
+              )}
+            </div>
+
+            {/* 🆕 Notificaciones — qué casilla acaba de subir, en vivo */}
+            {notificaciones.length > 0 && (
+              <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+                <div className="text-xs font-bold text-slate-400 uppercase mb-2">📡 Últimas casillas en transmitir</div>
+                <div className="space-y-1.5 max-h-40 overflow-y-auto">
+                  {notificaciones.map((n) => (
+                    <div key={n.id} className="flex items-center justify-between text-[11px] bg-slate-800/40 rounded-lg px-2.5 py-1.5">
+                      <span className="text-slate-300">📥 Sección {n.seccion_numero} ({n.casilla}) <span className="text-slate-500">— {n.capturado_por_nombre}</span></span>
+                      <span className="text-slate-500 flex-shrink-0 ml-2">{new Date(n.capturado_en).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Votos por partido — barras horizontales, el líder resaltado */}
             <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 space-y-2">
               <div className="text-xs font-bold text-slate-400 uppercase mb-2">🗳️ Suma de votos en vivo</div>
@@ -381,7 +494,7 @@ export default function DiaEleccion() {
                 return (
                   <div key={p}>
                     <div className="flex justify-between text-xs mb-0.5">
-                      <span className={`font-bold ${i === 0 ? 'text-white' : 'text-slate-400'}`}>{i === 0 && '👑 '}{p.toUpperCase()}</span>
+                      <span className={`font-bold ${i === 0 ? 'text-white' : 'text-slate-400'}`}>{i === 0 && '👑 '}{nombrePartido(p)}</span>
                       <span className="text-slate-300">{v.toLocaleString()} ({pct}%)</span>
                     </div>
                     <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
