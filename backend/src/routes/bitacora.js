@@ -20,16 +20,30 @@ router.use(requiereAuth);
  * req.usuario.sub = quién soy, req.usuario.campana_id = mi tenant.
  */
 
+// 🆕 AMPLIADO — antes solo había 5 tipos. Se agregan los que pide el
+// Banco de Ideas (Visita, Evento, Asignación, Cambio de responsable,
+// Tarea, Seguimiento, Evidencia, Otro), sin quitar ni renombrar los
+// que ya existían — así ningún registro viejo se queda "huérfano".
 const ETIQUETA_TIPO = {
   recorrido: 'Recorrido',
   reunion: 'Reunión',
   incidencia: 'Incidencia',
   pendiente: 'Pendiente',
   nota: 'Nota',
+  visita: 'Visita',
+  evento: 'Evento',
+  asignacion: 'Asignación',
+  cambio_responsable: 'Cambio de responsable',
+  tarea: 'Tarea',
+  seguimiento: 'Seguimiento',
+  evidencia: 'Evidencia',
+  otro: 'Otro',
   cierre_jornada: 'Cierre de jornada',
 };
 const ICONO_TIPO = {
-  recorrido: '🚶', reunion: '🤝', incidencia: '⚠️', pendiente: '📌', nota: '📝', cierre_jornada: '🌙',
+  recorrido: '🚶', reunion: '🤝', incidencia: '⚠️', pendiente: '📌', nota: '📝',
+  visita: '🚪', evento: '🎪', asignacion: '🧩', cambio_responsable: '🔄',
+  tarea: '✅', seguimiento: '🔎', evidencia: '📷', otro: '📄', cierre_jornada: '🌙',
 };
 
 // ═══════════════════════════════════════════════════════════════
@@ -46,17 +60,45 @@ const ICONO_TIPO = {
 // Un coord_seccional solo ve su propia bitácora + la de su rama
 // directa (mismo criterio de aislamiento que ya usa Estructura).
 // ═══════════════════════════════════════════════════════════════
+// 🆕 AMPLIADO — antes solo se podía ver UN día (?fecha=...) y filtrar
+// por sección/usuario/tipo. Ahora también acepta:
+//   - ?fecha_inicio=...&fecha_fin=... → rango (para las vistas
+//     Semana/Mes del frontend). Si no se manda, sigue funcionando
+//     exactamente igual que antes (un solo día, hoy por defecto).
+//   - ?municipio_id=..., ?distrito_federal=..., ?distrito_local=...
+//     → filtros territoriales (antes solo existía por sección).
+//   - ?rol=coord_seccional → filtro organizativo por cargo.
+//   - ?texto=algo → buscador libre sobre título y descripción.
 router.get('/', async (req, res) => {
   const campanaId = req.usuario.campana_id;
-  const fecha = req.query.fecha || new Date().toISOString().slice(0, 10);
 
-  const condiciones = ['b.campana_id = $1', 'b.creado_en::date = $2'];
-  const valores = [campanaId, fecha];
-  let i = 3;
+  const condiciones = ['b.campana_id = $1'];
+  const valores = [campanaId];
+  let i = 2;
+
+  if (req.query.fecha_inicio && req.query.fecha_fin) {
+    condiciones.push(`b.creado_en::date BETWEEN $${i++} AND $${i++}`);
+    valores.push(req.query.fecha_inicio, req.query.fecha_fin);
+  } else {
+    const fecha = req.query.fecha || new Date().toISOString().slice(0, 10);
+    condiciones.push(`b.creado_en::date = $${i++}`);
+    valores.push(fecha);
+  }
 
   if (req.query.seccion_numero) { condiciones.push(`s.numero = $${i++}`); valores.push(parseInt(req.query.seccion_numero)); }
   if (req.query.usuario_id) { condiciones.push(`b.usuario_id = $${i++}`); valores.push(req.query.usuario_id); }
   if (req.query.tipo) { condiciones.push(`b.tipo = $${i++}`); valores.push(req.query.tipo); }
+  if (req.query.municipio_id) {
+    condiciones.push(`(b.municipio_id = $${i} OR s.municipio_id = $${i})`);
+    valores.push(parseInt(req.query.municipio_id)); i++;
+  }
+  if (req.query.distrito_federal) { condiciones.push(`s.distrito_federal = $${i++}`); valores.push(parseInt(req.query.distrito_federal)); }
+  if (req.query.distrito_local) { condiciones.push(`s.distrito_local = $${i++}`); valores.push(parseInt(req.query.distrito_local)); }
+  if (req.query.rol) { condiciones.push(`u.rol = $${i++}`); valores.push(req.query.rol); }
+  if (req.query.texto) {
+    condiciones.push(`(b.titulo ILIKE $${i} OR b.descripcion ILIKE $${i})`);
+    valores.push(`%${req.query.texto}%`); i++;
+  }
 
   // Un promotor / coord_seccional sin gente a cargo solo ve lo suyo.
   if (req.usuario.rol === 'promotor' || req.usuario.rol === 'representante_casilla') {
@@ -66,13 +108,15 @@ router.get('/', async (req, res) => {
 
   const resultado = await query(
     `SELECT b.id, b.tipo, b.titulo, b.descripcion, b.prioridad, b.estado,
-            b.seccion_id, s.numero as seccion_numero, b.municipio_id, m.nombre as municipio_nombre,
+            b.seccion_id, s.numero as seccion_numero, s.distrito_federal, s.distrito_local,
+            b.municipio_id, COALESCE(m.nombre, mSeccion.nombre) as municipio_nombre,
             b.vinculado_tipo, b.vinculado_id, b.ubicacion_lat, b.ubicacion_lng,
             b.creado_en, b.usuario_id, u.nombre as usuario_nombre, u.rol as usuario_rol
      FROM bitacora_eventos b
      JOIN usuarios u ON u.id = b.usuario_id
      LEFT JOIN secciones s ON s.id = b.seccion_id
      LEFT JOIN municipios m ON m.id = b.municipio_id
+     LEFT JOIN municipios mSeccion ON mSeccion.id = s.municipio_id
      WHERE ${condiciones.join(' AND ')}
      ORDER BY b.creado_en DESC`,
     valores
@@ -81,6 +125,31 @@ router.get('/', async (req, res) => {
   res.json({
     ok: true,
     data: resultado.rows.map((r) => ({ ...r, etiqueta: ETIQUETA_TIPO[r.tipo], icono: ICONO_TIPO[r.tipo] })),
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// GET /api/bitacora/filtros — catálogos para llenar los selectores
+// de filtro del frontend (municipios, distritos, roles que sí tienen
+// gente dada de alta) — así el filtro nunca muestra opciones vacías
+// que no llevan a ningún resultado.
+// ═══════════════════════════════════════════════════════════════
+router.get('/filtros', async (req, res) => {
+  const campanaId = req.usuario.campana_id;
+  const [municipios, distritosFederales, distritosLocales, roles] = await Promise.all([
+    query(`SELECT id, nombre FROM municipios WHERE estado_id=$1 ORDER BY nombre`, [req.usuario.estado_id]),
+    query(`SELECT DISTINCT distrito_federal FROM secciones WHERE estado_id=$1 AND distrito_federal IS NOT NULL ORDER BY distrito_federal`, [req.usuario.estado_id]),
+    query(`SELECT DISTINCT distrito_local FROM secciones WHERE estado_id=$1 AND distrito_local IS NOT NULL ORDER BY distrito_local`, [req.usuario.estado_id]),
+    query(`SELECT DISTINCT rol FROM usuarios WHERE campana_id=$1 AND activo != false ORDER BY rol`, [campanaId]),
+  ]);
+  res.json({
+    ok: true,
+    data: {
+      municipios: municipios.rows,
+      distritos_federales: distritosFederales.rows.map((r) => r.distrito_federal),
+      distritos_locales: distritosLocales.rows.map((r) => r.distrito_local),
+      roles: roles.rows.map((r) => r.rol),
+    },
   });
 });
 
@@ -143,7 +212,11 @@ router.get('/pendientes', async (req, res) => {
 // POST /api/bitacora — registro rápido (el formulario corto)
 // ═══════════════════════════════════════════════════════════════
 const esquemaEvento = z.object({
-  tipo: z.enum(['recorrido', 'reunion', 'incidencia', 'pendiente', 'nota']),
+  // 🆕 AMPLIADO — mismos 8 tipos nuevos que ETIQUETA_TIPO/ICONO_TIPO.
+  tipo: z.enum([
+    'recorrido', 'reunion', 'incidencia', 'pendiente', 'nota',
+    'visita', 'evento', 'asignacion', 'cambio_responsable', 'tarea', 'seguimiento', 'evidencia', 'otro',
+  ]),
   titulo: z.string().min(3).max(200),
   descripcion: z.string().max(2000).optional(),
   // 🆕 CORREGIDO — se llama 'seccion_numero' (el número real de la
