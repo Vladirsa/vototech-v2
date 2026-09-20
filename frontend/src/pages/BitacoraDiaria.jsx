@@ -98,6 +98,10 @@ export default function BitacoraDiaria() {
   const [eventos, setEventos] = useState([]);
   const [pendientesTodos, setPendientesTodos] = useState([]);
   const [resumen, setResumen] = useState(null);
+  // 🆕 sub-fase 1b — "¿Qué pasó hoy?" / "¿Qué cambió?" / Incidencias abiertas
+  const [resumenTexto, setResumenTexto] = useState(null);
+  const [mostrarQueCambio, setMostrarQueCambio] = useState(false);
+  const [incidenciasAbiertas, setIncidenciasAbiertas] = useState([]);
   const [cargando, setCargando] = useState(true);
   const [filtroTipo, setFiltroTipo] = useState(null);
   const [mostrarFormulario, setMostrarFormulario] = useState(false);
@@ -137,11 +141,15 @@ export default function BitacoraDiaria() {
       api.get('/bitacora', { params }),
       api.get('/bitacora/resumen-dia', { params: { fecha } }),
       api.get('/bitacora/pendientes'),
+      api.get('/bitacora/resumen-texto', { params: { fecha } }),
+      api.get('/bitacora/incidencias-abiertas'),
     ])
-      .then(([r1, r2, r3]) => {
+      .then(([r1, r2, r3, r4, r5]) => {
         setEventos(r1.data.data);
         setResumen(r2.data.data);
         setPendientesTodos(r3.data.data);
+        setResumenTexto(r4.data.data);
+        setIncidenciasAbiertas(r5.data.data);
       })
       .catch(() => setError('No se pudo cargar la bitácora. Revisa tu conexión.'))
       .finally(() => setCargando(false));
@@ -172,17 +180,49 @@ export default function BitacoraDiaria() {
           </div>
         )}
 
-        {/* ── Pestañas: Hoy / Pendientes ──────────────────────── */}
-        <div className="flex gap-2 border-b border-slate-800 pb-2">
+        {/* 🆕 "¿Qué pasó hoy?" — frase automática, solo con datos reales */}
+        {resumenTexto && (
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-3">
+            <p className="text-[10px] text-slate-500 uppercase font-bold mb-1">📋 ¿Qué pasó hoy?</p>
+            <p className="text-sm text-slate-200">{resumenTexto.resumen_texto}</p>
+            <button onClick={() => setMostrarQueCambio((v) => !v)} className="text-[11px] font-bold text-indigo-400 mt-2">
+              {mostrarQueCambio ? '▾ Ocultar "¿Qué cambió?"' : '▸ Ver "¿Qué cambió?"'}
+            </button>
+            {mostrarQueCambio && (
+              <div className="mt-2 space-y-3">
+                <ComparativoCambio titulo="Hoy vs. ayer" datos={resumenTexto.que_cambio.hoy_vs_ayer} />
+                <ComparativoCambio titulo="Esta semana vs. semana anterior" datos={resumenTexto.que_cambio.semana_vs_semana_anterior} />
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Pestañas: Hoy / Pendientes / Incidencias ────────── */}
+        <div className="flex gap-2 border-b border-slate-800 pb-2 overflow-x-auto">
           <button onClick={() => setVista('hoy')}
-            className={`px-4 py-2 rounded-lg text-sm font-bold transition-colors ${vista === 'hoy' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
+            className={`px-4 py-2 rounded-lg text-sm font-bold transition-colors whitespace-nowrap ${vista === 'hoy' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
             🕐 Línea de tiempo
           </button>
           <button onClick={() => setVista('pendientes')}
-            className={`px-4 py-2 rounded-lg text-sm font-bold transition-colors ${vista === 'pendientes' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
+            className={`px-4 py-2 rounded-lg text-sm font-bold transition-colors whitespace-nowrap ${vista === 'pendientes' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
             📌 Pendientes {pendientesTodos.length > 0 && `(${pendientesTodos.length})`}
           </button>
+          {/* 🆕 sub-fase 1b — Incidencias abiertas visibles aquí mismo, sin salir a otra pestaña */}
+          <button onClick={() => setVista('incidencias')}
+            className={`px-4 py-2 rounded-lg text-sm font-bold transition-colors whitespace-nowrap ${vista === 'incidencias' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
+            ⚠️ Incidencias {incidenciasAbiertas.length > 0 && `(${incidenciasAbiertas.length})`}
+          </button>
         </div>
+
+        {vista === 'incidencias' && (
+          <div className="space-y-2">
+            {incidenciasAbiertas.length === 0 ? (
+              <EstadoVacio texto="No hay incidencias abiertas. 🎉" />
+            ) : (
+              incidenciasAbiertas.map((inc) => <TarjetaIncidencia key={inc.id} incidencia={inc} />)
+            )}
+          </div>
+        )}
 
         {vista === 'hoy' ? (
           <>
@@ -245,7 +285,7 @@ export default function BitacoraDiaria() {
               </div>
             )}
           </>
-        ) : (
+        ) : vista === 'pendientes' ? (
           <div className="space-y-2">
             {pendientesTodos.length === 0 ? (
               <EstadoVacio texto="No hay pendientes abiertos. 🎉" />
@@ -253,7 +293,7 @@ export default function BitacoraDiaria() {
               pendientesTodos.map((p) => <TarjetaPendiente key={p.id} pendiente={p} onResuelto={cargarTodo} />)
             )}
           </div>
-        )}
+        ) : null}
 
       {/* ── Botones flotantes ──────────────────────────────────── */}
       <div className="fixed bottom-5 right-5 flex flex-col gap-3 items-end">
@@ -376,6 +416,52 @@ function TarjetaEvento({ evento, onResuelto, mostrarFecha }) {
             </button>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// 🆕 "¿Qué cambió?" — cada renglón muestra anterior/actual/cambio,
+// SIN decir si es bueno o malo (la persona decide cómo leerlo).
+function ComparativoCambio({ titulo, datos }) {
+  return (
+    <div>
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-bold text-slate-300">{titulo}</p>
+        <p className={`text-xs font-black ${datos.cambio > 0 ? 'text-emerald-400' : datos.cambio < 0 ? 'text-red-400' : 'text-slate-500'}`}>
+          {datos.anterior} → {datos.actual} ({datos.cambio > 0 ? '+' : ''}{datos.cambio})
+        </p>
+      </div>
+      {datos.detalle.length > 0 && (
+        <div className="mt-1.5 space-y-1">
+          {datos.detalle.slice(0, 6).map((d) => (
+            <div key={d.tipo} className="flex items-center justify-between text-[11px]">
+              <span className="text-slate-500">{d.etiqueta}</span>
+              <span className="text-slate-300">{d.anterior} → {d.actual} <span className={d.cambio > 0 ? 'text-emerald-400' : d.cambio < 0 ? 'text-red-400' : 'text-slate-500'}>({d.cambio > 0 ? '+' : ''}{d.cambio})</span></span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// 🆕 Panel de Incidencias abiertas dentro de Bitácora — reutiliza la
+// misma tabla del módulo Incidencias, no duplica nada.
+function TarjetaIncidencia({ incidencia }) {
+  const COLOR_URGENCIA = { urgente: 'bg-red-500/20 text-red-300', alta: 'bg-orange-500/20 text-orange-300', media: 'bg-amber-500/20 text-amber-300', baja: 'bg-slate-600/30 text-slate-300' };
+  return (
+    <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-3">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-sm font-bold text-slate-100 capitalize">{incidencia.tipo?.replace(/_/g, ' ')}</p>
+        <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold flex-shrink-0 ${COLOR_URGENCIA[incidencia.urgencia] || COLOR_URGENCIA.baja}`}>{incidencia.urgencia}</span>
+      </div>
+      <p className="text-xs text-slate-400 mt-1">{incidencia.descripcion}</p>
+      <div className="flex flex-wrap gap-1.5 mt-1.5 items-center text-[10px] text-slate-500">
+        {incidencia.reportado_por_nombre && <span>Reportó: {incidencia.reportado_por_nombre}</span>}
+        {incidencia.municipio_nombre && <span className="bg-slate-800 px-1.5 py-0.5 rounded">{incidencia.municipio_nombre}</span>}
+        {incidencia.seccion_numero && <span className="bg-slate-800 px-1.5 py-0.5 rounded">Sección {incidencia.seccion_numero}</span>}
+        <span>{new Date(incidencia.creado_en).toLocaleDateString('es-MX')}</span>
       </div>
     </div>
   );
