@@ -19,6 +19,17 @@ import api from '../lib/api';
  *   en el módulo Incidencias (lo hace el backend, no este archivo).
  * - Los "Pendientes" quedan disponibles aquí mismo hasta que alguien
  *   los marca como resueltos — no se pierden al cambiar de día.
+ *
+ * 🆕 NUEVO EN ESTA VERSIÓN (sub-fase 1a del Banco de Ideas):
+ * - Se ampliaron los tipos de registro de 5 a 13 (los que pide el
+ *   documento: Visita, Evento, Asignación, Cambio de responsable,
+ *   Tarea, Seguimiento, Evidencia, Otro).
+ * - Filtros territoriales/organizativos completos (Municipio,
+ *   Distrito Federal, Distrito Local, Cargo/rol) — antes solo se
+ *   podía filtrar por número de sección escrito a mano.
+ * - Buscador de texto libre sobre título y descripción.
+ * - Vista Día / Semana / Mes — antes solo existía un selector de un
+ *   solo día.
  */
 
 const TIPOS = [
@@ -26,7 +37,15 @@ const TIPOS = [
   { id: 'reunion', ic: '🤝', label: 'Reunión' },
   { id: 'incidencia', ic: '⚠️', label: 'Incidencia' },
   { id: 'pendiente', ic: '📌', label: 'Pendiente' },
-  { id: 'nota', ic: '📝', label: 'Nota' },
+  { id: 'visita', ic: '🚪', label: 'Visita' },
+  { id: 'evento', ic: '🎪', label: 'Evento' },
+  { id: 'asignacion', ic: '🧩', label: 'Asignación' },
+  { id: 'cambio_responsable', ic: '🔄', label: 'Cambio de responsable' },
+  { id: 'tarea', ic: '✅', label: 'Tarea' },
+  { id: 'seguimiento', ic: '🔎', label: 'Seguimiento' },
+  { id: 'evidencia', ic: '📷', label: 'Evidencia' },
+  { id: 'nota', ic: '📝', label: 'Observación' },
+  { id: 'otro', ic: '📄', label: 'Otro' },
 ];
 
 const COLOR_TIPO = {
@@ -34,7 +53,15 @@ const COLOR_TIPO = {
   reunion: 'border-emerald-500/40 bg-emerald-500/5',
   incidencia: 'border-red-500/40 bg-red-500/5',
   pendiente: 'border-amber-500/40 bg-amber-500/5',
+  visita: 'border-cyan-500/40 bg-cyan-500/5',
+  evento: 'border-pink-500/40 bg-pink-500/5',
+  asignacion: 'border-indigo-500/40 bg-indigo-500/5',
+  cambio_responsable: 'border-orange-500/40 bg-orange-500/5',
+  tarea: 'border-teal-500/40 bg-teal-500/5',
+  seguimiento: 'border-violet-500/40 bg-violet-500/5',
+  evidencia: 'border-fuchsia-500/40 bg-fuchsia-500/5',
   nota: 'border-slate-600/40 bg-slate-800/30',
+  otro: 'border-slate-600/40 bg-slate-800/30',
   cierre_jornada: 'border-purple-500/40 bg-purple-500/5',
 };
 
@@ -44,9 +71,29 @@ function horaCorta(fechaISO) {
   return new Date(fechaISO).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
 }
 
+// 🆕 Calcula el rango de fechas (inicio/fin, formato YYYY-MM-DD) que
+// corresponde a la vista Semana o Mes, a partir de una fecha ancla.
+// 'dia' regresa null porque ese caso usa ?fecha= sencillo, no rango.
+function calcularRango(vistaFecha, fechaAncla) {
+  if (vistaFecha === 'dia') return null;
+  const ancla = new Date(`${fechaAncla}T00:00:00`);
+  if (vistaFecha === 'semana') {
+    // Semana de lunes a domingo.
+    const diaSemana = (ancla.getDay() + 6) % 7; // 0 = lunes
+    const inicio = new Date(ancla); inicio.setDate(ancla.getDate() - diaSemana);
+    const fin = new Date(inicio); fin.setDate(inicio.getDate() + 6);
+    return { inicio: inicio.toISOString().slice(0, 10), fin: fin.toISOString().slice(0, 10) };
+  }
+  // 'mes'
+  const inicio = new Date(ancla.getFullYear(), ancla.getMonth(), 1);
+  const fin = new Date(ancla.getFullYear(), ancla.getMonth() + 1, 0);
+  return { inicio: inicio.toISOString().slice(0, 10), fin: fin.toISOString().slice(0, 10) };
+}
+
 export default function BitacoraDiaria() {
   const hoy = new Date().toISOString().slice(0, 10);
   const [fecha, setFecha] = useState(hoy);
+  const [vistaFecha, setVistaFecha] = useState('dia'); // 🆕 'dia' | 'semana' | 'mes'
   const [vista, setVista] = useState('hoy'); // 'hoy' | 'pendientes'
   const [eventos, setEventos] = useState([]);
   const [pendientesTodos, setPendientesTodos] = useState([]);
@@ -58,10 +105,34 @@ export default function BitacoraDiaria() {
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState('');
 
+  // 🆕 Filtros territoriales/organizativos + buscador
+  const [mostrarFiltros, setMostrarFiltros] = useState(false);
+  const [catalogosFiltro, setCatalogosFiltro] = useState({ municipios: [], distritos_federales: [], distritos_locales: [], roles: [] });
+  const [filtroMunicipio, setFiltroMunicipio] = useState('');
+  const [filtroDistritoFederal, setFiltroDistritoFederal] = useState('');
+  const [filtroDistritoLocal, setFiltroDistritoLocal] = useState('');
+  const [filtroRol, setFiltroRol] = useState('');
+  const [textoBuscar, setTextoBuscar] = useState('');
+
+  useEffect(() => {
+    api.get('/bitacora/filtros').then((r) => setCatalogosFiltro(r.data.data)).catch(() => {});
+  }, []);
+
+  const filtrosActivos = [filtroMunicipio, filtroDistritoFederal, filtroDistritoLocal, filtroRol, textoBuscar].filter(Boolean).length;
+
   const cargarTodo = useCallback(() => {
     setCargando(true);
-    const params = { fecha };
+    const params = {};
+    const rango = calcularRango(vistaFecha, fecha);
+    if (rango) { params.fecha_inicio = rango.inicio; params.fecha_fin = rango.fin; }
+    else params.fecha = fecha;
     if (filtroTipo) params.tipo = filtroTipo;
+    if (filtroMunicipio) params.municipio_id = filtroMunicipio;
+    if (filtroDistritoFederal) params.distrito_federal = filtroDistritoFederal;
+    if (filtroDistritoLocal) params.distrito_local = filtroDistritoLocal;
+    if (filtroRol) params.rol = filtroRol;
+    if (textoBuscar.trim()) params.texto = textoBuscar.trim();
+
     Promise.all([
       api.get('/bitacora', { params }),
       api.get('/bitacora/resumen-dia', { params: { fecha } }),
@@ -74,9 +145,13 @@ export default function BitacoraDiaria() {
       })
       .catch(() => setError('No se pudo cargar la bitácora. Revisa tu conexión.'))
       .finally(() => setCargando(false));
-  }, [fecha, filtroTipo]);
+  }, [fecha, vistaFecha, filtroTipo, filtroMunicipio, filtroDistritoFederal, filtroDistritoLocal, filtroRol, textoBuscar]);
 
   useEffect(() => { cargarTodo(); }, [cargarTodo]);
+
+  const limpiarFiltros = () => {
+    setFiltroMunicipio(''); setFiltroDistritoFederal(''); setFiltroDistritoLocal(''); setFiltroRol(''); setTextoBuscar('');
+  };
 
   return (
     <div className="space-y-4 pb-24">
@@ -111,26 +186,62 @@ export default function BitacoraDiaria() {
 
         {vista === 'hoy' ? (
           <>
-            {/* Selector de fecha + filtro por tipo */}
+            {/* 🆕 Selector Día / Semana / Mes */}
+            <div className="flex gap-1.5">
+              {[{ id: 'dia', label: 'Día' }, { id: 'semana', label: 'Semana' }, { id: 'mes', label: 'Mes' }].map((v) => (
+                <button key={v.id} onClick={() => setVistaFecha(v.id)}
+                  className={`flex-1 py-1.5 rounded-lg text-xs font-bold ${vistaFecha === v.id ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
+                  {v.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Selector de fecha (ancla — para semana/mes marca el día dentro del rango) + filtro por tipo */}
             <div className="flex flex-wrap gap-2 items-center">
               <input type="date" value={fecha} max={hoy} onChange={(e) => setFecha(e.target.value)}
                 className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-slate-200" />
-              <div className="flex gap-1.5 flex-wrap">
-                <ChipTipo activo={filtroTipo === null} onClick={() => setFiltroTipo(null)} label="Todos" />
-                {TIPOS.map((t) => (
-                  <ChipTipo key={t.id} activo={filtroTipo === t.id} onClick={() => setFiltroTipo(t.id)} label={`${t.ic} ${t.label}`} />
-                ))}
-              </div>
+              <button onClick={() => setMostrarFiltros((v) => !v)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 ${filtrosActivos > 0 ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
+                🗂️ Filtros {filtrosActivos > 0 && `(${filtrosActivos})`}
+              </button>
             </div>
+
+            <div className="flex gap-1.5 flex-wrap">
+              <ChipTipo activo={filtroTipo === null} onClick={() => setFiltroTipo(null)} label="Todos" />
+              {TIPOS.map((t) => (
+                <ChipTipo key={t.id} activo={filtroTipo === t.id} onClick={() => setFiltroTipo(t.id)} label={`${t.ic} ${t.label}`} />
+              ))}
+            </div>
+
+            {/* 🆕 Panel de filtros territoriales/organizativos + buscador */}
+            {mostrarFiltros && (
+              <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 space-y-2.5">
+                <input value={textoBuscar} onChange={(e) => setTextoBuscar(e.target.value)} placeholder="🔎 Buscar en bitácora..."
+                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500" />
+                <div className="grid grid-cols-2 gap-2">
+                  <SelectorFiltro label="Municipio" value={filtroMunicipio} onChange={setFiltroMunicipio}
+                    opciones={catalogosFiltro.municipios.map((m) => ({ value: m.id, label: m.nombre }))} />
+                  <SelectorFiltro label="Cargo/rol" value={filtroRol} onChange={setFiltroRol}
+                    opciones={catalogosFiltro.roles.map((r) => ({ value: r, label: r }))} />
+                  <SelectorFiltro label="Distrito Federal" value={filtroDistritoFederal} onChange={setFiltroDistritoFederal}
+                    opciones={catalogosFiltro.distritos_federales.map((d) => ({ value: d, label: `Distrito ${d}` }))} />
+                  <SelectorFiltro label="Distrito Local" value={filtroDistritoLocal} onChange={setFiltroDistritoLocal}
+                    opciones={catalogosFiltro.distritos_locales.map((d) => ({ value: d, label: `Distrito ${d}` }))} />
+                </div>
+                {filtrosActivos > 0 && (
+                  <button onClick={limpiarFiltros} className="text-[11px] font-bold text-red-400">✕ Limpiar filtros</button>
+                )}
+              </div>
+            )}
 
             {/* Línea de tiempo */}
             {cargando ? (
               <p className="text-sm text-slate-500 text-center py-8">Cargando…</p>
             ) : eventos.length === 0 ? (
-              <EstadoVacio texto="Todavía no hay nada registrado este día. Usa el botón + de abajo para el primer registro." />
+              <EstadoVacio texto="No hay nada registrado en este periodo. Usa el botón + de abajo para el primer registro." />
             ) : (
               <div className="space-y-2">
-                {eventos.map((ev) => <TarjetaEvento key={ev.id} evento={ev} onResuelto={cargarTodo} />)}
+                {eventos.map((ev) => <TarjetaEvento key={ev.id} evento={ev} onResuelto={cargarTodo} mostrarFecha={vistaFecha !== 'dia'} />)}
               </div>
             )}
           </>
@@ -196,6 +307,20 @@ function ChipTipo({ activo, onClick, label }) {
   );
 }
 
+// 🆕 Selector genérico para los filtros territoriales/organizativos.
+function SelectorFiltro({ label, value, onChange, opciones }) {
+  return (
+    <label className="block">
+      <span className="text-[10px] text-slate-500 uppercase font-bold block mb-1">{label}</span>
+      <select value={value} onChange={(e) => onChange(e.target.value)}
+        className="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white">
+        <option value="">Todos</option>
+        {opciones.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+      </select>
+    </label>
+  );
+}
+
 function EstadoVacio({ texto }) {
   return (
     <div className="text-center py-12 px-4">
@@ -205,7 +330,7 @@ function EstadoVacio({ texto }) {
   );
 }
 
-function TarjetaEvento({ evento, onResuelto }) {
+function TarjetaEvento({ evento, onResuelto, mostrarFecha }) {
   const [resolviendo, setResolviendo] = useState(false);
 
   async function marcarResuelto() {
@@ -227,11 +352,16 @@ function TarjetaEvento({ evento, onResuelto }) {
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between gap-2">
             <p className="text-sm font-bold text-slate-100 truncate">{evento.titulo}</p>
-            <span className="text-[10px] text-slate-500 flex-shrink-0">{horaCorta(evento.creado_en)}</span>
+            {/* 🆕 En vista Semana/Mes se muestra fecha además de hora, para no perderse entre varios días */}
+            <span className="text-[10px] text-slate-500 flex-shrink-0">
+              {mostrarFecha ? new Date(evento.creado_en).toLocaleDateString('es-MX', { day: '2-digit', month: 'short' }) + ' · ' : ''}
+              {horaCorta(evento.creado_en)}
+            </span>
           </div>
           {evento.descripcion && <p className="text-xs text-slate-400 mt-0.5 whitespace-pre-line">{evento.descripcion}</p>}
           <div className="flex flex-wrap gap-1.5 mt-1.5 items-center">
             <span className="text-[10px] text-slate-500">{evento.usuario_nombre}</span>
+            {evento.municipio_nombre && <span className="text-[10px] bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded">{evento.municipio_nombre}</span>}
             {evento.seccion_numero && <span className="text-[10px] bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded">Sección {evento.seccion_numero}</span>}
             {evento.tipo === 'pendiente' && (
               <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${COLOR_PRIORIDAD[evento.prioridad] || COLOR_PRIORIDAD.baja}`}>
@@ -319,10 +449,11 @@ function FormularioRegistro({ onCerrar, onGuardado, guardando, setGuardando }) {
           <button onClick={onCerrar} className="text-slate-400 text-xl leading-none">✕</button>
         </div>
 
+        {/* 🆕 Ahora son 13 tipos (antes 5) — se acomodan en 5 columnas, varias filas */}
         <div className="grid grid-cols-5 gap-1.5">
           {TIPOS.map((t) => (
             <button key={t.id} onClick={() => setTipo(t.id)}
-              className={`flex flex-col items-center gap-1 py-2 rounded-lg text-[10px] font-bold transition-colors ${
+              className={`flex flex-col items-center gap-1 py-2 rounded-lg text-[9px] font-bold transition-colors ${
                 tipo === t.id ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'
               }`}>
               <span className="text-lg">{t.ic}</span>
