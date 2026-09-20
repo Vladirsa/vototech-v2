@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useRef } from 'react';
+[Resource from Github at repo://Vladirsa/vototech-v2/sha/0dbba1aba4abe29e1cf1337e64c8ed6a42848010/contents/frontend/src/components/MapaElectoral.jsx] import { useEffect, useState, useMemo, useRef } from 'react';
 import { MapContainer, TileLayer, GeoJSON, Marker, Popup, Polyline, LayersControl, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 // NOTA: se probó importar 'leaflet/dist/leaflet.css' aquí, pero eso
@@ -325,12 +325,23 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
   const abrirResumenMunicipio = () => {
     if (territorioTipo !== 'municipio' || !territorioId) return;
     setMostrarResumenMunicipio(true);
+  };
+  // 🆕 CORRECCIÓN — antes la ficha técnica del municipio se pedía UNA
+  // sola vez al abrir el panel, sin mandar el año y sin volver a
+  // pedirse si cambiabas de año con el panel ya abierto. Por eso
+  // siempre se veía "RESULTADOS ACUMULADOS (2024)" aunque escogieras
+  // 2021 arriba en el mapa. Ahora se vuelve a pedir cada vez que
+  // cambia el año o el municipio, mientras el panel esté abierto.
+  useEffect(() => {
+    if (!mostrarResumenMunicipio || territorioTipo !== 'municipio' || !territorioId) return;
     setCargandoResumen(true);
-    api.get(`/priorizacion/municipio/${territorioId}`)
+    setResumenMunicipio(null);
+    const parametroAnio = anio ? `?anio=${anio}` : '';
+    api.get(`/priorizacion/municipio/${territorioId}${parametroAnio}`)
       .then(r => setResumenMunicipio(r.data.data))
       .catch(() => setResumenMunicipio(null))
       .finally(() => setCargandoResumen(false));
-  };
+  }, [mostrarResumenMunicipio, territorioTipo, territorioId, anio]);
   const [filtroPartido, setFiltroPartido] = useState('todos');
   const promovidosFiltrados = useMemo(() => {
     if (filtroPartido === 'todos') return promovidosConPosicion;
