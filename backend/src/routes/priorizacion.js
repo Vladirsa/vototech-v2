@@ -390,12 +390,26 @@ router.get('/seccion/:numero', async (req, res) => {
     // se mantiene Distrito Federal / Distrito Local, que ahí sí aplica.
     const esCampanaDeUnMunicipio = campana.territorio_tipo === 'municipio';
 
-    const [equipoSeccionRes, responsableMunicipioRes] = await Promise.all([
+    // 🆕 CORRECCIÓN REAL — "equipo_en_seccion" solo leía usuarios dados
+    // de alta con territorio_tipo='seccion' directamente en la tabla
+    // usuarios. Pero "Modo Sectorización" (trazar zonas en el mapa)
+    // asigna en OTRA tabla (zonas_asignadas — ver routes/zonas.js), así
+    // que un responsable puesto por ahí nunca aparecía aquí, aunque la
+    // asignación sí se hubiera guardado bien. Ahora se combinan las
+    // dos fuentes.
+    const [equipoSeccionRes, equipoPorZonaRes, responsableMunicipioRes] = await Promise.all([
       query(
         `SELECT nombre, rol, puesto FROM usuarios
          WHERE campana_id=$1 AND territorio_tipo='seccion' AND territorio_id=$2 AND activo != false
          ORDER BY rol, nombre`,
         [campanaId, numero]
+      ),
+      query(
+        `SELECT u.nombre, u.rol, 'Asignado por Sectorización' as puesto FROM zonas_asignadas z
+         JOIN usuarios u ON u.id = z.usuario_id
+         WHERE z.campana_id=$1 AND z.seccion_id=$2 AND u.activo != false
+         ORDER BY u.nombre`,
+        [campanaId, seccion.id]
       ),
       query(
         `SELECT nombre FROM usuarios
@@ -405,6 +419,11 @@ router.get('/seccion/:numero', async (req, res) => {
       ),
     ]);
     const responsableMunicipio = responsableMunicipioRes.rows[0] || null;
+    // Se combinan las dos fuentes evitando mostrar a la misma persona dos veces.
+    const equipoCombinado = [...equipoSeccionRes.rows];
+    equipoPorZonaRes.rows.forEach((z) => {
+      if (!equipoCombinado.some((e) => e.nombre === z.nombre)) equipoCombinado.push(z);
+    });
 
     let responsableDistritoFederal = null, responsableDistritoLocal = null;
     let region = null, responsableRegion = null;
@@ -532,7 +551,7 @@ router.get('/seccion/:numero', async (req, res) => {
         // 🆕 NUEVO — datos reales de "quién trabaja aquí", antes
         // ausentes por completo de esta respuesta.
         tipo_estructura: esCampanaDeUnMunicipio ? 'regional' : 'distrital',
-        equipo_en_seccion: equipoSeccionRes.rows,
+        equipo_en_seccion: equipoCombinado,
         responsable_municipio: responsableMunicipio,
         region: region,
         responsable_region: responsableRegion,

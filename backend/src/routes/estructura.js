@@ -272,9 +272,23 @@ router.get('/cobertura-mapa', async (req, res) => {
   const campanaId = req.usuario.campana_id;
   const estadoId = req.usuario.estado_id;
 
-  const [secciones, responsables, actividad] = await Promise.all([
+  // 🆕 CORRECCIÓN REAL — esto solo buscaba responsables dados de alta
+  // con el rol EXACTO 'coord_seccional' y territorio_tipo='seccion'
+  // en la tabla usuarios. Pero "Modo Sectorización" (el que traza
+  // zonas en el mapa) NO asigna así — guarda la asignación en la
+  // tabla zonas_asignadas (ver routes/zonas.js, POST /zonas/asignar),
+  // con cualquier usuario/rol que elijas del selector. Por eso una
+  // sección con responsable asignado por Sectorización SIEMPRE se
+  // veía en rojo ("sin responsable") aquí. Ahora se cuentan las DOS
+  // fuentes: el responsable "formal" por rol, y cualquier asignación
+  // hecha desde Sectorización.
+  const [secciones, responsablesPorRol, responsablesPorZona, actividad] = await Promise.all([
     query(`SELECT DISTINCT s.numero FROM casillas c JOIN secciones s ON s.id = c.seccion_id WHERE c.campana_id=$1`, [campanaId]),
     query(`SELECT territorio_id FROM usuarios WHERE campana_id=$1 AND rol='coord_seccional' AND territorio_tipo='seccion' AND territorio_id IS NOT NULL AND activo != false`, [campanaId]),
+    query(
+      `SELECT s.numero FROM zonas_asignadas z JOIN secciones s ON s.id = z.seccion_id WHERE z.campana_id=$1`,
+      [campanaId]
+    ),
     query(
       `SELECT s.numero FROM promovidos p JOIN secciones s ON s.id = p.seccion_id
        WHERE p.campana_id=$1 AND p.creado_en > now() - interval '14 days' GROUP BY s.numero`,
@@ -282,7 +296,10 @@ router.get('/cobertura-mapa', async (req, res) => {
     ),
   ]);
 
-  const conResponsable = new Set(responsables.rows.map((r) => r.territorio_id));
+  const conResponsable = new Set([
+    ...responsablesPorRol.rows.map((r) => r.territorio_id),
+    ...responsablesPorZona.rows.map((r) => r.numero),
+  ]);
   const conActividad = new Set(actividad.rows.map((a) => a.numero));
 
   const clasificacion = {};
