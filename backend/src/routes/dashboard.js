@@ -114,13 +114,51 @@ router.get('/resumen', async (req, res) => {
     );
     const reportesHoy = parseInt(reportesHoyRes.rows[0].total);
 
-    const actividadDistritoRes = await query(
-      `SELECT s.distrito_local, COUNT(*) as total
-       FROM promovidos p JOIN secciones s ON s.id = p.seccion_id
-       WHERE p.campana_id=$1 AND p.creado_en > now() - interval '7 days' AND s.distrito_local IS NOT NULL
-       GROUP BY s.distrito_local ORDER BY s.distrito_local`,
-      [campanaId]
-    );
+    // 🆕 CORRECCIÓN REAL — antes SIEMPRE agrupaba por Distrito Local,
+    // aunque la campaña fuera de un solo municipio (Ayuntamiento /
+    // Presidencia de Comunidad). En una campaña municipal, TODAS las
+    // secciones caen en el mismo distrito (o en unos pocos), así que
+    // ese desglose no sirve de nada — la persona ve un solo bloque de
+    // color y piensa que el módulo no funciona. Ahora, si la campaña
+    // es de un solo municipio, se agrupa por SECCIÓN (mismo criterio
+    // que ya usa "Dónde se está trabajando más" en la vista ejecutiva
+    // y "municipios en riesgo" — ver dashboard/ejecutivo). Si la
+    // campaña abarca varios municipios (Distrito Local/Federal,
+    // estatal), se agrupa por MUNICIPIO, que sí varía de verdad. Solo
+    // cuando la campaña es de Diputación (territorio realmente
+    // organizado por distrito) se mantiene el desglose por distrito.
+    const esCampanaDeUnMunicipio = campana.territorio_tipo === 'municipio';
+    const esCampanaDeDistrito = campana.territorio_tipo === 'distrito_local' || campana.territorio_tipo === 'distrito_federal';
+    let unidadActividad, actividadDistritoRes;
+    if (esCampanaDeUnMunicipio) {
+      unidadActividad = 'seccion';
+      actividadDistritoRes = await query(
+        `SELECT s.numero as clave, COUNT(*) as total
+         FROM promovidos p JOIN secciones s ON s.id = p.seccion_id
+         WHERE p.campana_id=$1 AND p.creado_en > now() - interval '7 days'
+         GROUP BY s.numero ORDER BY s.numero`,
+        [campanaId]
+      );
+    } else if (esCampanaDeDistrito) {
+      unidadActividad = 'distrito';
+      const columnaDistrito = campana.territorio_tipo === 'distrito_federal' ? 's.distrito_federal' : 's.distrito_local';
+      actividadDistritoRes = await query(
+        `SELECT ${columnaDistrito} as clave, COUNT(*) as total
+         FROM promovidos p JOIN secciones s ON s.id = p.seccion_id
+         WHERE p.campana_id=$1 AND p.creado_en > now() - interval '7 days' AND ${columnaDistrito} IS NOT NULL
+         GROUP BY ${columnaDistrito} ORDER BY ${columnaDistrito}`,
+        [campanaId]
+      );
+    } else {
+      unidadActividad = 'municipio';
+      actividadDistritoRes = await query(
+        `SELECT m.nombre as clave, COUNT(*) as total
+         FROM promovidos p JOIN secciones s ON s.id = p.seccion_id JOIN municipios m ON m.id = s.municipio_id
+         WHERE p.campana_id=$1 AND p.creado_en > now() - interval '7 days'
+         GROUP BY m.nombre ORDER BY total DESC`,
+        [campanaId]
+      );
+    }
 
     const actividadRecienteRes = await query(
       `SELECT p.nombre as promovido, u.nombre as promotor, p.creado_en, s.numero as seccion_numero
@@ -192,7 +230,13 @@ router.get('/resumen', async (req, res) => {
         alertas,
         secciones_criticas: secciohesCriticas.slice(0, 6),
         agenda_hoy: agendaHoyRes.rows,
+        // 🆕 Antes "actividad_por_distrito" con la clave fija
+        // "distrito_local" (siempre). Ahora la clave se llama
+        // "clave" (genérica) y se manda "unidad_actividad" para que
+        // el frontend sepa qué etiqueta mostrar y qué representa
+        // cada bloque del mapa de calor.
         actividad_por_distrito: actividadDistritoRes.rows,
+        unidad_actividad: unidadActividad,
         actividad_reciente: actividadRecienteRes.rows,
         mejor_promotor: mejorPromotorRes.rows[0] || null,
         coordinadores: coordinadoresRes.rows,
