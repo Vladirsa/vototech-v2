@@ -4,6 +4,7 @@ import CentroMando from './CentroMando';
 import Reportes from './Reportes';
 import Priorizacion from './Priorizacion';
 import EstadisticaProbabilidad from './EstadisticaProbabilidad';
+import BitacoraDiaria from './BitacoraDiaria';
 import api from '../lib/api';
 
 /**
@@ -28,6 +29,11 @@ import api from '../lib/api';
  * pestaña principal — es contenido de decisión, no un sub-reporte.
  * El resto de "Análisis" (Análisis histórico, Ficha del Estado,
  * Senado/Fed./Local) se retiró del sistema.
+ *
+ * 🆕 NUEVO — "Bitácora" (antes vivía en "Movilización y Operación")
+ * también se movió aquí — la bitácora de campo alimenta directamente
+ * la inteligencia electoral, tiene más sentido tenerla junto con
+ * Reportes/Priorización que escondida en la operación diaria.
  */
 export default function InteligenciaElectoral() {
   const [tab, setTab] = useState('centro-mando');
@@ -37,6 +43,7 @@ export default function InteligenciaElectoral() {
     { id: 'reportes', ic: '📊', label: 'Reportes' },
     { id: 'priorizacion', ic: '🎯', label: 'Priorización' },
     { id: 'estadistica-probabilidad', ic: '🎲', label: 'Estadística y Probabilidad' },
+    { id: 'bitacora', ic: '📔', label: 'Bitácora' },
   ];
 
   useEffect(() => {
@@ -85,6 +92,7 @@ export default function InteligenciaElectoral() {
           {tab === 'reportes' && <Reportes />}
           {tab === 'priorizacion' && <Priorizacion />}
           {tab === 'estadistica-probabilidad' && <EstadisticaProbabilidad />}
+          {tab === 'bitacora' && <BitacoraDiaria />}
         </div>
       </div>
     </div>
