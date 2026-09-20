@@ -34,8 +34,15 @@ const ICONO_TIPO = {
 
 // ═══════════════════════════════════════════════════════════════
 // GET /api/bitacora — Línea de tiempo
-// Filtros opcionales por querystring: ?fecha=2026-09-19&seccion_id=34
+// Filtros opcionales por querystring: ?fecha=2026-09-19&seccion_numero=34
 // &usuario_id=<uuid>&tipo=recorrido. Sin ?fecha, regresa HOY.
+// 🆕 CORREGIDO — el filtro usa 'seccion_numero' (el número real de
+// la sección, ej. 034, que es lo único que la persona conoce y lo
+// que manda el frontend) y compara contra s.numero, NO contra
+// b.seccion_id (que es el id interno de la tabla secciones — un
+// número completamente distinto, aunque a veces coincida por
+// casualidad en secciones bajas). Mismo criterio que ya usa
+// incidencias.js para no confundir ambos números.
 // Un coord_seccional solo ve su propia bitácora + la de su rama
 // directa (mismo criterio de aislamiento que ya usa Estructura).
 // ═══════════════════════════════════════════════════════════════
@@ -47,7 +54,7 @@ router.get('/', async (req, res) => {
   const valores = [campanaId, fecha];
   let i = 3;
 
-  if (req.query.seccion_id) { condiciones.push(`b.seccion_id = $${i++}`); valores.push(parseInt(req.query.seccion_id)); }
+  if (req.query.seccion_numero) { condiciones.push(`s.numero = $${i++}`); valores.push(parseInt(req.query.seccion_numero)); }
   if (req.query.usuario_id) { condiciones.push(`b.usuario_id = $${i++}`); valores.push(req.query.usuario_id); }
   if (req.query.tipo) { condiciones.push(`b.tipo = $${i++}`); valores.push(req.query.tipo); }
 
@@ -139,7 +146,12 @@ const esquemaEvento = z.object({
   tipo: z.enum(['recorrido', 'reunion', 'incidencia', 'pendiente', 'nota']),
   titulo: z.string().min(3).max(200),
   descripcion: z.string().max(2000).optional(),
-  seccion_id: z.number().int().optional(),
+  // 🆕 CORREGIDO — se llama 'seccion_numero' (el número real de la
+  // sección, ej. 034, que es lo único que la persona en campo conoce
+  // y lo que teclea en el formulario). El id interno de la tabla
+  // secciones se resuelve aquí abajo, nunca se le pide a la persona
+  // ni se manda desde el frontend — mismo criterio que incidencias.js.
+  seccion_numero: z.number().int().optional(),
   municipio_id: z.number().int().optional(),
   prioridad: z.enum(['baja', 'media', 'alta']).optional(),
   ubicacion_lat: z.number().optional(),
@@ -154,6 +166,16 @@ router.post('/', async (req, res) => {
   const d = parseado.data;
   if (d.tipo === 'pendiente' && !d.prioridad) d.prioridad = 'media';
 
+  // Traduce el número de sección (034) al id interno de la tabla
+  // secciones — igual que hace incidencias.js. Si el número no
+  // existe en el estado de la campaña, sencillamente se guarda sin
+  // sección (nunca se rechaza el registro completo por esto).
+  let seccionId = null;
+  if (d.seccion_numero) {
+    const s = await query('SELECT id FROM secciones WHERE estado_id=$2 AND numero=$1', [d.seccion_numero, req.usuario.estado_id]);
+    seccionId = s.rows[0]?.id || null;
+  }
+
   try {
     const resultado = await query(
       `INSERT INTO bitacora_eventos
@@ -161,7 +183,7 @@ router.post('/', async (req, res) => {
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
        RETURNING id, tipo, titulo, creado_en`,
       [req.usuario.campana_id, req.usuario.sub, d.tipo, d.titulo, d.descripcion || null,
-       d.seccion_id || null, d.municipio_id || null, d.prioridad || null,
+       seccionId, d.municipio_id || null, d.prioridad || null,
        d.ubicacion_lat ?? null, d.ubicacion_lng ?? null]
     );
 
@@ -170,12 +192,19 @@ router.post('/', async (req, res) => {
     // bitácora es "dónde se anotó", incidencias sigue siendo la
     // fuente de verdad para el semáforo de secciones). Si algo falla
     // aquí, el evento de bitácora YA quedó guardado — no se pierde.
-    if (d.tipo === 'incidencia' && d.seccion_id) {
+    if (d.tipo === 'incidencia' && seccionId) {
       try {
+        // 🆕 'tipo' usa 'otro' — es el único valor del enum de
+        // incidencias.js que no exige más contexto (compra_votos,
+        // violencia, irregularidad, etc. necesitarían que la persona
+        // ya lo clasificara desde la bitácora, lo cual no pide el
+        // formulario corto). 'urgencia' sí puede tomar directo la
+        // prioridad elegida — 'baja'/'media'/'alta' son valores
+        // válidos en ambas tablas.
         const incidencia = await query(
           `INSERT INTO incidencias (campana_id, seccion_id, tipo, urgencia, descripcion, reportado_por, estado)
-           VALUES ($1,$2,'general',$3,$4,$5,'activa') RETURNING id`,
-          [req.usuario.campana_id, d.seccion_id, d.prioridad === 'alta' ? 'alta' : 'media', d.descripcion || d.titulo, req.usuario.sub]
+           VALUES ($1,$2,'otro',$3,$4,$5,'activa') RETURNING id`,
+          [req.usuario.campana_id, seccionId, d.prioridad || 'media', d.descripcion || d.titulo, req.usuario.sub]
         );
         await query(`UPDATE bitacora_eventos SET vinculado_tipo='incidencia', vinculado_id=$1 WHERE id=$2`, [incidencia.rows[0].id, resultado.rows[0].id]);
       } catch (e) {
