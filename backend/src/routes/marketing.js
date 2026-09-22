@@ -6,6 +6,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { createClient } from '@supabase/supabase-js';
 import { query } from '../db/pool.js';
 import { requiereAuth, requiereRol } from '../middleware/auth.js';
+import { enviarPushMasivo } from './push.js';
 
 const router = Router();
 router.use(requiereAuth);
@@ -451,6 +452,65 @@ const esquemaMonitoreo = z.object({
   descripcion: z.string().min(3).max(2000),
   url_post: z.string().max(500).optional(),
   urgencia: z.enum(['baja', 'media', 'alta']).default('media'),
+});
+
+// ═══════════════════════════════════════════════════════════════
+// 🆕 PIEZAS DE DIFUSIÓN — el equipo de redes sube UNA pieza de
+// contenido (texto + foto, la misma que genera "Redes Sociales" con
+// IA) y le llega notificación push a TODOS los promotores: "sube
+// esto a tus redes y mándalo a tu gente". Cada promotor decide
+// cuándo y cómo lo hace desde su propia pantalla — el sistema nunca
+// publica ni manda nada por su cuenta, solo avisa.
+// ═══════════════════════════════════════════════════════════════
+
+const esquemaPieza = z.object({
+  texto: z.string().min(3).max(2000),
+  imagen_url: z.string().max(500).optional(),
+});
+
+router.post('/piezas', async (req, res) => {
+  const parseado = esquemaPieza.safeParse(req.body);
+  if (!parseado.success) return res.status(400).json({ ok: false, error: parseado.error.errors[0].message });
+  const d = parseado.data;
+
+  const resultado = await query(
+    `INSERT INTO piezas_difusion (campana_id, texto, imagen_url, creado_por) VALUES ($1,$2,$3,$4) RETURNING *`,
+    [req.usuario.campana_id, d.texto, d.imagen_url || null, req.usuario.sub]
+  );
+
+  const promotores = await query(
+    `SELECT id FROM usuarios WHERE campana_id=$1 AND rol='promotor' AND activo != false`,
+    [req.usuario.campana_id]
+  );
+  enviarPushMasivo(promotores.rows.map((p) => p.id), {
+    titulo: '📣 Nuevo contenido para compartir',
+    cuerpo: 'El equipo de redes subió algo nuevo — súbelo a tus redes y mándalo a tu gente por WhatsApp.',
+    url: '/mi-avance',
+  });
+
+  res.status(201).json({ ok: true, data: resultado.rows[0], notificados: promotores.rows.length });
+});
+
+router.get('/piezas', async (req, res) => {
+  const resultado = await query(
+    `SELECT pd.*, u.nombre as creado_por_nombre FROM piezas_difusion pd
+     LEFT JOIN usuarios u ON u.id = pd.creado_por
+     WHERE pd.campana_id=$1 ORDER BY pd.creado_en DESC LIMIT 50`,
+    [req.usuario.campana_id]
+  );
+  res.json({ ok: true, data: resultado.rows });
+});
+
+// La pieza más reciente — la usa "Mi Avance" para mostrar el banner
+// de "tienes contenido nuevo". El promotor decide si ya la vio (se
+// recuerda solo en su propio celular, no hace falta guardarlo en el
+// servidor).
+router.get('/piezas/ultima', async (req, res) => {
+  const resultado = await query(
+    `SELECT * FROM piezas_difusion WHERE campana_id=$1 ORDER BY creado_en DESC LIMIT 1`,
+    [req.usuario.campana_id]
+  );
+  res.json({ ok: true, data: resultado.rows[0] || null });
 });
 
 router.post('/monitoreo-redes', upload.single('captura'), async (req, res) => {

@@ -291,6 +291,22 @@ router.get('/mi-resumen', async (req, res) => {
   });
 });
 
+// 🆕 TODOS los promovidos propios con teléfono (comprometidos o no)
+// — la usa "Mi Avance" para repartir contenido de campaña (lo que
+// sube el equipo de redes) a toda su gente, no solo a los ya
+// comprometidos a votar.
+router.get('/mis-contactos', async (req, res) => {
+  const resultado = await query(
+    `SELECT p.id, p.nombre, p.telefono, s.numero as seccion_numero
+     FROM promovidos p LEFT JOIN secciones s ON s.id = p.seccion_id
+     WHERE p.campana_id=$1 AND p.registrado_por=$2
+       AND p.telefono IS NOT NULL AND p.telefono <> ''
+     ORDER BY p.nombre`,
+    [req.usuario.campana_id, req.usuario.sub]
+  );
+  res.json({ ok: true, data: resultado.rows });
+});
+
 // 🆕 Lista propia de comprometidos CON teléfono — es la que usa "Mi
 // Avance" para armar los recordatorios de voto: cada promotor manda
 // el mensaje por SU whatsapp, a SU gente, nunca pasa por el servidor.
