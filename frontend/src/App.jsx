@@ -36,6 +36,11 @@ const Landing = lazy(() => import('./pages/Landing'));
 const TerminosPublico = lazy(() => import('./pages/TerminosPublico'));
 const ContratoPublico = lazy(() => import('./pages/ContratoPublico'));
 const PosturaLegal = lazy(() => import('./pages/PosturaLegal'));
+// 🆕 Aviso de Privacidad Integral — antes solo vivía como resumen
+// dentro de TerminosPublico.jsx; ahora tiene su propia página
+// completa (responsable/encargado, datos sensibles, transferencias
+// a proveedores, derechos ARCO), como exige la LFPDPPP.
+const AvisoPrivacidad = lazy(() => import('./pages/AvisoPrivacidad'));
 const RecuperarPassword = lazy(() => import('./pages/RecuperarPassword'));
 const PromotorHome = lazy(() => import('./pages/PromotorHome'));
 const AdminPlataforma = lazy(() => import('./pages/AdminPlataforma'));
@@ -89,6 +94,7 @@ export default function App() {
             <Route path="/terminos" element={<TerminosPublico />} />
             <Route path="/contrato" element={<ContratoPublico />} />
             <Route path="/postura-legal" element={<PosturaLegal />} />
+            <Route path="/aviso-privacidad" element={<AvisoPrivacidad />} />
             <Route path="/recuperar-password" element={<RecuperarPassword />} />
             <Route
               path="/mi-avance"
