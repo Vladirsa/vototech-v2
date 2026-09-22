@@ -41,14 +41,27 @@ export default function RegistroCampana() {
     territorio_tipo: '', territorio_id: '', acepta_terminos: false, nombre_firma: '',
   });
   const [municipios, setMunicipios] = useState([]);
+  // 🆕 Antes el estado siempre era Tlaxcala (29), fijo — sin forma de
+  // elegir otro. Ahora se cargan los 32 estados desde el backend
+  // (público, no requiere estar registrado) y el candidato elige el
+  // suyo en el paso 3, antes de elegir municipio/distrito.
+  const [estados, setEstados] = useState([]);
   const [error, setError] = useState('');
   const [cargando, setCargando] = useState(false);
   const [exito, setExito] = useState(null);
   const navigate = useNavigate();
 
   useEffect(() => {
-    api.get('/geo/municipios/29').then((r) => setMunicipios(r.data.data));
+    api.get('/geo/estados').then((r) => setEstados(r.data.data)).catch(() => {});
   }, []);
+
+  // 🆕 Los municipios ahora se piden del estado que el candidato elija
+  // (form.estado_id), no siempre de Tlaxcala — y si cambia de estado
+  // después de haber elegido un municipio, ese municipio se borra para
+  // no dejar seleccionado por accidente uno que ya no aplica.
+  useEffect(() => {
+    api.get(`/geo/municipios/${form.estado_id}`).then((r) => setMunicipios(r.data.data)).catch(() => {});
+  }, [form.estado_id]);
 
   const actualizar = (campo, valor) => setForm((f) => ({ ...f, [campo]: valor }));
 
@@ -205,13 +218,24 @@ export default function RegistroCampana() {
 
           {paso === 3 && (
             <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-400 mb-1.5">¿En qué estado compites?</label>
+                <select value={form.estado_id} onChange={(e) => {
+                  actualizar('estado_id', parseInt(e.target.value));
+                  actualizar('territorio_id', ''); // se borra: un municipio/distrito del estado anterior ya no aplica
+                }}
+                  className="w-full px-4 py-2.5 rounded-xl bg-slate-800/80 border border-slate-700 text-white text-sm">
+                  {estados.map((e) => <option key={e.id} value={e.id}>{e.nombre}</option>)}
+                </select>
+              </div>
+
               <label className="block text-xs font-semibold text-slate-400 mb-1">
                 {form.territorio_tipo === 'estatal' ? 'Tu territorio' : form.territorio_tipo === 'municipio' ? '¿Cuál es tu municipio?' : '¿Cuál es tu distrito?'}
               </label>
 
               {form.territorio_tipo === 'estatal' ? (
                 <div className="px-4 py-3 rounded-xl bg-slate-800/50 border border-slate-700 text-slate-300 text-sm">
-                  🗺️ Todo el estado de Tlaxcala — no necesitas elegir nada más aquí.
+                  🗺️ Todo el estado de {estados.find((e) => e.id === form.estado_id)?.nombre || 'tu estado'} — no necesitas elegir nada más aquí.
                 </div>
               ) : form.territorio_tipo === 'municipio' ? (
                 <select value={form.territorio_id} onChange={(e) => actualizar('territorio_id', e.target.value)}
