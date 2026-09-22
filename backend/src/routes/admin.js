@@ -671,6 +671,50 @@ router.post('/importar-cartografia-estado', upload.single('geojson'), async (req
     });
   }
 
+  // 🆕 BLINDAJE "ARCHIVO DE OTRO ESTADO" — esto es lo que destruyó el
+  // mapa de Tlaxcala el 21-sep-2026: se subió el archivo de Baja
+  // California Sur con Tlaxcala seleccionado en el selector de estado,
+  // y el importador sobrescribió 535 secciones de Tlaxcala con
+  // polígonos de BCS (porque los números de sección coinciden entre
+  // estados) y creó municipios "La Paz", "Los Cabos"... dentro de
+  // Tlaxcala. Ahora se revisan DOS cosas antes de tocar la base:
+  //
+  // 1) Si el archivo trae la clave de entidad del INE (casi todos los
+  //    archivos oficiales la traen: "entidad", "ENTIDAD", "CVE_ENT"),
+  //    tiene que coincidir con el estado elegido.
+  // 2) Si el estado YA tiene secciones con mapa, el archivo nuevo tiene
+  //    que caer en la misma zona geográfica (a menos de ~2.5 grados del
+  //    centro del mapa que ya existe). Un archivo de otro estado cae
+  //    a cientos de kilómetros y se rechaza.
+  const CAMPOS_ENTIDAD = ['entidad', 'ENTIDAD', 'Entidad', 'CVE_ENT', 'cve_ent', 'ENT', 'estado_id'];
+  const entidadArchivo = primerCampoQueExista(geo.features[0].properties || {}, CAMPOS_ENTIDAD);
+  if (entidadArchivo !== null && parseInt(entidadArchivo) !== parseInt(estado_id)) {
+    return res.status(422).json({
+      ok: false,
+      error: `Este archivo es del estado con clave INE ${parseInt(entidadArchivo)}, pero seleccionaste el estado ${estado_id}. No se guardó nada.`,
+      sugerencia: 'Revisa el selector de estado en el panel antes de subir el archivo — elige el estado al que de verdad pertenece la cartografía.',
+    });
+  }
+  const centroExistente = await query(
+    `SELECT AVG((geometria->'coordinates'->0->0->>0)::float) AS lng,
+            AVG((geometria->'coordinates'->0->0->>1)::float) AS lat
+     FROM secciones WHERE estado_id=$1 AND geometria IS NOT NULL AND geometria->>'type'='Polygon'`,
+    [estado_id]
+  );
+  const centro = centroExistente.rows[0];
+  if (centro?.lng !== null && centro?.lng !== undefined) {
+    let punto = geo.features[0].geometry.coordinates;
+    while (Array.isArray(punto) && Array.isArray(punto[0])) punto = punto[0];
+    const distanciaGrados = Math.hypot(punto[0] - centro.lng, punto[1] - centro.lat);
+    if (distanciaGrados > 2.5) {
+      return res.status(422).json({
+        ok: false,
+        error: 'Este archivo está en una zona geográfica muy lejana al mapa que ya tiene este estado — parece ser la cartografía de OTRO estado. No se guardó nada para no dañar el mapa actual.',
+        sugerencia: 'Revisa que el estado seleccionado en el panel sea el correcto antes de volver a subir el archivo.',
+      });
+    }
+  }
+
   // Muestra las propiedades reales del primer elemento si algo
   // esencial no se detecta — así no hay que adivinar a ciegas.
   const propiedadesEjemplo = geo.features[0].properties;
