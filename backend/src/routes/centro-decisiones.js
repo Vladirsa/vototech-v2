@@ -491,8 +491,11 @@ router.get('/alertas', async (req, res) => {
   if (estado && estado !== 'todas') { filtros += ` AND estado=$${params.length + 1}`; params.push(estado); }
   else if (!estado) { filtros += ` AND estado NOT IN ('resuelta','descartada')`; }
 
+  // 🆕 Se agrega el teléfono del responsable — lo usa el frontend
+  // para armar el botón "📲 WhatsApp" de cada alerta (abre WhatsApp
+  // con un mensaje ya escrito, la persona lo revisa y lo manda).
   const resultado = await query(
-    `SELECT a.*, u.nombre as responsable_nombre FROM alertas_sistema a
+    `SELECT a.*, u.nombre as responsable_nombre, u.telefono as responsable_telefono FROM alertas_sistema a
      LEFT JOIN usuarios u ON u.id = a.responsable_relacionado_id
      WHERE a.campana_id=$1 ${filtros}
      ORDER BY CASE nivel WHEN 'critica' THEN 1 WHEN 'alta' THEN 2 WHEN 'media' THEN 3 WHEN 'baja' THEN 4 ELSE 5 END, fecha_deteccion DESC`,
