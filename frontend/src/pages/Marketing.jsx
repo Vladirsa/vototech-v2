@@ -567,6 +567,12 @@ function PanelRedesSociales() {
   const [textoElegido, setTextoElegido] = useState('');
   const [error, setError] = useState('');
   const [compartidoSoportado, setCompartidoSoportado] = useState(true);
+  // 🆕 "Enviar a mis promotores" — sube esta misma pieza (texto +
+  // foto) y le llega notificación push a todo el equipo de campo:
+  // "súbela a tus redes y mándala a tu gente". El sistema nunca
+  // publica ni manda nada solo, solo avisa a cada promotor.
+  const [enviandoPromotores, setEnviandoPromotores] = useState(false);
+  const [avisoPromotores, setAvisoPromotores] = useState(null);
 
   const elegirImagen = (archivo) => {
     setImagen(archivo);
@@ -597,6 +603,23 @@ function PanelRedesSociales() {
       }
       await navigator.share(datosCompartir);
     } catch (e) { /* la persona canceló el menú de compartir — no es un error real */ }
+  };
+
+  const enviarAPromotores = async () => {
+    setEnviandoPromotores(true);
+    setAvisoPromotores(null);
+    try {
+      let imagenUrl;
+      if (imagen) {
+        const fd = new FormData();
+        fd.append('imagen', imagen);
+        const { data: subida } = await api.post('/marketing/subir-imagen-envio', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+        imagenUrl = subida.data.url;
+      }
+      const { data } = await api.post('/marketing/piezas', { texto: textoElegido, imagen_url: imagenUrl });
+      setAvisoPromotores(`✅ Se notificó a ${data.notificados} promotor(es) — ya les llegó el aviso para subirlo y mandarlo a su gente.`);
+    } catch (e) { setAvisoPromotores(`❌ ${e.response?.data?.error || 'No se pudo enviar'}`); }
+    setEnviandoPromotores(false);
   };
 
   return (
@@ -656,6 +679,13 @@ function PanelRedesSociales() {
               Tu navegador no soporta el menú de compartir directo — copia el texto de arriba y descarga la foto para subirlos a mano.
             </div>
           )}
+
+          {/* 🆕 Notificar a todo el equipo de promotores */}
+          <button onClick={enviarAPromotores} disabled={enviandoPromotores}
+            className="w-full py-3 rounded-xl bg-gradient-to-r from-fuchsia-600 to-purple-600 text-white text-sm font-bold disabled:opacity-40">
+            {enviandoPromotores ? '⏳ Enviando...' : '📣 Enviar a mis promotores (les llega notificación)'}
+          </button>
+          {avisoPromotores && <div className="bg-slate-800/60 text-slate-200 text-[11px] rounded-lg px-3 py-2">{avisoPromotores}</div>}
         </>
       )}
     </div>

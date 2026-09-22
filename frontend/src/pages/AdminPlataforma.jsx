@@ -144,8 +144,18 @@ export default function AdminPlataforma() {
   // 🆕 Antes los municipios de la demo SIEMPRE eran los de Tlaxcala
   // (cargados una sola vez al entrar al panel) — ahora se vuelven a
   // pedir cada que cambias de estado en el selector de la demo.
+  // 🆕 Además: antes el municipio elegido (municipioDemo) se quedaba
+  // con el valor del estado ANTERIOR si no lo volvías a tocar a mano
+  // (por defecto siempre arrancaba en la clave 3, pensada solo para
+  // Apizaco/Tlaxcala) — al cambiar de estado sin volver a elegir
+  // municipio, la demo podía crearse con un municipio equivocado sin
+  // avisar. Ahora, en cuanto llegan los municipios del estado nuevo,
+  // se selecciona automáticamente el primero de la lista.
   useEffect(() => {
-    axios.get(`${API_URL}/admin/municipios?estado_id=${estadoDemo}`, { headers }).then((r) => setMunicipios(r.data.data)).catch(() => {});
+    axios.get(`${API_URL}/admin/municipios?estado_id=${estadoDemo}`, { headers }).then((r) => {
+      setMunicipios(r.data.data);
+      if (r.data.data.length > 0) setMunicipioDemo(r.data.data[0].clave_ine);
+    }).catch(() => {});
   }, [estadoDemo]);
 
   const esDistrito = tipoEleccionDemo === 'dip_local' || tipoEleccionDemo === 'dip_federal';

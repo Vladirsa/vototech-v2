@@ -9,35 +9,35 @@ import { ModalAgregar } from './Promovidos';
 // persona. Nunca manda nada solo: abre WhatsApp del celular del
 // promotor con el mensaje ya escrito, listo para revisar y tocar
 // enviar — cero costo, cero servidor de mensajería de por medio.
-function ModalRecordatorios({ onCerrar }) {
-  const usuario = useAuth((s) => s.usuario);
+// 🆕 Modal genérico "mandar algo a mi gente por WhatsApp" — lo usan
+// tanto "Recordar el voto" (mensaje fijo, solo comprometidos) como el
+// banner de contenido nuevo del equipo de redes (mensaje = lo que
+// subieron, a TODOS sus contactos con teléfono). Nunca manda nada
+// solo: abre WhatsApp del celular del promotor, con el mensaje ya
+// escrito, listo para revisar y tocar enviar.
+function ModalEnviarAMiGente({ titulo, endpoint, armarMensaje, onCerrar }) {
   const [lista, setLista] = useState(null);
   const [enviados, setEnviados] = useState({}); // solo visual, no se guarda
 
   useEffect(() => {
-    api.get('/promovidos/mis-comprometidos').then((r) => setLista(r.data.data)).catch(() => setLista([]));
-  }, []);
-
-  const mensaje = (nombre) => {
-    const nombrePromotor = usuario?.nombre?.split(' ')[0] || '';
-    return `Hola ${nombre.split(' ')[0]} 👋 Te escribe ${nombrePromotor}. Te recuerdo que este es el día de la elección — ¡tu voto cuenta mucho! No olvides ir a votar hoy. ¡Contamos contigo! 🗳️💪`;
-  };
+    api.get(endpoint).then((r) => setLista(r.data.data)).catch(() => setLista([]));
+  }, [endpoint]);
 
   return (
     <div className="fixed inset-0 bg-black/70 flex items-end md:items-center justify-center z-50 p-0 md:p-4">
       <div className="bg-slate-900 border border-slate-700 rounded-t-2xl md:rounded-2xl w-full max-w-md p-5 space-y-3 max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-black text-white">📲 Recordar el voto</h2>
+          <h2 className="text-lg font-black text-white">{titulo}</h2>
           <button onClick={onCerrar} className="text-slate-500 text-xl leading-none">✕</button>
         </div>
         <p className="text-[11px] text-slate-500">
-          Tu propia lista de gente comprometida con teléfono registrado. Cada botón abre TU WhatsApp con el mensaje ya escrito — tú lo revisas y lo mandas.
+          Tu propia lista, con teléfono registrado. Cada botón abre TU WhatsApp con el mensaje ya escrito — tú lo revisas y lo mandas.
         </p>
 
         {!lista ? (
           <div className="text-center text-slate-500 py-10 text-sm">⏳ Cargando...</div>
         ) : lista.length === 0 ? (
-          <div className="text-center text-slate-500 py-10 text-sm">Todavía no tienes gente comprometida con teléfono registrado.</div>
+          <div className="text-center text-slate-500 py-10 text-sm">Todavía no tienes a nadie con teléfono registrado para esto.</div>
         ) : (
           <div className="space-y-1.5">
             {lista.map((p) => (
@@ -46,7 +46,7 @@ function ModalRecordatorios({ onCerrar }) {
                   <div className="text-sm font-bold text-white">{p.nombre}</div>
                   <div className="text-[10px] text-slate-500">{p.seccion_numero ? `Sección ${p.seccion_numero}` : 'Sin sección'}</div>
                 </div>
-                <a href={`https://wa.me/52${String(p.telefono).replace(/\D/g, '')}?text=${encodeURIComponent(mensaje(p.nombre))}`}
+                <a href={`https://wa.me/52${String(p.telefono).replace(/\D/g, '')}?text=${encodeURIComponent(armarMensaje(p.nombre))}`}
                   target="_blank" rel="noreferrer"
                   onClick={() => setEnviados((e) => ({ ...e, [p.id]: true }))}
                   className={`px-3 py-2 rounded-lg text-xs font-bold flex-shrink-0 ${enviados[p.id] ? 'bg-emerald-700/60 text-emerald-200' : 'bg-green-600 text-white'}`}>
@@ -56,6 +56,27 @@ function ModalRecordatorios({ onCerrar }) {
             ))}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+/** 🆕 Banner de "tienes contenido nuevo" — aparece cuando el equipo
+ * de redes subió una pieza (Marketing → Redes Sociales → "Enviar a
+ * mis promotores"). Se recuerda en ESTE celular cuál fue la última
+ * que ya viste, para que no te siga apareciendo la misma. */
+function BannerPiezaNueva({ pieza, onCompartir, onEnviarWhatsApp, onDescartar }) {
+  return (
+    <div className="bg-gradient-to-br from-fuchsia-900 to-purple-900 rounded-2xl p-4 space-y-2 shadow-xl">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-black text-fuchsia-200 uppercase">📣 Contenido nuevo del equipo</span>
+        <button onClick={onDescartar} className="text-fuchsia-300 text-lg leading-none">✕</button>
+      </div>
+      {pieza.imagen_url && <img src={pieza.imagen_url} alt="" className="w-full max-h-40 object-cover rounded-xl" />}
+      <p className="text-sm text-white whitespace-pre-wrap">{pieza.texto}</p>
+      <div className="grid grid-cols-2 gap-2 pt-1">
+        <button onClick={onCompartir} className="py-2.5 rounded-xl bg-emerald-600 text-white text-xs font-bold">📤 Subir a mis redes</button>
+        <button onClick={onEnviarWhatsApp} className="py-2.5 rounded-xl bg-green-600 text-white text-xs font-bold">📲 Mandar a mi gente</button>
       </div>
     </div>
   );
@@ -75,6 +96,39 @@ export default function PromotorHome() {
   const [resumen, setResumen] = useState(null);
   const [mostrarAgregar, setMostrarAgregar] = useState(false);
   const [mostrarRecordatorios, setMostrarRecordatorios] = useState(false);
+  // 🆕 Pieza de contenido más reciente que subió el equipo de redes,
+  // y si ya se descartó en ESTE celular (localStorage, por-persona,
+  // nunca se manda al servidor).
+  const [piezaPendiente, setPiezaPendiente] = useState(null);
+  const [mostrarEnvioPieza, setMostrarEnvioPieza] = useState(false);
+  useEffect(() => {
+    api.get('/marketing/piezas/ultima').then((r) => {
+      const pieza = r.data.data;
+      if (!pieza) return;
+      let vistaId = null;
+      try { vistaId = localStorage.getItem('vototech_ultima_pieza_vista'); } catch (e) { /* modo privado / sin storage — no pasa nada, solo no se recuerda */ }
+      if (String(pieza.id) !== vistaId) setPiezaPendiente(pieza);
+    }).catch(() => {});
+  }, []);
+  const descartarPieza = () => {
+    try { localStorage.setItem('vototech_ultima_pieza_vista', String(piezaPendiente.id)); } catch (e) { /* sin storage disponible, se ignora */ }
+    setPiezaPendiente(null);
+  };
+  const compartirPieza = async () => {
+    if (!navigator.share) { alert('Tu navegador no soporta el menú de compartir — copia el texto a mano.'); return; }
+    try {
+      const datos = { text: piezaPendiente.texto };
+      if (piezaPendiente.imagen_url) {
+        try {
+          const resp = await fetch(piezaPendiente.imagen_url);
+          const blob = await resp.blob();
+          const archivo = new File([blob], 'contenido.jpg', { type: blob.type || 'image/jpeg' });
+          if (navigator.canShare && navigator.canShare({ files: [archivo] })) datos.files = [archivo];
+        } catch (e) { /* si no se puede traer la imagen, se comparte solo el texto */ }
+      }
+      await navigator.share(datos);
+    } catch (e) { /* la persona canceló el menú de compartir */ }
+  };
   // 🆕 "¿Qué necesitas hacer?" — antes solo había un botón grande de
   // "Agregar persona"; el resto de acciones (reportar algo, ver el
   // mapa, hablarle a tu coordinador) requerían salir a buscar el
@@ -96,6 +150,15 @@ export default function PromotorHome() {
           <h1 className="text-xl font-black text-white">¡Vota por tu candidato!</h1>
           <p className="text-xs text-slate-500">Hola, {usuario?.nombre?.split(' ')[0]} — este es tu avance</p>
         </div>
+
+        {piezaPendiente && (
+          <BannerPiezaNueva
+            pieza={piezaPendiente}
+            onCompartir={compartirPieza}
+            onEnviarWhatsApp={() => setMostrarEnvioPieza(true)}
+            onDescartar={descartarPieza}
+          />
+        )}
 
         {/* 🆕 "¿Qué necesitas hacer?" — 4 botones grandes, directo a
             la acción, sin tener que navegar ningún menú. */}
@@ -187,7 +250,22 @@ export default function PromotorHome() {
       </div>
 
       {mostrarAgregar && <ModalAgregar onCerrar={() => setMostrarAgregar(false)} onGuardado={() => { setMostrarAgregar(false); cargar(); }} />}
-      {mostrarRecordatorios && <ModalRecordatorios onCerrar={() => setMostrarRecordatorios(false)} />}
+      {mostrarRecordatorios && (
+        <ModalEnviarAMiGente
+          titulo="📲 Recordar el voto"
+          endpoint="/promovidos/mis-comprometidos"
+          armarMensaje={(nombre) => `Hola ${nombre.split(' ')[0]} 👋 Te escribe ${usuario?.nombre?.split(' ')[0] || ''}. Te recuerdo que este es el día de la elección — ¡tu voto cuenta mucho! No olvides ir a votar hoy. ¡Contamos contigo! 🗳️💪`}
+          onCerrar={() => setMostrarRecordatorios(false)}
+        />
+      )}
+      {mostrarEnvioPieza && piezaPendiente && (
+        <ModalEnviarAMiGente
+          titulo="📲 Mandar a mi gente"
+          endpoint="/promovidos/mis-contactos"
+          armarMensaje={(nombre) => `Hola ${nombre.split(' ')[0]} 👋\n\n${piezaPendiente.texto}${piezaPendiente.imagen_url ? `\n\n${piezaPendiente.imagen_url}` : ''}`}
+          onCerrar={() => setMostrarEnvioPieza(false)}
+        />
+      )}
     </div>
   );
 }
