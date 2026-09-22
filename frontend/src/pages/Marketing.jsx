@@ -847,14 +847,21 @@ function PanelMonitoreoRedes() {
 }
 
 export default function Marketing() {
-  const [tab, setTab] = useState('nuevo');
+  // 🆕 El promotor solo debe usar Marketing para ir registrando lo que
+  // ve en redes sociales (menciones, publicidad, comentarios) — no
+  // para enviar campañas, ni para "Estructura" (mandar mensajes a la
+  // estructura interna), ni Discursos con IA, ni Redes Sociales
+  // (programar publicaciones). Todo eso es de coordinación/candidato.
+  const usuario = useAuth((s) => s.usuario);
+  const esPromotor = usuario?.rol === 'promotor';
+  const [tab, setTab] = useState(esPromotor ? 'monitoreo-redes' : 'nuevo');
   const [envios, setEnvios] = useState([]);
   const [envioDetalle, setEnvioDetalle] = useState(null);
 
   const cargarEnvios = () => api.get('/marketing/envios').then((r) => setEnvios(r.data.data));
-  useEffect(cargarEnvios, []);
+  useEffect(() => { if (!esPromotor) cargarEnvios(); }, []);
 
-  const TABS = [
+  const TABS_TODAS = [
     { id: 'nuevo', ic: '📤', label: 'Nuevo envío' },
     { id: 'historial', ic: '📜', label: 'Historial' },
     { id: 'plantillas', ic: '📝', label: 'Plantillas' },
@@ -863,6 +870,7 @@ export default function Marketing() {
     { id: 'monitoreo-redes', ic: '📡', label: 'Monitoreo de Redes' },
     { id: 'biblioteca', ic: '📚', label: 'Biblioteca' },
   ];
+  const TABS = esPromotor ? TABS_TODAS.filter((t) => t.id === 'monitoreo-redes') : TABS_TODAS;
 
   return (
     <div className="min-h-screen bg-slate-950 p-4 md:p-8">

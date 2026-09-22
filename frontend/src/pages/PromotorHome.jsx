@@ -160,7 +160,7 @@ export default function PromotorHome() {
           />
         )}
 
-        {/* 🆕 "¿Qué necesitas hacer?" — 4 botones grandes, directo a
+        {/* 🆕 "¿Qué necesitas hacer?" — 5 botones grandes, directo a
             la acción, sin tener que navegar ningún menú. */}
         <div className="grid grid-cols-2 gap-3">
           <button onClick={() => setMostrarAgregar(true)}
@@ -177,6 +177,17 @@ export default function PromotorHome() {
               acceso al Mapa (ver también RutaProtegida en App.jsx,
               que ahora bloquea /mapa para este rol aunque alguien
               intente entrar escribiendo la URL a mano). */}
+          {/* 🆕 "Lo que veo en redes" — lleva a Marketing, que para el
+              rol promotor ahora solo muestra la pestaña de Monitoreo
+              de Redes (ver Marketing.jsx): un reporte rápido de lo
+              que ve en redes sociales (menciones, publicidad,
+              comentarios), con foto y nivel de urgencia, para que el
+              equipo de campaña lo vea. */}
+          <button onClick={() => navigate('/marketing')}
+            className="bg-gradient-to-br from-cyan-600 to-blue-700 rounded-2xl p-4 text-center shadow-lg active:scale-95 transition-transform">
+            <div className="text-3xl mb-1">📡</div>
+            <div className="text-xs font-black text-white">Lo que veo en redes</div>
+          </button>
           {/* 🆕 Recordatorio de voto — abre la lista propia de gente
               comprometida, con un botón de WhatsApp por persona. */}
           <button onClick={() => setMostrarRecordatorios(true)}
