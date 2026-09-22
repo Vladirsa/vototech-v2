@@ -78,6 +78,17 @@ router.get('/secciones/:estadoId', async (req, res) => {
 });
 
 /**
+ * GET /api/geo/estados
+ * Público (sin autenticación) — lista los 32 estados para que el
+ * formulario de Registro de Campaña deje elegir en cuál va a competir
+ * el candidato, en vez de asumir siempre Tlaxcala.
+ */
+router.get('/estados', async (req, res) => {
+  const resultado = await query('SELECT id, nombre FROM estados WHERE activo=true ORDER BY nombre', []);
+  res.json({ ok: true, data: resultado.rows });
+});
+
+/**
  * GET /api/geo/municipios/:estadoId
  * Público (sin autenticación) — se necesita ANTES de que el candidato
  * tenga cuenta, para que elija su territorio real al registrarse.
