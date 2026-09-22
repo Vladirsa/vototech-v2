@@ -620,6 +620,32 @@ function esNombreDeMunicipioValido(valor) {
   return valor !== null && valor !== undefined && !/^\s*\d+\s*$/.test(String(valor));
 }
 
+// 🆕 NUEVO — esto es lo que rompió el mapa de Baja California Sur: el
+// archivo GeoJSON que se subió traía las coordenadas en METROS (una
+// proyección tipo UTM), no en grados de latitud/longitud (WGS84), que
+// es lo único que Leaflet/el mapa saben leer. El importador antes lo
+// aceptaba tal cual sin fijarse, guardaba las coordenadas "malas" en
+// la base de datos, y el mapa tronaba después (pantalla en blanco o
+// error de "Invalid LatLng"), sin que hubiera ninguna pista clara de
+// por qué. Ahora se revisa la PRIMERA coordenada del archivo antes de
+// guardar nada: un punto real en México siempre tiene una longitud
+// entre -118 y -86 aprox. y una latitud entre 14 y 33 aprox. — muy
+// lejos de cifras como 570,987 o 2,671,746 (que sí son válidas en
+// metros, pero no en grados). Si no cuadra, se rechaza el archivo
+// completo ANTES de tocar la base de datos, con un mensaje que dice
+// exactamente qué corregir en mapshaper.org.
+function coordenadasParecenLatLngValidas(geometry) {
+  if (!geometry?.coordinates) return false;
+  let punto = geometry.coordinates;
+  // Baja hasta encontrar el primer par [lng, lat], sin importar si es
+  // Polygon, MultiPolygon o cualquier otro nivel de anidamiento.
+  while (Array.isArray(punto) && Array.isArray(punto[0])) punto = punto[0];
+  const [lng, lat] = punto;
+  if (typeof lng !== 'number' || typeof lat !== 'number') return false;
+  // Rango generoso de todo México (con margen), no solo un estado.
+  return lng >= -120 && lng <= -84 && lat >= 12 && lat <= 34;
+}
+
 router.post('/importar-cartografia-estado', upload.single('geojson'), async (req, res) => {
   const { estado_id } = req.body;
   if (!estado_id) return res.status(400).json({ ok: false, error: 'Falta estado_id' });
@@ -633,6 +659,16 @@ router.post('/importar-cartografia-estado', upload.single('geojson'), async (req
   }
   if (!geo.features || geo.features.length === 0) {
     return res.status(400).json({ ok: false, error: 'El archivo no tiene "features" — no parece un GeoJSON de secciones' });
+  }
+  // 🆕 NUEVO — ver coordenadasParecenLatLngValidas() arriba. Se
+  // detiene aquí, antes de guardar nada, en vez de corromper la
+  // cartografía del estado y que el mapa truene después.
+  if (!coordenadasParecenLatLngValidas(geo.features[0].geometry)) {
+    return res.status(422).json({
+      ok: false,
+      error: 'Las coordenadas de este archivo NO están en latitud/longitud (parecen estar en metros — otra proyección, como UTM). El mapa no puede usarlas así.',
+      sugerencia: 'Vuelve a exportar el archivo en mapshaper.org: sube el shapefile completo (los 4 archivos juntos: .shp, .shx, .dbf y OBLIGATORIO el .prj — sin el .prj mapshaper no sabe en qué proyección viene), y antes de exportar escribe en la consola de mapshaper: proj wgs84 — luego exporta como GeoJSON. Eso convierte las coordenadas a latitud/longitud, que es lo único que este sistema puede usar.',
+    });
   }
 
   // Muestra las propiedades reales del primer elemento si algo
