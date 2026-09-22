@@ -132,12 +132,17 @@ function FormularioCaptura({ onGuardado, bloqueada }) {
         </div>
       )}
 
-      <div className="grid grid-cols-4 gap-2">
+      {/* 🆕 Nombres de partido más grandes y con más contraste — antes
+          eran solo siglas en texto diminuto (9px) y gris apagado,
+          difíciles de distinguir de un vistazo mientras se captura
+          rápido en la casilla. Ahora son más grandes, en blanco y
+          negritas, del mismo tamaño que usa "Avance en vivo". */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
         {PARTIDOS.map((p) => (
           <div key={p}>
-            <label className="text-[9px] text-slate-500 uppercase font-bold">{p}</label>
+            <label className="text-xs text-white uppercase font-extrabold block mb-0.5">{p}</label>
             <input type="number" min={0} value={votos[p] || ''} onChange={(e) => setVotos({ ...votos, [p]: parseInt(e.target.value) || 0 })}
-              className="w-full px-2 py-1.5 rounded bg-slate-800 border border-slate-700 text-white text-sm" />
+              className="w-full px-2 py-2 rounded bg-slate-800 border border-slate-700 text-white text-base font-bold" />
           </div>
         ))}
       </div>
@@ -493,9 +498,9 @@ export default function DiaEleccion() {
                 const pct = conteoRapido.total_votos > 0 ? Math.round(v / conteoRapido.total_votos * 100) : 0;
                 return (
                   <div key={p}>
-                    <div className="flex justify-between text-xs mb-0.5">
-                      <span className={`font-bold ${i === 0 ? 'text-white' : 'text-slate-400'}`}>{i === 0 && '👑 '}{nombrePartido(p)}</span>
-                      <span className="text-slate-300">{v.toLocaleString()} ({pct}%)</span>
+                    <div className="flex justify-between text-sm mb-0.5">
+                      <span className={`font-extrabold ${i === 0 ? 'text-white' : 'text-slate-200'}`}>{i === 0 && '👑 '}{nombrePartido(p)}</span>
+                      <span className="text-slate-300 font-bold">{v.toLocaleString()} ({pct}%)</span>
                     </div>
                     <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
                       <div className={`h-full ${i === 0 ? 'bg-emerald-500' : 'bg-slate-600'}`} style={{ width: `${pct}%` }} />
