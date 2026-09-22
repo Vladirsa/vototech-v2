@@ -123,7 +123,10 @@ export default function App() {
             <Route
               path="/mapa"
               element={
-                <RutaProtegida>
+                // 🆕 El promotor ya no tiene acceso al Mapa — si intenta
+                // entrar directo por la URL, RutaProtegida lo regresa a
+                // su pantalla (/mi-avance) en vez de mostrárselo.
+                <RutaProtegida bloquearRoles={['promotor']}>
                   <MapaConCampana />
                 </RutaProtegida>
               }
