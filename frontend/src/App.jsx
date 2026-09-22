@@ -26,7 +26,6 @@ const InteligenciaElectoral = lazy(() => import('./pages/InteligenciaElectoral')
 const MovilizacionOperacion = lazy(() => import('./pages/MovilizacionOperacion'));
 const DiaEComando = lazy(() => import('./pages/DiaEComando'));
 const AdministracionCumplimiento = lazy(() => import('./pages/AdministracionCumplimiento'));
-const CentroDecisiones = lazy(() => import('./pages/CentroDecisiones'));
 const Marketing = lazy(() => import('./pages/Marketing'));
 // 🆕 Ya no se importan directamente aquí — ahora viven como pestañas
 // dentro de AdministracionCumplimiento.jsx.
@@ -108,7 +107,11 @@ export default function App() {
             {/* 🆕 Ruta de Auditoría eliminada — el módulo se consideró poco funcional en la práctica */}
             <Route path="/estructura" element={<RutaProtegida><Estructura /></RutaProtegida>} />
             <Route path="/administracion" element={<RutaProtegida><AdministracionCumplimiento /></RutaProtegida>} />
-            <Route path="/centro-decisiones" element={<RutaProtegida><CentroDecisiones /></RutaProtegida>} />
+            {/* 🆕 Centro de Decisiones dejó de ser una ruta/módulo aparte
+                — ahora es una pestaña dentro de Inteligencia Electoral,
+                así que cualquier enlace viejo a /centro-decisiones
+                redirige para allá en vez de a una pantalla propia. */}
+            <Route path="/centro-decisiones" element={<Navigate to="/inteligencia-electoral" replace />} />
             {/* 🆕 Redirecciones — por si algún enlace viejo o marcador
                 todavía apunta a las rutas separadas de antes. */}
             <Route path="/finanzas" element={<Navigate to="/administracion" replace />} />
