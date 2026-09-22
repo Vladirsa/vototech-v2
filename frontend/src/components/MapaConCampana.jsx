@@ -68,6 +68,7 @@ export default function MapaConCampana() {
     // oculta.
     <div className="h-[calc(100dvh-45px)] overflow-hidden" style={alturaRealPx ? { height: `${alturaRealPx - 45}px` } : undefined}>
       <MapaElectoral
+        estadoId={campana.estado_id}
         territorioTipo={campana.territorio_tipo}
         territorioId={campana.territorio_id}
         tipoEleccion={campana.tipo_eleccion}

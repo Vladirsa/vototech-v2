@@ -170,7 +170,7 @@ function capasDeTerritorioDisponibles(territorioTipo) {
   if (territorioTipo === 'distrito_federal') return ['secciones', 'municipio', 'distrito_local'];
   return ['secciones', 'municipio', 'distrito_local', 'distrito_federal', 'senaduria'];
 }
-export default function MapaElectoral({ campanaId, territorioTipo, territorioId, tipoEleccion = 'ayuntamiento', fechaEleccion }) {
+export default function MapaElectoral({ campanaId, estadoId = 29, territorioTipo, territorioId, tipoEleccion = 'ayuntamiento', fechaEleccion }) {
   const anioCampana = fechaEleccion ? new Date(fechaEleccion).getFullYear() : null;
   const capasDisponibles = capasDeTerritorioDisponibles(territorioTipo);
   const navigate = useNavigate();
@@ -242,7 +242,15 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
       .filter(Boolean);
   }, [promovidos, centroidesSeccion]);
   useEffect(() => {
-    api.get('/geo/secciones/29')
+    // 🆕 LA CORRECCIÓN REAL — antes estas dos peticiones estaban
+    // fijas en "29" (Tlaxcala) sin importar de qué estado fuera la
+    // campaña que entrara. Así, CUALQUIER campaña fuera de Tlaxcala
+    // (como Baja California Sur) cargaba secciones y municipios de
+    // Tlaxcala en vez de los suyos — con territorio_id de un estado
+    // distinto, ninguna coincidía con nada, y el mapa se quedaba en
+    // blanco (Leaflet sí cargaba, pero sin ningún polígono que
+    // dibujar). Ahora usa el estado REAL de la campaña.
+    api.get(`/geo/secciones/${estadoId}`)
       .then(r => {
         setGeoSecciones(r.data.data);
         if (!r.data.data?.features || r.data.data.features.length === 0) {
@@ -252,17 +260,21 @@ export default function MapaElectoral({ campanaId, territorioTipo, territorioId,
       .catch(e => {
         setErrorDiagnostico(`❌ Falló la petición de secciones: ${e.response?.status || 'sin conexión'} — ${e.response?.data?.error || e.message}`);
       });
-    api.get('/geo/municipios/29').then(r => {
+    api.get(`/geo/municipios/${estadoId}`).then(r => {
       const mapa = {};
       r.data.data.forEach(m => { mapa[m.clave_ine] = m.nombre; });
       setNombresMunicipios(mapa);
     }).catch(() => {});
+    // 🆕 Esto sigue siendo solo de Tlaxcala (cabeceras de sus 3
+    // distritos federales) — es un texto de apoyo para el tooltip de
+    // Diputado Federal, no bloquea el mapa. Pendiente para cuando
+    // vendas esa elección en otro estado.
     setCabecerasDistritoFederal({ 1: 'Apizaco', 2: 'Tlaxcala de Xicohténcatl', 3: 'Zacatelco' });
     api.get('/promovidos')
       .then(r => setPromovidos(r.data.data))
       .catch(() => setPromovidos([]));
     api.get('/promovidos-analitica/concentrado-mapa').then(r => setConcentrado(r.data.data)).catch(() => setConcentrado(null));
-  }, []);
+  }, [estadoId]);
   useEffect(() => {
     if (!anio) { setResultados({}); return; }
     api.get(`/resultados/${tipoEleccion}/${anio}`)
