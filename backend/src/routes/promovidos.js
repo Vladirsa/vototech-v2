@@ -291,6 +291,21 @@ router.get('/mi-resumen', async (req, res) => {
   });
 });
 
+// 🆕 Lista propia de comprometidos CON teléfono — es la que usa "Mi
+// Avance" para armar los recordatorios de voto: cada promotor manda
+// el mensaje por SU whatsapp, a SU gente, nunca pasa por el servidor.
+router.get('/mis-comprometidos', async (req, res) => {
+  const resultado = await query(
+    `SELECT p.id, p.nombre, p.telefono, s.numero as seccion_numero
+     FROM promovidos p LEFT JOIN secciones s ON s.id = p.seccion_id
+     WHERE p.campana_id=$1 AND p.registrado_por=$2 AND p.comprometido = true
+       AND p.telefono IS NOT NULL AND p.telefono <> ''
+     ORDER BY p.nombre`,
+    [req.usuario.campana_id, req.usuario.sub]
+  );
+  res.json({ ok: true, data: resultado.rows });
+});
+
 router.post('/', async (req, res) => {
   const parseado = esquemaPromovido.safeParse(req.body);
   if (!parseado.success) {
