@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { useAuth } from '../lib/authStore';
 import api from '../lib/api';
 import Promovidos from './Promovidos';
 import Agenda from './Agenda';
@@ -72,13 +73,20 @@ function PanelDuplicados() {
 
 export default function MovilizacionOperacion() {
   const [tab, setTab] = useState('promovidos');
-  const TABS = [
+  // 🆕 El promotor solo debe ver "Promovidos" y "Duplicados" — Agenda,
+  // Logística e Incidencias son para coordinadores, no para un
+  // promotor en campo.
+  const esPromotor = useAuth((s) => s.usuario?.rol) === 'promotor';
+  const TABS_TODAS = [
     { id: 'promovidos', ic: '🤝', label: 'Promovidos' },
     { id: 'agenda', ic: '📅', label: 'Agenda' },
     { id: 'logistica', ic: '🚚', label: 'Logística' },
     { id: 'incidencias', ic: '🚨', label: 'Incidencias' },
     { id: 'duplicados', ic: '🔁', label: 'Duplicados' },
   ];
+  const TABS = esPromotor
+    ? TABS_TODAS.filter((t) => t.id === 'promovidos' || t.id === 'duplicados')
+    : TABS_TODAS;
 
   return (
     <div className="min-h-screen bg-slate-950">

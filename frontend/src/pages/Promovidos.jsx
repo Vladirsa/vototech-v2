@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
+import { useAuth } from '../lib/authStore';
 import api, { descargarArchivo } from '../lib/api';
 import { guardarEnColaOffline } from '../lib/colaOffline';
 import BuscadorCalle from '../components/BuscadorCalle';
@@ -669,6 +670,10 @@ function ModalImportar({ onCerrar, onImportado }) {
 }
 
 export default function Promovidos() {
+  // 🆕 El promotor no debe ver "Ordenar por puntuación" — es una
+  // herramienta de priorización para coordinadores, a un promotor en
+  // campo no le sirve y solo le estorba en la pantalla.
+  const esPromotor = useAuth((s) => s.usuario?.rol) === 'promotor';
   const [params] = useSearchParams();
   const seccionFiltro = params.get('seccion') ? parseInt(params.get('seccion')) : null;
   const [lista, setLista] = useState([]);
@@ -774,12 +779,15 @@ export default function Promovidos() {
               <option value="si">✅ Sí van a votar</option>
               <option value="no">❌ No van a votar</option>
             </select>
-            {/* 🆕 Ordenar por puntuación — los más "ganados" primero */}
-            <button onClick={() => setOrdenarPorPuntuacion(!ordenarPorPuntuacion)}
-              className={`px-3 py-2 rounded-lg text-xs font-bold whitespace-nowrap ${ordenarPorPuntuacion ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'}`}
-              title="Ordena de mayor a menor puntuación (0-100)">
-              📊 {ordenarPorPuntuacion ? 'Por puntuación' : 'Ordenar por puntuación'}
-            </button>
+            {/* 🆕 Ordenar por puntuación — los más "ganados" primero.
+                Oculto para el promotor (ver esPromotor arriba). */}
+            {!esPromotor && (
+              <button onClick={() => setOrdenarPorPuntuacion(!ordenarPorPuntuacion)}
+                className={`px-3 py-2 rounded-lg text-xs font-bold whitespace-nowrap ${ordenarPorPuntuacion ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'}`}
+                title="Ordena de mayor a menor puntuación (0-100)">
+                📊 {ordenarPorPuntuacion ? 'Por puntuación' : 'Ordenar por puntuación'}
+              </button>
+            )}
           </div>
         )}
 

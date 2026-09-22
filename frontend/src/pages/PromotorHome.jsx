@@ -173,11 +173,10 @@ export default function PromotorHome() {
             <div className="text-3xl mb-1">🚨</div>
             <div className="text-xs font-black text-white">Reportar algo</div>
           </button>
-          <button onClick={() => navigate('/mapa')}
-            className="bg-gradient-to-br from-emerald-600 to-teal-600 rounded-2xl p-4 text-center shadow-lg active:scale-95 transition-transform">
-            <div className="text-3xl mb-1">🗺️</div>
-            <div className="text-xs font-black text-white">Ver el mapa</div>
-          </button>
+          {/* 🆕 Botón "Ver el mapa" quitado — el promotor ya no tiene
+              acceso al Mapa (ver también RutaProtegida en App.jsx,
+              que ahora bloquea /mapa para este rol aunque alguien
+              intente entrar escribiendo la URL a mano). */}
           {/* 🆕 Recordatorio de voto — abre la lista propia de gente
               comprometida, con un botón de WhatsApp por persona. */}
           <button onClick={() => setMostrarRecordatorios(true)}
