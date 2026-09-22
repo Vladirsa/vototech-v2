@@ -4,6 +4,63 @@ import api from '../lib/api';
 import { useAuth } from '../lib/authStore';
 import { ModalAgregar } from './Promovidos';
 
+// 🆕 Modal "Recordar el voto" — la lista de ESTE promotor (solo su
+// propia gente comprometida, con teléfono) y un botón de WhatsApp por
+// persona. Nunca manda nada solo: abre WhatsApp del celular del
+// promotor con el mensaje ya escrito, listo para revisar y tocar
+// enviar — cero costo, cero servidor de mensajería de por medio.
+function ModalRecordatorios({ onCerrar }) {
+  const usuario = useAuth((s) => s.usuario);
+  const [lista, setLista] = useState(null);
+  const [enviados, setEnviados] = useState({}); // solo visual, no se guarda
+
+  useEffect(() => {
+    api.get('/promovidos/mis-comprometidos').then((r) => setLista(r.data.data)).catch(() => setLista([]));
+  }, []);
+
+  const mensaje = (nombre) => {
+    const nombrePromotor = usuario?.nombre?.split(' ')[0] || '';
+    return `Hola ${nombre.split(' ')[0]} 👋 Te escribe ${nombrePromotor}. Te recuerdo que este es el día de la elección — ¡tu voto cuenta mucho! No olvides ir a votar hoy. ¡Contamos contigo! 🗳️💪`;
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/70 flex items-end md:items-center justify-center z-50 p-0 md:p-4">
+      <div className="bg-slate-900 border border-slate-700 rounded-t-2xl md:rounded-2xl w-full max-w-md p-5 space-y-3 max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-black text-white">📲 Recordar el voto</h2>
+          <button onClick={onCerrar} className="text-slate-500 text-xl leading-none">✕</button>
+        </div>
+        <p className="text-[11px] text-slate-500">
+          Tu propia lista de gente comprometida con teléfono registrado. Cada botón abre TU WhatsApp con el mensaje ya escrito — tú lo revisas y lo mandas.
+        </p>
+
+        {!lista ? (
+          <div className="text-center text-slate-500 py-10 text-sm">⏳ Cargando...</div>
+        ) : lista.length === 0 ? (
+          <div className="text-center text-slate-500 py-10 text-sm">Todavía no tienes gente comprometida con teléfono registrado.</div>
+        ) : (
+          <div className="space-y-1.5">
+            {lista.map((p) => (
+              <div key={p.id} className={`flex items-center justify-between rounded-xl p-3 border ${enviados[p.id] ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-slate-800/50 border-slate-700'}`}>
+                <div>
+                  <div className="text-sm font-bold text-white">{p.nombre}</div>
+                  <div className="text-[10px] text-slate-500">{p.seccion_numero ? `Sección ${p.seccion_numero}` : 'Sin sección'}</div>
+                </div>
+                <a href={`https://wa.me/52${String(p.telefono).replace(/\D/g, '')}?text=${encodeURIComponent(mensaje(p.nombre))}`}
+                  target="_blank" rel="noreferrer"
+                  onClick={() => setEnviados((e) => ({ ...e, [p.id]: true }))}
+                  className={`px-3 py-2 rounded-lg text-xs font-bold flex-shrink-0 ${enviados[p.id] ? 'bg-emerald-700/60 text-emerald-200' : 'bg-green-600 text-white'}`}>
+                  {enviados[p.id] ? '✓ Enviado' : '📲 WhatsApp'}
+                </a>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /**
  * La ÚNICA pantalla que ve un promotor — nada de módulos sueltos,
  * nada de menús con cosas que no le tocan. Solo su propio avance y
@@ -17,6 +74,7 @@ export default function PromotorHome() {
   const navigate = useNavigate();
   const [resumen, setResumen] = useState(null);
   const [mostrarAgregar, setMostrarAgregar] = useState(false);
+  const [mostrarRecordatorios, setMostrarRecordatorios] = useState(false);
   // 🆕 "¿Qué necesitas hacer?" — antes solo había un botón grande de
   // "Agregar persona"; el resto de acciones (reportar algo, ver el
   // mapa, hablarle a tu coordinador) requerían salir a buscar el
@@ -56,6 +114,13 @@ export default function PromotorHome() {
             className="bg-gradient-to-br from-emerald-600 to-teal-600 rounded-2xl p-4 text-center shadow-lg active:scale-95 transition-transform">
             <div className="text-3xl mb-1">🗺️</div>
             <div className="text-xs font-black text-white">Ver el mapa</div>
+          </button>
+          {/* 🆕 Recordatorio de voto — abre la lista propia de gente
+              comprometida, con un botón de WhatsApp por persona. */}
+          <button onClick={() => setMostrarRecordatorios(true)}
+            className="bg-gradient-to-br from-green-600 to-emerald-700 rounded-2xl p-4 text-center shadow-lg active:scale-95 transition-transform">
+            <div className="text-3xl mb-1">📲</div>
+            <div className="text-xs font-black text-white">Recordar el voto</div>
           </button>
           {coordinador?.telefono ? (
             <a href={`https://wa.me/52${coordinador.telefono.replace(/\D/g, '')}`} target="_blank" rel="noreferrer"
@@ -122,6 +187,7 @@ export default function PromotorHome() {
       </div>
 
       {mostrarAgregar && <ModalAgregar onCerrar={() => setMostrarAgregar(false)} onGuardado={() => { setMostrarAgregar(false); cargar(); }} />}
+      {mostrarRecordatorios && <ModalRecordatorios onCerrar={() => setMostrarRecordatorios(false)} />}
     </div>
   );
 }

@@ -662,6 +662,160 @@ function PanelRedesSociales() {
   );
 }
 
+const TIPO_MONITOREO_ESTILO = {
+  mencion_negativa: { ic: '⚠️', label: 'Mención negativa', color: 'text-red-400', bg: 'bg-red-500/10', border: 'border-red-500/30' },
+  nota_falsa: { ic: '🚫', label: 'Nota falsa', color: 'text-orange-400', bg: 'bg-orange-500/10', border: 'border-orange-500/30' },
+  tendencia: { ic: '📈', label: 'Tendencia', color: 'text-purple-400', bg: 'bg-purple-500/10', border: 'border-purple-500/30' },
+  mencion_positiva: { ic: '✅', label: 'Mención positiva', color: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/30' },
+  otro: { ic: '📌', label: 'Otro', color: 'text-slate-400', bg: 'bg-slate-500/10', border: 'border-slate-500/30' },
+};
+const URGENCIA_COLOR = { baja: 'text-slate-400', media: 'text-amber-400', alta: 'text-red-400' };
+const PLATAFORMA_LABEL = { x: 'X (Twitter)', facebook: 'Facebook', tiktok: 'TikTok', instagram: 'Instagram', whatsapp: 'WhatsApp', otra: 'Otra' };
+
+/**
+ * 🆕 Monitoreo de Redes Sociales — el backend ya existía, pero no
+ * tenía ninguna pantalla conectada. Es un reporte MANUAL: alguien de
+ * tu equipo ve algo en redes (mención negativa, nota falsa,
+ * tendencia, mención positiva) y lo registra con evidencia, para que
+ * quede un historial consultable en vez de perderse en
+ * conversaciones sueltas de WhatsApp. No es "escucha automática" —
+ * nadie conecta cuentas oficiales aquí, es tu equipo reportando lo
+ * que ve con sus propios ojos.
+ */
+function PanelMonitoreoRedes() {
+  const [registros, setRegistros] = useState([]);
+  const [resumen, setResumen] = useState({});
+  const [filtroTipo, setFiltroTipo] = useState('');
+  const [mostrarForm, setMostrarForm] = useState(false);
+  const [form, setForm] = useState({ tipo: 'mencion_negativa', plataforma: 'facebook', descripcion: '', url_post: '', urgencia: 'media' });
+  const [captura, setCaptura] = useState(null);
+  const [guardando, setGuardando] = useState(false);
+  const [error, setError] = useState('');
+
+  const cargar = () => {
+    const q = filtroTipo ? `?tipo=${filtroTipo}` : '';
+    api.get(`/marketing/monitoreo-redes${q}`).then((r) => { setRegistros(r.data.data); setResumen(r.data.resumen || {}); }).catch(() => setRegistros([]));
+  };
+  useEffect(cargar, [filtroTipo]);
+
+  const guardar = async () => {
+    if (!form.descripcion.trim()) { setError('Describe qué viste'); return; }
+    setGuardando(true);
+    setError('');
+    try {
+      const fd = new FormData();
+      Object.entries(form).forEach(([k, v]) => v && fd.append(k, v));
+      if (captura) fd.append('captura', captura);
+      await api.post('/marketing/monitoreo-redes', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      setForm({ tipo: 'mencion_negativa', plataforma: 'facebook', descripcion: '', url_post: '', urgencia: 'media' });
+      setCaptura(null);
+      setMostrarForm(false);
+      cargar();
+    } catch (e) { setError(e.response?.data?.error || 'No se pudo guardar'); }
+    setGuardando(false);
+  };
+
+  const marcarAtendida = async (id) => {
+    await api.patch(`/marketing/monitoreo-redes/${id}/atender`);
+    cargar();
+  };
+
+  const eliminar = async (id) => {
+    if (!confirm('¿Eliminar este registro?')) return;
+    await api.delete(`/marketing/monitoreo-redes/${id}`);
+    cargar();
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="bg-purple-500/10 border border-purple-500/30 rounded-xl p-3 text-[11px] text-purple-300">
+        📡 Reporte manual — tu equipo registra lo que ve en redes (con evidencia), para que quede historial. No es escucha automática ni conecta cuentas oficiales.
+      </div>
+
+      {/* Resumen por tipo */}
+      <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
+        {Object.entries(TIPO_MONITOREO_ESTILO).map(([id, est]) => (
+          <div key={id} className={`${est.bg} border ${est.border} rounded-xl p-2 text-center`}>
+            <div className="text-lg font-black text-white">{resumen[id] || 0}</div>
+            <div className={`text-[9px] font-bold ${est.color}`}>{est.ic} {est.label}</div>
+          </div>
+        ))}
+      </div>
+
+      <button onClick={() => setMostrarForm(true)} className="w-full py-3 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 text-white text-sm font-bold">
+        ➕ Registrar lo que vi en redes
+      </button>
+
+      {mostrarForm && (
+        <div className="bg-slate-900 border border-slate-700 rounded-xl p-4 space-y-2">
+          {error && <div className="bg-red-500/10 border border-red-500/30 text-red-400 text-xs rounded-lg px-3 py-2">{error}</div>}
+          <div className="flex gap-2">
+            <select value={form.tipo} onChange={(e) => setForm({ ...form, tipo: e.target.value })} className="flex-1 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
+              {Object.entries(TIPO_MONITOREO_ESTILO).map(([id, est]) => <option key={id} value={id}>{est.ic} {est.label}</option>)}
+            </select>
+            <select value={form.plataforma} onChange={(e) => setForm({ ...form, plataforma: e.target.value })} className="flex-1 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
+              {Object.entries(PLATAFORMA_LABEL).map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+            </select>
+          </div>
+          <textarea placeholder="¿Qué viste? Descríbelo" value={form.descripcion} onChange={(e) => setForm({ ...form, descripcion: e.target.value })}
+            className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm min-h-16" />
+          <input placeholder="Link de la publicación (opcional)" value={form.url_post} onChange={(e) => setForm({ ...form, url_post: e.target.value })}
+            className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
+          <select value={form.urgencia} onChange={(e) => setForm({ ...form, urgencia: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
+            <option value="baja">Urgencia baja</option>
+            <option value="media">Urgencia media</option>
+            <option value="alta">Urgencia alta</option>
+          </select>
+          <label className="block rounded-xl p-3 cursor-pointer bg-slate-800 border border-slate-700 text-center">
+            <span className="text-xs text-slate-300">{captura ? `📷 ${captura.name}` : '📷 Adjuntar captura de pantalla (opcional)'}</span>
+            <input type="file" accept="image/*" className="hidden" onChange={(e) => e.target.files[0] && setCaptura(e.target.files[0])} />
+          </label>
+          <div className="flex gap-2">
+            <button onClick={() => setMostrarForm(false)} className="flex-1 py-2.5 rounded-lg bg-slate-800 text-slate-300 text-sm font-bold">Cancelar</button>
+            <button onClick={guardar} disabled={guardando} className="flex-[2] py-2.5 rounded-lg bg-purple-600 text-white text-sm font-bold disabled:opacity-40">{guardando ? '⏳...' : '✅ Guardar reporte'}</button>
+          </div>
+        </div>
+      )}
+
+      <div className="flex gap-1.5 flex-wrap">
+        {[['', 'Todos'], ...Object.entries(TIPO_MONITOREO_ESTILO).map(([id, est]) => [id, est.label])].map(([id, label]) => (
+          <button key={id || 'todos'} onClick={() => setFiltroTipo(id)}
+            className={`px-3 py-1.5 rounded-full text-xs font-bold ${filtroTipo === id ? 'bg-purple-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      <div className="space-y-2">
+        {registros.length === 0 ? (
+          <div className="text-center text-slate-500 py-10 text-sm">Sin registros todavía</div>
+        ) : registros.map((r) => {
+          const est = TIPO_MONITOREO_ESTILO[r.tipo] || TIPO_MONITOREO_ESTILO.otro;
+          return (
+            <div key={r.id} className={`${est.bg} border ${est.border} rounded-xl p-3`}>
+              <div className="flex items-center justify-between mb-1">
+                <span className={`text-[9px] font-bold uppercase ${est.color}`}>{est.ic} {est.label}</span>
+                <span className={`text-[9px] font-bold uppercase ${URGENCIA_COLOR[r.urgencia]}`}>Urgencia {r.urgencia}</span>
+              </div>
+              <p className="text-sm text-white">{r.descripcion}</p>
+              <p className="text-[10px] text-slate-500 mt-1">
+                {PLATAFORMA_LABEL[r.plataforma]} · {r.creado_por_nombre || 'equipo'} · {new Date(r.creado_en).toLocaleDateString('es-MX')}
+                {r.estado === 'atendida' && <span className="text-emerald-400 font-bold"> · ✓ Atendida</span>}
+              </p>
+              {r.url_post && <a href={r.url_post} target="_blank" rel="noreferrer" className="text-[10px] text-indigo-400 underline block mt-1">Ver publicación →</a>}
+              {r.captura_url && <img src={r.captura_url} alt="" className="w-full max-h-40 object-cover rounded-lg mt-2" />}
+              <div className="flex gap-1.5 mt-2">
+                {r.estado !== 'atendida' && <button onClick={() => marcarAtendida(r.id)} className="px-2.5 py-1 rounded-lg bg-emerald-700/50 text-emerald-300 text-[10px] font-bold">✓ Marcar atendida</button>}
+                <button onClick={() => eliminar(r.id)} className="px-2.5 py-1 rounded-lg bg-slate-700 text-slate-400 text-[10px] font-bold">🗑️ Eliminar</button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export default function Marketing() {
   const [tab, setTab] = useState('nuevo');
   const [envios, setEnvios] = useState([]);
@@ -676,6 +830,7 @@ export default function Marketing() {
     { id: 'plantillas', ic: '📝', label: 'Plantillas' },
     { id: 'ia', ic: '✨', label: 'Discursos con IA' },
     { id: 'redes-sociales', ic: '📱', label: 'Redes Sociales' },
+    { id: 'monitoreo-redes', ic: '📡', label: 'Monitoreo de Redes' },
     { id: 'biblioteca', ic: '📚', label: 'Biblioteca' },
   ];
 
@@ -699,6 +854,7 @@ export default function Marketing() {
         {tab === 'plantillas' && <PanelPlantillas />}
         {tab === 'ia' && <PanelGeneracionIA />}
         {tab === 'redes-sociales' && <PanelRedesSociales />}
+        {tab === 'monitoreo-redes' && <PanelMonitoreoRedes />}
         {tab === 'biblioteca' && <PanelBiblioteca />}
 
         {tab === 'historial' && (
