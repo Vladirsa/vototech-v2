@@ -26,6 +26,11 @@ export default function TerminosPublico() {
           <h2 className="text-sm font-bold text-white">3. Datos personales — Aviso de Privacidad</h2>
           <p className="text-xs leading-relaxed">Para los datos de quien usa la plataforma (candidato, coordinadores, promotores), VotoTech es el Responsable del tratamiento. Para los datos de ciudadanos capturados por una campaña ("promovidos"), el candidato es el Responsable — VotoTech actúa solo como Encargado técnico. La opinión política es un dato sensible; cada campaña debe contar con su propio aviso de privacidad y consentimiento frente a los ciudadanos que contacta.</p>
           <p className="text-xs leading-relaxed">Derechos ARCO (Acceso, Rectificación, Cancelación, Oposición): puede ejercerlos escribiendo a soporte@vototech.mx.</p>
+          <p className="text-xs leading-relaxed">
+            Este es un resumen. El{' '}
+            <a href="/aviso-privacidad" className="text-indigo-400 underline">Aviso de Privacidad Integral completo</a>
+            {' '}detalla qué datos se recaban, con qué proveedores se comparten (Supabase, Render, Vercel, Twilio, Anthropic) y el procedimiento exacto para ejercer tus derechos ARCO.
+          </p>
         </section>
 
         <section className="space-y-2">

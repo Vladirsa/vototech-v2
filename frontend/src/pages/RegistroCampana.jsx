@@ -289,8 +289,10 @@ export default function RegistroCampana() {
                   <span>
                     He leído y acepto el{' '}
                     <a href="/contrato" target="_blank" rel="noreferrer" className="text-indigo-400 underline">Contrato de Prestación de Servicios</a>
-                    {' y los '}
-                    <a href="/terminos" target="_blank" rel="noreferrer" className="text-indigo-400 underline">Términos y Condiciones y el Aviso de Privacidad</a>
+                    {', los '}
+                    <a href="/terminos" target="_blank" rel="noreferrer" className="text-indigo-400 underline">Términos y Condiciones</a>
+                    {' y el '}
+                    <a href="/aviso-privacidad" target="_blank" rel="noreferrer" className="text-indigo-400 underline">Aviso de Privacidad Integral</a>
                   </span>
                 </label>
                 {form.acepta_terminos && (

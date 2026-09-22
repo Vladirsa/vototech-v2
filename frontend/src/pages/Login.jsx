@@ -188,6 +188,8 @@ export default function Login() {
         <p className="text-center text-[10px] text-slate-600 mt-1">
           <a href="/terminos" className="text-slate-500 hover:text-slate-300 underline">Términos y Privacidad</a>
           {' · '}
+          <a href="/aviso-privacidad" className="text-slate-500 hover:text-slate-300 underline">Aviso de Privacidad</a>
+          {' · '}
           <a href="/postura-legal" className="text-slate-500 hover:text-slate-300 underline">Postura Legal</a>
         </p>
       </div>

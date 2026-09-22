@@ -67,6 +67,26 @@ export default function DocumentosLegales() {
           🔗 Ver contrato general
         </a>
       </div>
+
+      {/* 🆕 Aviso de Privacidad Integral como documento propio — antes
+          solo vivía resumido dentro de Términos y Condiciones. */}
+      <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+        <div className="flex items-center gap-3">
+          <span className="text-2xl">🔒</span>
+          <div className="flex-1">
+            <div className="text-sm font-bold text-white">Aviso de Privacidad Integral</div>
+            <div className="text-[11px] text-slate-500">Qué datos se recaban, con qué proveedores se comparten y cómo ejercer tus derechos ARCO.</div>
+          </div>
+        </div>
+        <a
+          href="/aviso-privacidad"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="block w-full mt-3 py-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold text-center"
+        >
+          🔗 Ver Aviso de Privacidad completo
+        </a>
+      </div>
     </div>
   );
 }

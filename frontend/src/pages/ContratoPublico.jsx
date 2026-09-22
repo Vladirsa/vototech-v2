@@ -14,7 +14,7 @@ export default function ContratoPublico() {
 
         <section className="space-y-2">
           <h2 className="text-sm font-bold text-white">Declaraciones</h2>
-          <p className="text-xs leading-relaxed">EL PRESTADOR declara ser una plataforma tecnológica de gestión de campañas electorales. EL CLIENTE declara ser candidato o representante legalmente facultado de su campaña, con capacidad legal para obligarse. Ambas partes declaran conocer y sujetarse a la LGIPE, la legislación electoral local, y la LFPDPPP.</p>
+          <p className="text-xs leading-relaxed">EL PRESTADOR, Roberto Vladimir Rivera Sánchez, RFC RISR830214R64, con domicilio en Apizaco, Tlaxcala, declara ser el titular de la plataforma tecnológica de gestión de campañas electorales VotoTech. EL CLIENTE declara ser candidato o representante legalmente facultado de su campaña, con capacidad legal para obligarse. Ambas partes declaran conocer y sujetarse a la LGIPE, la legislación electoral local, y la LFPDPPP.</p>
         </section>
 
         <section className="space-y-2">
@@ -59,6 +59,9 @@ export default function ContratoPublico() {
         </section>
 
         <p className="text-[10px] text-slate-600 text-center pt-4">VotoTech — Este texto es de referencia general; tu contrato firmado incluye tus datos específicos y puede descargarse desde tu panel una vez aprobada tu cuenta.</p>
+        <p className="text-[10px] text-center">
+          <a href="/aviso-privacidad" className="text-indigo-400 underline">Ver Aviso de Privacidad Integral →</a>
+        </p>
       </div>
     </div>
   );
