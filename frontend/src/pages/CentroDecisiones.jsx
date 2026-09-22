@@ -131,14 +131,35 @@ const NIVEL_ALERTA_ESTILO = {
 };
 const ESTADO_ALERTA_LABEL = { nueva: 'Nueva', en_revision: 'En Revisión', asignada: 'Asignada', en_proceso: 'En Proceso', resuelta: 'Resuelta', descartada: 'Descartada' };
 
-/** 🆕 Motor de Alertas formal — a diferencia de Auditoría (que solo
- * calcula al vuelo), estas alertas se GUARDAN con ciclo de vida
- * completo: Nueva → En Revisión → Asignada → En Proceso → Resuelta/Descartada. */
-function PanelMotorAlertas() {
+// 🆕 Mensaje de WhatsApp sugerido según el tipo de alerta — SIEMPRE
+// editable antes de mandarlo (se abre en WhatsApp del propio celular,
+// nunca se manda solo). Nadie de la campaña recibe un mensaje sin que
+// una persona real lo haya revisado primero.
+function mensajeWhatsAppAlerta(a) {
+  const nombre = (a.responsable_nombre || '').split(' ')[0] || 'equipo';
+  if (a.tipo === 'responsable_sin_actividad') {
+    return `Hola ${nombre} 👋 Soy del equipo de campaña. Vi que no has registrado actividad en los últimos días — ¿todo bien? Cuenta con nosotros para lo que necesites, sé que puedes lograr la meta. ¡Vamos con todo! 💪🗳️`;
+  }
+  if (a.tipo === 'incidencia_sin_resolver') {
+    return `Hola ${nombre}, tenemos una incidencia pendiente desde hace varios días: "${a.descripcion}". ¿Me ayudas a darle seguimiento hoy mismo? Gracias 🙏`;
+  }
+  if (a.tipo === 'gasto_cerca_del_tope') {
+    return `Hola ${nombre}, el gasto de la campaña ya va en ${a.valor_actual} del tope permitido. Necesitamos revisar juntos los próximos gastos antes de autorizar más. ¿Podemos hablar hoy?`;
+  }
+  return `Hola ${nombre}, te escribo por esto: ${a.descripcion}`;
+}
+
+/** 🆕 Motor de Alertas — ahora es la pestaña principal. Ya no es solo
+ * una lista para revisar a mano: cada alerta trae 3 acciones directas
+ * — mandar WhatsApp de motivación/seguimiento, registrar la decisión,
+ * o crear una tarea con dueño — para que un coordinador con poco
+ * tiempo actúe con un toque en vez de tener que "ir a llenar algo". */
+function PanelMotorAlertas({ onRegistrar }) {
   const [alertas, setAlertas] = useState([]);
   const [filtroEstado, setFiltroEstado] = useState('activas');
   const [generando, setGenerando] = useState(false);
   const [ultimoResultado, setUltimoResultado] = useState(null);
+  const [creandoTareaId, setCreandoTareaId] = useState(null);
 
   const cargar = () => {
     const q = filtroEstado === 'activas' ? '' : `?estado=${filtroEstado}`;
@@ -159,6 +180,22 @@ function PanelMotorAlertas() {
   const cambiarEstado = async (id, estado) => {
     await api.patch(`/centro-decisiones/alertas/${id}`, { estado });
     cargar();
+  };
+
+  // 🆕 Un toque crea la tarea con la descripción de la alerta lista
+  // — nadie tiene que volver a escribir lo que el sistema ya detectó.
+  const crearTarea = async (a) => {
+    setCreandoTareaId(a.id);
+    try {
+      await api.post('/centro-decisiones/tareas', {
+        descripcion: a.descripcion,
+        origen: a.modulo_origen,
+        prioridad: a.nivel === 'critica' ? 'critica' : a.nivel === 'alta' ? 'alta' : 'media',
+        fecha_limite: '',
+      });
+      await cambiarEstado(a.id, 'asignada');
+    } catch (e) { alert('No se pudo crear la tarea'); }
+    setCreandoTareaId(null);
   };
 
   return (
@@ -196,8 +233,19 @@ function PanelMotorAlertas() {
               <p className="text-[10px] text-slate-500 mt-1">Actual: {a.valor_actual} · Referencia: {a.valor_referencia}{a.responsable_nombre && ` · Responsable: ${a.responsable_nombre}`}</p>
               {!['resuelta', 'descartada'].includes(a.estado) && (
                 <div className="flex gap-1.5 mt-2 flex-wrap">
+                  {/* 🆕 Acción principal — 1 toque, sin formularios */}
+                  {a.responsable_telefono && (
+                    <a href={`https://wa.me/52${String(a.responsable_telefono).replace(/\D/g, '')}?text=${encodeURIComponent(mensajeWhatsAppAlerta(a))}`}
+                      target="_blank" rel="noreferrer"
+                      className="px-2.5 py-1 rounded-lg bg-green-700/60 text-green-200 text-[10px] font-bold">
+                      📲 WhatsApp
+                    </a>
+                  )}
+                  <button onClick={() => onRegistrar && onRegistrar(a)} className="px-2.5 py-1 rounded-lg bg-indigo-700/50 text-indigo-300 text-[10px] font-bold">✅ Registrar decisión</button>
+                  <button onClick={() => crearTarea(a)} disabled={creandoTareaId === a.id} className="px-2.5 py-1 rounded-lg bg-teal-700/50 text-teal-300 text-[10px] font-bold disabled:opacity-40">
+                    {creandoTareaId === a.id ? '⏳...' : '📋 Crear tarea'}
+                  </button>
                   {a.estado === 'nueva' && <button onClick={() => cambiarEstado(a.id, 'en_revision')} className="px-2.5 py-1 rounded-lg bg-blue-700/50 text-blue-300 text-[10px] font-bold">👁 Revisar</button>}
-                  {a.estado === 'en_revision' && <button onClick={() => cambiarEstado(a.id, 'en_proceso')} className="px-2.5 py-1 rounded-lg bg-amber-700/50 text-amber-300 text-[10px] font-bold">▶ En proceso</button>}
                   <button onClick={() => cambiarEstado(a.id, 'resuelta')} className="px-2.5 py-1 rounded-lg bg-emerald-700/50 text-emerald-300 text-[10px] font-bold">✓ Resolver</button>
                   <button onClick={() => cambiarEstado(a.id, 'descartada')} className="px-2.5 py-1 rounded-lg bg-slate-700 text-slate-400 text-[10px] font-bold">✕ Descartar</button>
                 </div>
@@ -206,151 +254,6 @@ function PanelMotorAlertas() {
           );
         })}
       </div>
-    </div>
-  );
-}
-
-/** 🆕 "¿Qué cambió?" — compara el estado actual contra un corte
- * anterior. El valor real nunca se recorta, solo se etiqueta. */
-function PanelQueCambio() {
-  const [periodo, setPeriodo] = useState('dia');
-  const [datos, setDatos] = useState(null);
-
-  useEffect(() => {
-    api.get(`/centro-decisiones/que-cambio?periodo=${periodo}`).then((r) => setDatos(r.data.data)).catch(() => setDatos(null));
-  }, [periodo]);
-
-  const ESTADO_COLOR = { 'AUMENTÓ': 'text-emerald-400', 'DISMINUYÓ': 'text-red-400', 'SIN CAMBIOS': 'text-slate-400', 'SIN DATOS': 'text-slate-500' };
-  const PERIODO_LABEL = { dia: 'vs. ayer', semana: 'vs. hace 1 semana', mes: 'vs. hace 1 mes' };
-
-  return (
-    <div className="space-y-3">
-      <div className="flex gap-2">
-        {[['dia', 'Hoy vs. Ayer'], ['semana', 'Semana vs. Anterior'], ['mes', 'Mes vs. Anterior']].map(([id, label]) => (
-          <button key={id} onClick={() => setPeriodo(id)}
-            className={`px-3 py-1.5 rounded-full text-xs font-bold ${periodo === id ? 'bg-purple-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
-            {label}
-          </button>
-        ))}
-      </div>
-
-      {!datos ? (
-        <div className="text-center text-slate-500 py-10 text-sm">⏳ Cargando...</div>
-      ) : (
-        <>
-          <div className="space-y-2">
-            {datos.metricas.map((m) => (
-              <div key={m.nombre} className="bg-slate-900/60 border border-slate-800 rounded-xl p-3">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-xs text-slate-400">{m.nombre} <span className="text-slate-600">({m.modulo})</span></p>
-                    <p className="text-lg font-black text-white">{m.esMoneda ? `$${m.actual.toLocaleString('es-MX')}` : m.actual.toLocaleString('es-MX')}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className={`text-xs font-bold ${ESTADO_COLOR[m.estado]}`}>{m.estado}</p>
-                    {m.diferencia !== 0 && <p className="text-[10px] text-slate-500">{m.diferencia > 0 ? '+' : ''}{m.esMoneda ? `$${m.diferencia.toLocaleString('es-MX')}` : m.diferencia.toLocaleString('es-MX')} {PERIODO_LABEL[periodo]}</p>}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3">
-            <p className="text-xs text-slate-400">Incidencias nuevas en el período</p>
-            <p className="text-lg font-black text-white">{datos.incidencias_nuevas_en_el_periodo}</p>
-            <p className="text-[9px] text-slate-600 mt-1">Nota: las incidencias se pueden resolver — este número es "nuevas reportadas", no un estado histórico reconstruido.</p>
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-const TENDENCIA_LABEL = { B_MAYOR: '↑ B es mayor', A_MAYOR: '↓ A es mayor', IGUAL: '= Iguales' };
-const TENDENCIA_COLOR = { B_MAYOR: 'text-emerald-400', A_MAYOR: 'text-red-400', IGUAL: 'text-slate-400' };
-
-/** 🆕 Comparador — Territorio vs Territorio, o Responsable vs
- * Responsable. Diferencia = B − A. Nunca divide entre cero. */
-function PanelComparador() {
-  const [modo, setModo] = useState('territorio');
-  const [municipios, setMunicipios] = useState([]);
-  const [equipo, setEquipo] = useState([]);
-  const [a, setA] = useState('');
-  const [b, setB] = useState('');
-  const [resultado, setResultado] = useState(null);
-  const [cargando, setCargando] = useState(false);
-
-  useEffect(() => {
-    api.get('/geo/municipios/29').then((r) => setMunicipios(r.data.data)).catch(() => setMunicipios([]));
-    api.get('/estructura').then((r) => setEquipo(r.data.data)).catch(() => setEquipo([]));
-  }, []);
-
-  const comparar = async () => {
-    if (!a || !b) return;
-    setCargando(true);
-    try {
-      const url = modo === 'territorio' ? `/centro-decisiones/comparar/territorio?tipo=municipio&a=${a}&b=${b}` : `/centro-decisiones/comparar/responsable?a=${a}&b=${b}`;
-      const { data } = await api.get(url);
-      setResultado(data.data);
-    } catch (e) { setResultado(null); }
-    setCargando(false);
-  };
-
-  return (
-    <div className="space-y-3">
-      <div className="flex gap-2">
-        <button onClick={() => { setModo('territorio'); setA(''); setB(''); setResultado(null); }} className={`flex-1 py-2 rounded-lg text-xs font-bold ${modo === 'territorio' ? 'bg-cyan-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🗺️ Territorio vs Territorio</button>
-        <button onClick={() => { setModo('responsable'); setA(''); setB(''); setResultado(null); }} className={`flex-1 py-2 rounded-lg text-xs font-bold ${modo === 'responsable' ? 'bg-cyan-600 text-white' : 'bg-slate-800 text-slate-400'}`}>👤 Responsable vs Responsable</button>
-      </div>
-
-      <div className="flex gap-2">
-        {modo === 'territorio' ? (
-          <>
-            <select value={a} onChange={(e) => setA(e.target.value)} className="flex-1 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
-              <option value="">Municipio A...</option>
-              {municipios.map((m) => <option key={m.id} value={m.id}>{m.nombre}</option>)}
-            </select>
-            <select value={b} onChange={(e) => setB(e.target.value)} className="flex-1 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
-              <option value="">Municipio B...</option>
-              {municipios.map((m) => <option key={m.id} value={m.id}>{m.nombre}</option>)}
-            </select>
-          </>
-        ) : (
-          <>
-            <select value={a} onChange={(e) => setA(e.target.value)} className="flex-1 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
-              <option value="">Persona A...</option>
-              {equipo.map((u) => <option key={u.id} value={u.id}>{u.nombre}</option>)}
-            </select>
-            <select value={b} onChange={(e) => setB(e.target.value)} className="flex-1 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
-              <option value="">Persona B...</option>
-              {equipo.map((u) => <option key={u.id} value={u.id}>{u.nombre}</option>)}
-            </select>
-          </>
-        )}
-      </div>
-
-      <button onClick={comparar} disabled={!a || !b || cargando} className="w-full py-2.5 rounded-xl bg-cyan-600 text-white text-sm font-bold disabled:opacity-40">
-        {cargando ? '⏳...' : 'Comparar'}
-      </button>
-
-      {resultado && (
-        <div className="space-y-2">
-          {Object.values(resultado).map((r, i) => (
-            <div key={i} className="bg-slate-900/60 border border-slate-800 rounded-xl p-3">
-              <p className="text-[10px] text-slate-500 uppercase font-bold mb-2">{r.unidad}</p>
-              <div className="grid grid-cols-2 gap-3 mb-2">
-                <div><p className="text-[10px] text-slate-500">{r.nombre_a}</p><p className="text-lg font-black text-white">{r.valor_a}</p></div>
-                <div><p className="text-[10px] text-slate-500">{r.nombre_b}</p><p className="text-lg font-black text-white">{r.valor_b}</p></div>
-              </div>
-              <div className="flex justify-between text-xs">
-                <span className="text-slate-400">Diferencia: {r.diferencia_absoluta > 0 ? '+' : ''}{r.diferencia_absoluta}</span>
-                <span className="text-slate-400">{r.diferencia_porcentual}</span>
-                <span className={`font-bold ${TENDENCIA_COLOR[r.tendencia]}`}>{TENDENCIA_LABEL[r.tendencia]}</span>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   );
 }
@@ -630,123 +533,17 @@ function PanelAsistenteIA() {
   );
 }
 
-/** 🆕 Constructor de Reportes — pasos: qué información → periodo y
- * territorio → vista previa → generar/guardar como plantilla. */
-function PanelConstructorReportes() {
-  const [paso, setPaso] = useState(1);
-  const [config, setConfig] = useState({ informacion: 'promovidos', fecha_inicio: '', fecha_fin: '', agrupar_por: 'seccion' });
-  const [vistaPrevia, setVistaPrevia] = useState(null);
-  const [cargando, setCargando] = useState(false);
-  const [plantillas, setPlantillas] = useState([]);
-  const [nombrePlantilla, setNombrePlantilla] = useState('');
-
-  useEffect(() => { api.get('/centro-decisiones/reportes/plantillas').then((r) => setPlantillas(r.data.data)).catch(() => setPlantillas([])); }, []);
-
-  const generarVistaPrevia = async () => {
-    setCargando(true);
-    try {
-      const { data } = await api.post('/centro-decisiones/reportes/vista-previa', config);
-      setVistaPrevia(data.data);
-      setPaso(3);
-    } catch (e) { alert(e.response?.data?.error || 'No se pudo generar'); }
-    setCargando(false);
-  };
-
-  const guardarPlantilla = async () => {
-    if (!nombrePlantilla.trim()) return;
-    await api.post('/centro-decisiones/reportes/plantillas', { nombre: nombrePlantilla, configuracion: config });
-    setNombrePlantilla('');
-    api.get('/centro-decisiones/reportes/plantillas').then((r) => setPlantillas(r.data.data));
-  };
-
-  return (
-    <div className="space-y-3">
-      <div className="flex gap-1.5">
-        {[1, 2, 3].map((n) => (
-          <div key={n} className={`flex-1 h-1.5 rounded-full ${paso >= n ? 'bg-green-500' : 'bg-slate-800'}`} />
-        ))}
-      </div>
-
-      {paso === 1 && (
-        <div className="space-y-2">
-          <p className="text-xs font-bold text-slate-300">Paso 1 — ¿Qué información?</p>
-          <div className="flex gap-2">
-            {[['promovidos', 'Promovidos'], ['estructura', 'Estructura'], ['incidencias', 'Incidencias']].map(([id, label]) => (
-              <button key={id} onClick={() => setConfig({ ...config, informacion: id })}
-                className={`flex-1 py-2.5 rounded-xl text-xs font-bold ${config.informacion === id ? 'bg-green-600 text-white' : 'bg-slate-800 text-slate-400'}`}>{label}</button>
-            ))}
-          </div>
-          <button onClick={() => setPaso(2)} className="w-full py-2.5 rounded-xl bg-slate-700 text-white text-sm font-bold">Siguiente →</button>
-        </div>
-      )}
-
-      {paso === 2 && (
-        <div className="space-y-2">
-          <p className="text-xs font-bold text-slate-300">Paso 2 — Periodo y agrupación</p>
-          {config.informacion === 'promovidos' && (
-            <>
-              <div className="flex gap-2">
-                <input type="date" value={config.fecha_inicio} onChange={(e) => setConfig({ ...config, fecha_inicio: e.target.value })} className="flex-1 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
-                <input type="date" value={config.fecha_fin} onChange={(e) => setConfig({ ...config, fecha_fin: e.target.value })} className="flex-1 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
-              </div>
-              <select value={config.agrupar_por} onChange={(e) => setConfig({ ...config, agrupar_por: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
-                <option value="seccion">Agrupar por Sección</option>
-                <option value="municipio">Agrupar por Municipio</option>
-              </select>
-            </>
-          )}
-          <div className="flex gap-2">
-            <button onClick={() => setPaso(1)} className="flex-1 py-2.5 rounded-xl bg-slate-800 text-slate-300 text-sm font-bold">← Atrás</button>
-            <button onClick={generarVistaPrevia} disabled={cargando} className="flex-[2] py-2.5 rounded-xl bg-green-600 text-white text-sm font-bold disabled:opacity-40">{cargando ? '⏳...' : 'Ver vista previa →'}</button>
-          </div>
-        </div>
-      )}
-
-      {paso === 3 && vistaPrevia && (
-        <div className="space-y-2">
-          <p className="text-xs font-bold text-slate-300">Paso 3 — Vista previa</p>
-          <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden">
-            <table className="w-full text-xs">
-              <thead className="bg-slate-800/60"><tr><th className="text-left px-3 py-2 text-slate-400">Categoría</th><th className="text-center px-3 py-2 text-slate-400">Total</th>{config.informacion === 'promovidos' && <th className="text-center px-3 py-2 text-slate-400">Comprometidos</th>}</tr></thead>
-              <tbody>
-                {vistaPrevia.filas.map((f, i) => (
-                  <tr key={i} className="border-t border-slate-800">
-                    <td className="px-3 py-2 text-white">{f.etiqueta}</td>
-                    <td className="px-3 py-2 text-center text-slate-300">{f.total}</td>
-                    {config.informacion === 'promovidos' && <td className="px-3 py-2 text-center text-emerald-400">{f.comprometidos}</td>}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <p className="text-xs text-slate-400">Total general: <strong className="text-white">{vistaPrevia.total_general}</strong></p>
-
-          <div className="flex gap-2">
-            <input placeholder="Nombre para guardar como plantilla" value={nombrePlantilla} onChange={(e) => setNombrePlantilla(e.target.value)} className="flex-1 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
-            <button onClick={guardarPlantilla} className="px-4 py-2 rounded-lg bg-emerald-700 text-white text-xs font-bold">💾 Guardar</button>
-          </div>
-          <button onClick={() => setPaso(1)} className="w-full py-2 rounded-xl bg-slate-800 text-slate-300 text-xs font-bold">↻ Nuevo reporte</button>
-        </div>
-      )}
-
-      {plantillas.length > 0 && (
-        <div className="border-t border-slate-800 pt-3">
-          <p className="text-[10px] font-bold text-slate-500 uppercase mb-2">Plantillas guardadas</p>
-          {plantillas.map((p) => (
-            <button key={p.id} onClick={() => { setConfig(p.configuracion); setPaso(2); }} className="w-full text-left text-xs text-slate-300 bg-slate-800/40 rounded-lg px-3 py-2 mb-1">{p.nombre}</button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
+// 🆕 Constructor de Reportes se quitó de aquí — hacía EXACTAMENTE lo
+// mismo que "Reportes Personalizados" (Inteligencia Electoral →
+// Reportes), así que ya no tenía razón de estar duplicado en Centro
+// de Decisiones.
 
 export default function CentroDecisiones({ embed = false }) {
   // 🆕 candidato/jefe_campana siempre tienen acceso total (regla de
   // la skill) — solo ellos ven la pestaña de administrar permisos.
   const usuario = useAuth((s) => s.usuario);
   const puedeAdministrarPermisos = ['candidato', 'jefe_campana'].includes(usuario?.rol);
-  const [tab, setTab] = useState('bitacora');
+  const [tab, setTab] = useState('alertas');
   const [decisiones, setDecisiones] = useState([]);
   const [filtroEstado, setFiltroEstado] = useState('todas');
   const [mostrarForm, setMostrarForm] = useState(false);
@@ -762,6 +559,15 @@ export default function CentroDecisiones({ embed = false }) {
   }, []);
 
   const usarSugerencia = (s) => { setSugerenciaParaUsar(s); setMostrarForm(true); };
+  // 🆕 Igual que una sugerencia, pero armada a partir de una alerta
+  // ya detectada — así el botón "Registrar decisión" de cada alerta
+  // abre el mismo formulario, ya prellenado.
+  const usarAlerta = (a) => usarSugerencia({
+    situacion_detectada: a.descripcion,
+    datos_utilizados: `Actual: ${a.valor_actual} · Referencia: ${a.valor_referencia}`,
+    fuente: a.modulo_origen,
+    opciones_consideradas: [],
+  });
 
   const cargar = () => {
     const query = filtroEstado !== 'todas' ? `?estado=${filtroEstado}` : '';
@@ -785,16 +591,17 @@ export default function CentroDecisiones({ embed = false }) {
         )}
 
         <div className="flex gap-2 flex-wrap">
+          {/* 🆕 "Alertas" ahora abre primero — es donde el sistema te
+              dice qué necesita tu atención HOY, con acción de 1 toque
+              (WhatsApp / registrar / crear tarea). Ya no hay que "ir
+              a llenar" nada para que esto sirva. */}
+          <button onClick={() => setTab('alertas')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'alertas' ? 'bg-amber-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🚨 Alertas y Sugerencias</button>
           <button onClick={() => setTab('bitacora')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'bitacora' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📋 Bitácora de Decisiones</button>
           {/* 🆕 Bitácora de Campo (antes vivía en "Movilización y Operación") — distinta de la Bitácora de Decisiones de arriba: esta es el registro diario de campo (recorridos, incidencias, pendientes, etc.), no las decisiones tomadas. */}
           <button onClick={() => setTab('bitacora-campo')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'bitacora-campo' ? 'bg-fuchsia-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📔 Bitácora de Campo</button>
           <button onClick={() => setTab('tareas')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'tareas' ? 'bg-teal-600 text-white' : 'bg-slate-800 text-slate-400'}`}>✅ Centro de Tareas</button>
-          <button onClick={() => setTab('alertas')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'alertas' ? 'bg-amber-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🚨 Motor de Alertas</button>
-          <button onClick={() => setTab('que-cambio')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'que-cambio' ? 'bg-purple-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📈 ¿Qué Cambió?</button>
-          <button onClick={() => setTab('comparador')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'comparador' ? 'bg-cyan-600 text-white' : 'bg-slate-800 text-slate-400'}`}>⚖️ Comparador</button>
           <button onClick={() => setTab('simulador')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'simulador' ? 'bg-pink-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🔮 Simulador</button>
           <button onClick={() => setTab('asistente')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'asistente' ? 'bg-violet-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🤖 Asistente IA</button>
-          <button onClick={() => setTab('constructor')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'constructor' ? 'bg-green-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🧱 Constructor de Reportes</button>
           <button onClick={() => setTab('auditoria-cd')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'auditoria-cd' ? 'bg-slate-600 text-white' : 'bg-slate-800 text-slate-400'}`}>🔍 Auditoría</button>
           <button onClick={() => setTab('historico-cd')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'historico-cd' ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📉 Histórico</button>
           {puedeAdministrarPermisos && (
@@ -802,13 +609,11 @@ export default function CentroDecisiones({ embed = false }) {
           )}
         </div>
 
-        {tab === 'bitacora' && (
+        {tab === 'alertas' && (
         <>
-        <div className="bg-indigo-500/10 border border-indigo-500/30 rounded-xl p-3 text-[11px] text-indigo-300">
-          Bitácora de Decisiones — el sistema nunca registra una decisión por su cuenta. Cada entrada aquí es porque tú (o tu equipo de coordinación) tocó explícitamente "Registrar Decisión".
-        </div>
-
-        {/* 🆕 Sugerencias del motor de análisis */}
+        {/* 🆕 Sugerencias del motor de análisis — se quedan arriba de
+            las alertas guardadas, mismo espíritu: el sistema detecta,
+            la persona decide. */}
         {!cargandoSugerencias && sugerencias.length > 0 && (
           <div className="space-y-2">
             <h2 className="text-xs font-bold text-amber-400 uppercase">💡 El sistema encontró esto — tú decides qué hacer</h2>
@@ -826,6 +631,15 @@ export default function CentroDecisiones({ embed = false }) {
             ))}
           </div>
         )}
+        <PanelMotorAlertas onRegistrar={usarAlerta} />
+        </>
+        )}
+
+        {tab === 'bitacora' && (
+        <>
+        <div className="bg-indigo-500/10 border border-indigo-500/30 rounded-xl p-3 text-[11px] text-indigo-300">
+          Bitácora de Decisiones — el sistema nunca registra una decisión por su cuenta. Cada entrada aquí es porque tú (o tu equipo de coordinación) tocó explícitamente "Registrar Decisión".
+        </div>
 
         <div className="flex items-center justify-between flex-wrap gap-2">
           <div className="flex gap-1.5 flex-wrap">
@@ -865,12 +679,8 @@ export default function CentroDecisiones({ embed = false }) {
 
         {tab === 'bitacora-campo' && <BitacoraDiaria />}
         {tab === 'tareas' && <PanelCentroTareas />}
-        {tab === 'alertas' && <PanelMotorAlertas />}
-        {tab === 'que-cambio' && <PanelQueCambio />}
-        {tab === 'comparador' && <PanelComparador />}
         {tab === 'simulador' && <PanelSimulador />}
         {tab === 'asistente' && <PanelAsistenteIA />}
-        {tab === 'constructor' && <PanelConstructorReportes />}
         {tab === 'auditoria-cd' && <PanelAuditoriaCD />}
         {tab === 'historico-cd' && <PanelHistoricoAvanzado />}
         {tab === 'permisos' && puedeAdministrarPermisos && <PanelPermisosCD />}
