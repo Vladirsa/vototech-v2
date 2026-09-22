@@ -741,7 +741,7 @@ function PanelConstructorReportes() {
   );
 }
 
-export default function CentroDecisiones() {
+export default function CentroDecisiones({ embed = false }) {
   // 🆕 candidato/jefe_campana siempre tienen acceso total (regla de
   // la skill) — solo ellos ven la pestaña de administrar permisos.
   const usuario = useAuth((s) => s.usuario);
@@ -769,15 +769,22 @@ export default function CentroDecisiones() {
   };
   useEffect(cargar, [filtroEstado]);
 
+  // 🆕 embed=true: se usa cuando este componente se pinta como UNA
+  // pestaña más dentro de Inteligencia Electoral (ya no es una ruta
+  // separada) — en ese caso no repetimos el fondo de pantalla completo
+  // ni el título "Centro de Decisiones" con su propio link a Dashboard,
+  // porque Inteligencia Electoral ya puso todo eso arriba.
   return (
-    <div className="min-h-screen bg-slate-950">
-      <div className="max-w-5xl mx-auto p-4 md:p-8 space-y-4">
-        <div>
-          <h1 className="text-2xl font-black text-white">🧭 Centro de Decisiones</h1>
-          <Link to="/dashboard" className="text-xs text-indigo-400">← Dashboard</Link>
-        </div>
+    <div className={embed ? '' : 'min-h-screen bg-slate-950'}>
+      <div className={embed ? 'space-y-4' : 'max-w-5xl mx-auto p-4 md:p-8 space-y-4'}>
+        {!embed && (
+          <div>
+            <h1 className="text-2xl font-black text-white">🧭 Centro de Decisiones</h1>
+            <Link to="/dashboard" className="text-xs text-indigo-400">← Dashboard</Link>
+          </div>
+        )}
 
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <button onClick={() => setTab('bitacora')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'bitacora' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📋 Bitácora de Decisiones</button>
           {/* 🆕 Bitácora de Campo (antes vivía en "Movilización y Operación") — distinta de la Bitácora de Decisiones de arriba: esta es el registro diario de campo (recorridos, incidencias, pendientes, etc.), no las decisiones tomadas. */}
           <button onClick={() => setTab('bitacora-campo')} className={`px-3 py-1.5 rounded-full text-xs font-bold ${tab === 'bitacora-campo' ? 'bg-fuchsia-600 text-white' : 'bg-slate-800 text-slate-400'}`}>📔 Bitácora de Campo</button>

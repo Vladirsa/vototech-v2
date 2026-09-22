@@ -68,6 +68,14 @@ export function ModalAgregar({ onCerrar, onGuardado, seccionInicial }) {
     comprometido: null, consentimiento: false,
     necesidad_principal: '', situacion_grave: '', genero: '', rango_edad: '',
   });
+  // 🆕 SIMPLIFICADO — antes el formulario mostraba TODOS los campos
+  // de un jalón (9+ cosas por llenar) y eso hacía lento capturar en
+  // la calle. Ahora solo se ven los campos esenciales para registrar
+  // rápido a alguien: nombre, teléfono, sección y si va a votar. Todo
+  // lo demás (dirección exacta, partido, género/edad, encuesta) queda
+  // oculto detrás de un botón "➕ Más detalles" — sigue estando ahí
+  // para quien quiera capturarlo completo, solo que ya no estorba.
+  const [masDetalles, setMasDetalles] = useState(false);
   const [error, setError] = useState('');
   const [guardando, setGuardando] = useState(false);
   // 🆕 Info derivada de la sección (municipio, distritos) — se llena
@@ -216,37 +224,6 @@ export function ModalAgregar({ onCerrar, onGuardado, seccionInicial }) {
             📍 {infoSeccion.municipio} · Dist. Local {infoSeccion.distrito_local} · Dist. Federal {infoSeccion.distrito_federal}
           </div>
         )}
-        <BuscadorCalle
-          valor={form.calle}
-          seccionNumero={form.seccion_numero}
-          onSeleccion={(datos) => setForm((f) => ({ ...f, calle: datos.calle, lat: datos.lat, lng: datos.lng }))}
-        />
-
-        <select value={form.partido} onChange={(e) => actualizar('partido', e.target.value)}
-          className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
-          <option value="">Partido de preferencia (opcional)</option>
-          {['morena','pan','pri','prd','mc','pvem','pt','pac','somos','paz','independiente'].map(p => <option key={p} value={p}>{p.toUpperCase()}</option>)}
-        </select>
-
-        <div className="flex gap-2">
-          <select value={form.genero} onChange={(e) => actualizar('genero', e.target.value)}
-            className="flex-1 px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
-            <option value="">Género (opcional)</option>
-            <option value="hombre">Hombre</option>
-            <option value="mujer">Mujer</option>
-            <option value="otro">Otro</option>
-          </select>
-          <select value={form.rango_edad} onChange={(e) => actualizar('rango_edad', e.target.value)}
-            className="flex-1 px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
-            <option value="">Edad aprox. (opcional)</option>
-            <option value="18-29">18-29 años</option>
-            <option value="30-44">30-44 años</option>
-            <option value="45-59">45-59 años</option>
-            <option value="60+">60 años o más</option>
-          </select>
-        </div>
-        <p className="text-[9px] text-slate-500">Estos 2 datos son opcionales — sirven para armar mejores estrategias de reuniones y mensajes con el tiempo. No preguntes ID, solo tu apreciación.</p>
-
         {/* 🆕 Un solo campo, simple y rápido — antes había 3 formas
             distintas de decir casi lo mismo (temperatura,
             clasificación, y esta casilla). El candidato solo quiere
@@ -265,25 +242,69 @@ export function ModalAgregar({ onCerrar, onGuardado, seccionInicial }) {
           </div>
         </div>
 
-        {/* 🗣️ Encuesta rápida — para que el candidato llegue informado
-            y empático a cada sección, no solo a pedir el voto */}
-        <div className="bg-indigo-500/5 border border-indigo-500/20 rounded-lg p-2.5 space-y-2">
-          <div className="text-[10px] font-bold text-indigo-300 uppercase">🗣️ Encuesta rápida (opcional)</div>
-          <select value={form.necesidad_principal} onChange={(e) => actualizar('necesidad_principal', e.target.value)}
-            className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs">
-            <option value="">¿Cuál es su necesidad principal?</option>
-            <option value="agua">💧 Agua</option>
-            <option value="seguridad">🚨 Seguridad</option>
-            <option value="empleo">💼 Empleo</option>
-            <option value="salud">🏥 Salud</option>
-            <option value="educacion">📚 Educación</option>
-            <option value="vialidad">🛣️ Calles/Vialidad</option>
-            <option value="otro">📌 Otro</option>
-          </select>
-          <textarea placeholder="¿Algo grave que el candidato deba saber antes de venir? (ej: enfermedad en la familia, conflicto reciente, denuncia pendiente...)"
-            value={form.situacion_grave} onChange={(e) => actualizar('situacion_grave', e.target.value)}
-            className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs min-h-14" />
-        </div>
+        {/* 🆕 Botón "Más detalles" — dirección exacta, partido,
+            género/edad y encuesta rápida quedan ocultos por default.
+            Un promotor apurado en la calle solo necesita lo de
+            arriba; quien sí quiera capturar todo lo abre con un toque. */}
+        <button type="button" onClick={() => setMasDetalles((v) => !v)}
+          className="w-full text-xs font-bold text-indigo-300 bg-indigo-500/10 border border-indigo-500/20 rounded-lg py-2.5 text-center active:scale-[0.98] transition-transform">
+          {masDetalles ? '➖ Ocultar más detalles' : '➕ Más detalles (dirección, partido, encuesta...)'}
+        </button>
+
+        {masDetalles && (
+          <div className="space-y-3">
+            <BuscadorCalle
+              valor={form.calle}
+              seccionNumero={form.seccion_numero}
+              onSeleccion={(datos) => setForm((f) => ({ ...f, calle: datos.calle, lat: datos.lat, lng: datos.lng }))}
+            />
+
+            <select value={form.partido} onChange={(e) => actualizar('partido', e.target.value)}
+              className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
+              <option value="">Partido de preferencia (opcional)</option>
+              {['morena','pan','pri','prd','mc','pvem','pt','pac','somos','paz','independiente'].map(p => <option key={p} value={p}>{p.toUpperCase()}</option>)}
+            </select>
+
+            <div className="flex gap-2">
+              <select value={form.genero} onChange={(e) => actualizar('genero', e.target.value)}
+                className="flex-1 px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
+                <option value="">Género (opcional)</option>
+                <option value="hombre">Hombre</option>
+                <option value="mujer">Mujer</option>
+                <option value="otro">Otro</option>
+              </select>
+              <select value={form.rango_edad} onChange={(e) => actualizar('rango_edad', e.target.value)}
+                className="flex-1 px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
+                <option value="">Edad aprox. (opcional)</option>
+                <option value="18-29">18-29 años</option>
+                <option value="30-44">30-44 años</option>
+                <option value="45-59">45-59 años</option>
+                <option value="60+">60 años o más</option>
+              </select>
+            </div>
+            <p className="text-[9px] text-slate-500">Estos 2 datos son opcionales — sirven para armar mejores estrategias de reuniones y mensajes con el tiempo. No preguntes ID, solo tu apreciación.</p>
+
+            {/* 🗣️ Encuesta rápida — para que el candidato llegue informado
+                y empático a cada sección, no solo a pedir el voto */}
+            <div className="bg-indigo-500/5 border border-indigo-500/20 rounded-lg p-2.5 space-y-2">
+              <div className="text-[10px] font-bold text-indigo-300 uppercase">🗣️ Encuesta rápida (opcional)</div>
+              <select value={form.necesidad_principal} onChange={(e) => actualizar('necesidad_principal', e.target.value)}
+                className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs">
+                <option value="">¿Cuál es su necesidad principal?</option>
+                <option value="agua">💧 Agua</option>
+                <option value="seguridad">🚨 Seguridad</option>
+                <option value="empleo">💼 Empleo</option>
+                <option value="salud">🏥 Salud</option>
+                <option value="educacion">📚 Educación</option>
+                <option value="vialidad">🛣️ Calles/Vialidad</option>
+                <option value="otro">📌 Otro</option>
+              </select>
+              <textarea placeholder="¿Algo grave que el candidato deba saber antes de venir? (ej: enfermedad en la familia, conflicto reciente, denuncia pendiente...)"
+                value={form.situacion_grave} onChange={(e) => actualizar('situacion_grave', e.target.value)}
+                className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs min-h-14" />
+            </div>
+          </div>
+        )}
 
         <label className="flex items-start gap-2 text-xs text-slate-300 bg-slate-800/50 p-2 rounded-lg">
           <input type="checkbox" checked={form.consentimiento} onChange={(e) => actualizar('consentimiento', e.target.checked)} className="mt-0.5" />

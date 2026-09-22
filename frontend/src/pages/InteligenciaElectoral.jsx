@@ -5,6 +5,7 @@ import Reportes from './Reportes';
 import Priorizacion from './Priorizacion';
 import EstadisticaProbabilidad from './EstadisticaProbabilidad';
 import BitacoraDiaria from './BitacoraDiaria';
+import CentroDecisiones from './CentroDecisiones';
 import api from '../lib/api';
 
 /**
@@ -34,6 +35,14 @@ import api from '../lib/api';
  * también se movió aquí — la bitácora de campo alimenta directamente
  * la inteligencia electoral, tiene más sentido tenerla junto con
  * Reportes/Priorización que escondida en la operación diaria.
+ *
+ * 🆕 NUEVO — "Centro de Decisiones" (antes era un módulo aparte, con
+ * su propio botón en el menú principal) se movió aquí como pestaña —
+ * las decisiones de campaña se toman CON la inteligencia que las
+ * respalda (reportes, priorización, estadística), no en un lugar
+ * separado del menú. La ruta vieja /centro-decisiones redirige sola
+ * a Inteligencia Electoral (ver App.jsx) para que ningún enlace
+ * guardado se rompa.
  */
 export default function InteligenciaElectoral() {
   const [tab, setTab] = useState('centro-mando');
@@ -44,6 +53,7 @@ export default function InteligenciaElectoral() {
     { id: 'priorizacion', ic: '🎯', label: 'Priorización' },
     { id: 'estadistica-probabilidad', ic: '🎲', label: 'Estadística y Probabilidad' },
     { id: 'bitacora', ic: '📔', label: 'Bitácora' },
+    { id: 'centro-decisiones', ic: '🧭', label: 'Centro de Decisiones' },
   ];
 
   useEffect(() => {
@@ -93,6 +103,7 @@ export default function InteligenciaElectoral() {
           {tab === 'priorizacion' && <Priorizacion />}
           {tab === 'estadistica-probabilidad' && <EstadisticaProbabilidad />}
           {tab === 'bitacora' && <BitacoraDiaria />}
+          {tab === 'centro-decisiones' && <CentroDecisiones embed />}
         </div>
       </div>
     </div>
