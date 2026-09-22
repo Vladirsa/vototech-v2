@@ -53,6 +53,35 @@ export async function crearDemo(opciones = {}) {
 
   console.log(`🎬 Creando cuenta DEMO (${tipoEleccion} — ${nombreTerritorio})...\n`);
 
+  // 🆕 VALIDACIÓN ANTES DE BORRAR NADA — antes esto se checaba HASTA
+  // después de borrar la demo anterior y crear la campaña nueva, así
+  // que si el territorio elegido no tenía secciones (estado/municipio
+  // mal combinado, o cartografía de ese estado incompleta), el error
+  // se lanzaba a medias: la demo vieja ya estaba borrada, la nueva
+  // nunca se completó, y en el panel parecía que "no pasó nada" o que
+  // seguía viéndose la demo anterior. Ahora se verifica PRIMERO que el
+  // territorio tenga secciones — si no las tiene, se detiene aquí y la
+  // demo anterior se queda intacta, sin tocar nada.
+  let filtroSecciones = 'WHERE s.estado_id=$1';
+  const paramsSecciones = [estadoId];
+  if (territorioTipo === 'municipio') { filtroSecciones += ' AND m.clave_ine=$2'; paramsSecciones.push(territorioId); }
+  else if (territorioTipo === 'distrito_local') { filtroSecciones += ' AND s.distrito_local=$2'; paramsSecciones.push(territorioId); }
+  else if (territorioTipo === 'distrito_federal') { filtroSecciones += ' AND s.distrito_federal=$2'; paramsSecciones.push(territorioId); }
+
+  const seccionesRes = await query(
+    `SELECT s.id, s.numero, s.lista_nominal, s.geometria FROM secciones s JOIN municipios m ON m.id=s.municipio_id
+     ${filtroSecciones} ORDER BY s.numero`,
+    paramsSecciones
+  );
+  if (seccionesRes.rows.length === 0) {
+    throw new Error(`No se encontraron secciones para ${nombreTerritorio} — verifica que ese distrito/municipio exista en la base de datos (¿ya cargaste la cartografía de ese estado en "Cargar Cartografía de Estado"?). Tu demo anterior NO se tocó.`);
+  }
+  const secciones = seccionesRes.rows; // [{id, numero, lista_nominal, geometria}]
+  const seccionAl = (i) => secciones[i % secciones.length];
+  console.log(`✅ Territorio verificado: ${secciones.length} secciones disponibles`);
+
+  // Solo hasta aquí, con el territorio ya confirmado, se toca la demo
+  // anterior — se borra y se crea la nueva en el mismo paso.
   await query('DELETE FROM campanas WHERE subdominio=$1', [DEMO_SUBDOMINIO]);
 
   const passwordHash = await bcrypt.hash(DEMO_PASSWORD, 12);
@@ -66,25 +95,6 @@ export async function crearDemo(opciones = {}) {
   );
   const campanaId = campana.rows[0].id;
   console.log(`✅ Campaña demo creada (${tipoEleccion} — ${nombreTerritorio} — partido ${partidoDemo})`);
-
-  // ── TERRITORIO — TODAS las secciones disponibles, no solo 20 ──────
-  let filtroSecciones = 'WHERE s.estado_id=$1';
-  const paramsSecciones = [estadoId];
-  if (territorioTipo === 'municipio') { filtroSecciones += ' AND m.clave_ine=$2'; paramsSecciones.push(territorioId); }
-  else if (territorioTipo === 'distrito_local') { filtroSecciones += ' AND s.distrito_local=$2'; paramsSecciones.push(territorioId); }
-  else if (territorioTipo === 'distrito_federal') { filtroSecciones += ' AND s.distrito_federal=$2'; paramsSecciones.push(territorioId); }
-
-  const seccionesRes = await query(
-    `SELECT s.id, s.numero, s.lista_nominal, s.geometria FROM secciones s JOIN municipios m ON m.id=s.municipio_id
-     ${filtroSecciones} ORDER BY s.numero`,
-    paramsSecciones
-  );
-  if (seccionesRes.rows.length === 0) {
-    throw new Error(`No se encontraron secciones para ${nombreTerritorio} — verifica que ese distrito/municipio exista en la base de datos`);
-  }
-  const secciones = seccionesRes.rows; // [{id, numero, lista_nominal, geometria}]
-  const seccionAl = (i) => secciones[i % secciones.length];
-  console.log(`✅ Territorio: ${secciones.length} secciones disponibles`);
 
   // 🆕 Centro geográfico REAL del territorio — antes esto estaba fijo
   // cerca de Apizaco, así que una demo de otro estado ponía las
