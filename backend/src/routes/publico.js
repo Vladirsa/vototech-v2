@@ -57,7 +57,7 @@ router.post('/confirmar-voto/:id', limiteRespuestasPublicas, async (req, res) =>
   );
   if (!resultado.rows[0]) return res.status(404).json({ ok: false, error: 'Enlace inválido' });
 
-  getIo().to(`campana:${resultado.rows[0].campana_id}`).emit('voto_confirmado', resultado.rows[0]);
+  getIo().to(`campana:${resultado.rows[0].campana_id}`).emit('voto_confirmado', { id: resultado.rows[0].id });
   res.json({ ok: true, mensaje: `¡Gracias ${resultado.rows[0].nombre}! Quedó registrado.` });
 });
 

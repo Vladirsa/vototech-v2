@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { filtroAlcance } from '../lib/alcance.js';
 import { z } from 'zod';
 import PDFDocument from 'pdfkit';
 import ExcelJS from 'exceljs';
@@ -1834,7 +1835,7 @@ const AGRUPACIONES = {
   clasificacion: { etiqueta: "COALESCE(p.clasificacion, 'Sin clasificar')", nombreEtiqueta: 'Base (clasificación)' },
 };
 
-async function obtenerReportePersonalizado(campanaId, params) {
+async function obtenerReportePersonalizado(campanaId, params, usuario = null) {
   const { agrupar_por, municipio_id, seccion_numero, rol, clasificacion, fecha_inicio, fecha_fin } = params;
   const condiciones = ['p.campana_id = $1'];
   const valores = [campanaId];
@@ -1845,7 +1846,9 @@ async function obtenerReportePersonalizado(campanaId, params) {
   if (clasificacion) { condiciones.push(`p.clasificacion = $${i++}`); valores.push(clasificacion); }
   if (fecha_inicio) { condiciones.push(`p.creado_en::date >= $${i++}`); valores.push(fecha_inicio); }
   if (fecha_fin) { condiciones.push(`p.creado_en::date <= $${i++}`); valores.push(fecha_fin); }
-  const where = condiciones.join(' AND ');
+  let where = condiciones.join(' AND ');
+  // 🔒 Coordinadores: solo su territorio y equipo (lib/alcance.js).
+  if (usuario) where += await filtroAlcance(usuario, valores, { personas: ['p.registrado_por', 'p.asignado_seguimiento_a'], seccion: 'p.seccion_id' });
   const baseJoin = `FROM promovidos p
     LEFT JOIN secciones s ON s.id = p.seccion_id
     LEFT JOIN municipios m ON m.id = s.municipio_id
@@ -1898,7 +1901,7 @@ async function obtenerReportePersonalizado(campanaId, params) {
 // GET /reportes/personalizado — tabla dinámica en JSON (para pintar en pantalla)
 router.get('/personalizado', async (req, res) => {
   try {
-    const resultado = await obtenerReportePersonalizado(req.usuario.campana_id, req.query);
+    const resultado = await obtenerReportePersonalizado(req.usuario.campana_id, req.query, req.usuario);
     res.json({ ok: true, data: resultado });
   } catch (e) {
     res.status(400).json({ ok: false, error: e.message || 'No se pudo generar el reporte' });
@@ -1911,7 +1914,7 @@ router.get('/personalizado', async (req, res) => {
 // esa regla y la podían usar coordinadores distritales y municipales.
 router.get('/personalizado/exportar', requiereRol('candidato', 'jefe_campana', 'coord_general'), async (req, res) => {
   try {
-    const resultado = await obtenerReportePersonalizado(req.usuario.campana_id, req.query);
+    const resultado = await obtenerReportePersonalizado(req.usuario.campana_id, req.query, req.usuario);
     const libro = new ExcelJS.Workbook();
     const hoja = libro.addWorksheet('Reporte personalizado');
     if (resultado.es_detalle) {

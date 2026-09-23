@@ -1,4 +1,6 @@
 import { Router } from 'express';
+import { filtroAlcance } from '../lib/alcance.js';
+import { ROLES_MANDO } from '../lib/pertenencia.js';
 import { z } from 'zod';
 import multer from 'multer';
 import crypto from 'crypto';
@@ -81,7 +83,7 @@ router.delete('/plantillas/:id', async (req, res) => {
 // AUDIENCIA
 // ═══════════════════════════════════════════════════════════════
 
-async function calcularAudiencia(campanaId, tipo, filtros = {}, estadoId = 29) {
+async function calcularAudiencia(campanaId, tipo, filtros = {}, estadoId = 29, usuario = null) {
   if (tipo === 'promovidos') {
     let sql = `SELECT p.id, p.nombre, p.telefono FROM promovidos p WHERE p.campana_id=$1 AND p.telefono IS NOT NULL AND p.telefono != ''`;
     const params = [campanaId];
@@ -98,6 +100,8 @@ async function calcularAudiencia(campanaId, tipo, filtros = {}, estadoId = 29) {
     else if (filtros.comprometido !== undefined) { params.push(filtros.comprometido); sql += ` AND p.comprometido=$${params.length}`; }
     if (filtros.ya_voto !== undefined) { params.push(filtros.ya_voto); sql += ` AND p.ya_voto=$${params.length}`; }
     if (filtros.dias_sin_contacto_min) { params.push(filtros.dias_sin_contacto_min); sql += ` AND p.creado_en < now() - ($${params.length}::text || ' days')::interval`; }
+    // 🔒 Un coordinador solo manda mensajes a la gente de su territorio y equipo.
+    if (usuario) sql += await filtroAlcance(usuario, params, { personas: ['p.registrado_por', 'p.asignado_seguimiento_a'], seccion: 'p.seccion_id' });
     const r = await query(sql, params);
     return r.rows;
   }
@@ -106,6 +110,7 @@ async function calcularAudiencia(campanaId, tipo, filtros = {}, estadoId = 29) {
     const params = [campanaId];
     if (filtros.rol) { params.push(filtros.rol); sql += ` AND rol=$${params.length}`; }
     if (filtros.solo_promotores) { sql += ` AND rol='promotor'`; }
+    if (usuario) sql += await filtroAlcance(usuario, params, { personas: ['id'] });
     const r = await query(sql, params);
     return r.rows;
   }
@@ -115,7 +120,7 @@ async function calcularAudiencia(campanaId, tipo, filtros = {}, estadoId = 29) {
 router.post('/audiencia/previsualizar', async (req, res) => {
   const { tipo, filtros } = req.body;
   if (!['promovidos', 'estructura'].includes(tipo)) return res.status(400).json({ ok: false, error: 'Tipo de audiencia inválido' });
-  const gente = await calcularAudiencia(req.usuario.campana_id, tipo, filtros || {}, req.usuario.estado_id);
+  const gente = await calcularAudiencia(req.usuario.campana_id, tipo, filtros || {}, req.usuario.estado_id, req.usuario);
   res.json({ ok: true, total: gente.length, muestra: gente.slice(0, 5) });
 });
 
@@ -154,7 +159,7 @@ router.get('/segmentos-sugeridos', async (req, res) => {
   ];
 
   const segmentos = await Promise.all(definiciones.map(async (def) => {
-    const gente = await calcularAudiencia(campanaId, 'promovidos', def.filtro, req.usuario.estado_id);
+    const gente = await calcularAudiencia(campanaId, 'promovidos', def.filtro, req.usuario.estado_id, req.usuario);
     return { ...def, total: gente.length };
   }));
 
@@ -179,6 +184,11 @@ router.get('/envios', async (req, res) => {
 router.get('/envios/:id', async (req, res) => {
   const resultado = await query('SELECT * FROM marketing_envios WHERE id=$1 AND campana_id=$2', [req.params.id, req.usuario.campana_id]);
   if (!resultado.rows[0]) return res.status(404).json({ ok: false, error: 'No encontrado' });
+  // 🔒 La lista de destinatarios (nombres y teléfonos) solo la ve quien
+  // creó el envío o la dirección de campaña.
+  if (!ROLES_MANDO.includes(req.usuario.rol) && resultado.rows[0].creado_por !== req.usuario.sub) {
+    return res.status(403).json({ ok: false, error: 'Solo quien creó este envío puede ver sus destinatarios.' });
+  }
   res.json({ ok: true, data: resultado.rows[0] });
 });
 
@@ -249,7 +259,7 @@ router.post('/envios', async (req, res) => {
   if (!parseado.success) return res.status(400).json({ ok: false, error: parseado.error.errors[0].message });
   const d = parseado.data;
 
-  const gente = await calcularAudiencia(req.usuario.campana_id, d.audiencia_tipo, d.audiencia_filtro, req.usuario.estado_id);
+  const gente = await calcularAudiencia(req.usuario.campana_id, d.audiencia_tipo, d.audiencia_filtro, req.usuario.estado_id, req.usuario);
   if (gente.length === 0) return res.status(400).json({ ok: false, error: 'No hay destinatarios con ese filtro (revisa que tengan teléfono registrado)' });
 
   // 🆕 Si se eligieron voluntarios, se reparte la lista entre ellos

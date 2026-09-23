@@ -8,6 +8,7 @@ import { query } from '../db/pool.js';
 import { requiereAuth } from '../middleware/auth.js';
 import { getIo } from '../io.js';
 import { registrarAuditoria } from '../lib/auditoria.js';
+import { dentroDeAlcance, filtroAlcance } from '../lib/alcance.js';
 import { soloVeLoPropio, ROLES_MANDO } from '../lib/pertenencia.js';
 
 /**
@@ -17,26 +18,35 @@ import { soloVeLoPropio, ROLES_MANDO } from '../lib/pertenencia.js';
  * representante podía capturar o cambiar resultados de casillas ajenas.
  */
 async function puedeTocarCasilla(usuario, { casillaId, seccionId, numero }) {
-  if (!soloVeLoPropio(usuario)) return true; // coordinadores y mandos: cualquiera de su campaña
+  if (ROLES_MANDO.includes(usuario.rol)) return true; // mandos: cualquiera de su campaña
   const r = casillaId
-    ? await query('SELECT representante_id, suplente_id FROM casillas WHERE id=$1 AND campana_id=$2', [casillaId, usuario.campana_id])
+    ? await query('SELECT representante_id, suplente_id, seccion_id FROM casillas WHERE id=$1 AND campana_id=$2', [casillaId, usuario.campana_id])
     : await query(
-      "SELECT representante_id, suplente_id FROM casillas WHERE campana_id=$1 AND seccion_id=$2 AND upper(replace(numero,' ',''))=upper(replace($3,' ',''))",
+      "SELECT representante_id, suplente_id, seccion_id FROM casillas WHERE campana_id=$1 AND seccion_id=$2 AND upper(replace(numero,' ',''))=upper(replace($3,' ',''))",
       [usuario.campana_id, seccionId, numero]
     );
   const c = r.rows[0];
   if (c) {
-    // Casilla sin representante asignado todavía: se permite (y queda en
-    // la bitácora quién capturó). Si tiene dueño, solo él o su suplente.
+    // Coordinadores: casillas de su territorio o de su equipo.
+    if (!soloVeLoPropio(usuario)) {
+      return dentroDeAlcance(usuario, { personas: [c.representante_id, c.suplente_id], seccionId: c.seccion_id });
+    }
+    // Campo: casilla sin representante asignado todavía se permite (y
+    // queda en la bitácora quién capturó). Si tiene dueño, solo él o su suplente.
     if (!c.representante_id && !c.suplente_id) return true;
     return c.representante_id === usuario.sub || c.suplente_id === usuario.sub;
   }
   if (casillaId) return false;
-  // La casilla no está dada de alta: se permite solo si la campaña aún
-  // no ha cargado NINGUNA casilla (campañas que no usan ese módulo).
+  // La casilla no está dada de alta.
+  if (!soloVeLoPropio(usuario) && (await dentroDeAlcance(usuario, { seccionId }))) return true;
+  // Se permite solo si la campaña aún no ha cargado NINGUNA casilla
+  // (campañas que no usan ese módulo).
   const hay = await query('SELECT 1 FROM casillas WHERE campana_id=$1 LIMIT 1', [usuario.campana_id]);
   return !hay.rows[0];
 }
+
+const COLS_CASILLA = { personas: ['c.representante_id', 'c.suplente_id'], seccion: 'c.seccion_id' };
+const COLS_PROMOVIDO = { personas: ['p.registrado_por', 'p.asignado_seguimiento_a'], seccion: 'p.seccion_id' };
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const router = Router();
@@ -203,6 +213,8 @@ router.post('/casillas-sugeridas/:seccion_numero/generar', async (req, res) => {
  */
 router.get('/prep', async (req, res) => {
   const campanaId = req.usuario.campana_id;
+  const paramsCasillas = [campanaId];
+  const filtroCasillas = await filtroAlcance(req.usuario, paramsCasillas, COLS_CASILLA);
 
   const casillas = await query(
     // 🔒 Sin clave de elector ni domicilio del representante (antes
@@ -213,9 +225,9 @@ router.get('/prep', async (req, res) => {
             s.numero as seccion_numero, u.nombre as representante_nombre
      FROM casillas c JOIN secciones s ON s.id=c.seccion_id
      LEFT JOIN usuarios u ON u.id = c.representante_id
-     WHERE c.campana_id=$1 ${soloVeLoPropio(req.usuario) ? 'AND (c.representante_id=$2 OR c.suplente_id=$2)' : ''}
+     WHERE c.campana_id=$1 ${filtroCasillas}
      ORDER BY s.numero`,
-    soloVeLoPropio(req.usuario) ? [campanaId, req.usuario.sub] : [campanaId]
+    paramsCasillas
   );
 
   const total = casillas.rows.length;
@@ -315,6 +327,10 @@ router.post('/casillas', async (req, res) => {
 
   const seccion = await query('SELECT id FROM secciones WHERE estado_id=$2 AND numero=$1', [d.seccion_numero, req.usuario.estado_id]);
   if (!seccion.rows[0]) return res.status(404).json({ ok: false, error: 'Sección no encontrada' });
+  // 🔒 Coordinadores: solo casillas de las secciones de su territorio.
+  if (!ROLES_MANDO.includes(req.usuario.rol) && !(await dentroDeAlcance(req.usuario, { seccionId: seccion.rows[0].id }))) {
+    return res.status(403).json({ ok: false, error: 'Esa sección no está en tu territorio asignado.' });
+  }
 
   // 🆕 Primero se asegura que la fila exista (alta si es nueva, sin
   // tocar nada si ya existía) — y LUEGO solo se actualizan los campos
@@ -482,6 +498,8 @@ router.get('/casillas', async (req, res) => {
     return res.json({ ok: true, total: parseInt(resultado.rows[0].total) });
   }
 
+  const params = [req.usuario.campana_id];
+  const filtro = await filtroAlcance(req.usuario, params, COLS_CASILLA);
   const resultado = await query(
     `SELECT c.*, s.numero as seccion_numero, s.lista_nominal as seccion_lista_nominal, s.distrito_local,
             u.nombre as representante_nombre, u.telefono as representante_telefono,
@@ -497,8 +515,8 @@ router.get('/casillas', async (req, res) => {
      LEFT JOIN usuarios u2 ON u2.id = c.suplente_id
      LEFT JOIN riesgo_llenado_distrito r ON r.distrito_local = s.distrito_local
      WHERE c.campana_id=$1
-       ${soloVeLoPropio(req.usuario) ? 'AND (c.representante_id=$2 OR c.suplente_id=$2)' : ''}`,
-    soloVeLoPropio(req.usuario) ? [req.usuario.campana_id, req.usuario.sub] : [req.usuario.campana_id]
+       ${filtro}`,
+    params
   );
   const conEstimado = resultado.rows.map((c) => ({
     ...c,
@@ -525,14 +543,16 @@ router.patch('/casillas/:id/confirmar', async (req, res) => {
  * GET /api/dia-eleccion/resultados
  */
 router.get('/resultados', async (req, res) => {
+  const params = [req.usuario.campana_id];
+  const filtro = await filtroAlcance(req.usuario, params, { personas: ['r.capturado_por'], seccion: 'r.seccion_id' });
   const resultado = await query(
     `SELECT r.*, s.numero as seccion_numero, u.nombre as capturado_por_nombre
      FROM resultados_casilla r
      JOIN secciones s ON s.id = r.seccion_id
      JOIN usuarios u ON u.id = r.capturado_por
-     WHERE r.campana_id = $1 ${soloVeLoPropio(req.usuario) ? 'AND r.capturado_por = $2' : ''}
+     WHERE r.campana_id = $1 ${filtro}
      ORDER BY r.capturado_en DESC`,
-    soloVeLoPropio(req.usuario) ? [req.usuario.campana_id, req.usuario.sub] : [req.usuario.campana_id]
+    params
   );
   res.json({ ok: true, data: resultado.rows });
 });
@@ -784,15 +804,17 @@ router.post('/cerrar-captura', async (req, res) => {
  * NO han confirmado que ya votaron.
  */
 router.get('/caceria', async (req, res) => {
+  const params = [req.usuario.campana_id];
+  const filtro = await filtroAlcance(req.usuario, params, COLS_PROMOVIDO);
   const resultado = await query(
     `SELECT p.id, p.nombre, p.telefono, p.ya_voto, s.numero as seccion_numero
      FROM promovidos p
      LEFT JOIN secciones s ON s.id = p.seccion_id
      WHERE p.campana_id = $1 AND p.clasificacion = 'base' AND p.comprometido = true AND p.ya_voto = false
-       ${soloVeLoPropio(req.usuario) ? 'AND (p.registrado_por = $2 OR p.asignado_seguimiento_a = $2)' : ''}
+       ${filtro}
      ORDER BY s.numero
      LIMIT 5000`,
-    soloVeLoPropio(req.usuario) ? [req.usuario.campana_id, req.usuario.sub] : [req.usuario.campana_id]
+    params
   );
   res.json({ ok: true, data: resultado.rows, total: resultado.rows.length });
 });
@@ -803,29 +825,33 @@ router.get('/caceria', async (req, res) => {
  * complemento de la cacería (que muestra a los que faltan, en rojo).
  */
 router.get('/confirmados', async (req, res) => {
+  const params = [req.usuario.campana_id];
+  const filtro = await filtroAlcance(req.usuario, params, COLS_PROMOVIDO);
   const resultado = await query(
     `SELECT p.id, p.nombre, p.hora_voto, s.numero as seccion_numero, p.lat, p.lng
      FROM promovidos p
      LEFT JOIN secciones s ON s.id = p.seccion_id
      WHERE p.campana_id = $1 AND p.clasificacion = 'base' AND p.comprometido = true AND p.ya_voto = true
-       ${soloVeLoPropio(req.usuario) ? 'AND (p.registrado_por = $2 OR p.asignado_seguimiento_a = $2)' : ''}
+       ${filtro}
      ORDER BY p.hora_voto DESC
      LIMIT 5000`,
-    soloVeLoPropio(req.usuario) ? [req.usuario.campana_id, req.usuario.sub] : [req.usuario.campana_id]
+    params
   );
   res.json({ ok: true, data: resultado.rows });
 });
 
 router.patch('/caceria/:id/voto', async (req, res) => {
+  const params = [req.params.id, req.usuario.campana_id];
+  const filtro = await filtroAlcance(req.usuario, params, { personas: ['registrado_por', 'asignado_seguimiento_a'], seccion: 'seccion_id' });
   const resultado = await query(
     `UPDATE promovidos SET ya_voto = true, hora_voto = now()
-     WHERE id=$1 AND campana_id=$2 ${soloVeLoPropio(req.usuario) ? 'AND (registrado_por = $3 OR asignado_seguimiento_a = $3)' : ''}
+     WHERE id=$1 AND campana_id=$2 ${filtro}
      RETURNING id, nombre`,
-    soloVeLoPropio(req.usuario) ? [req.params.id, req.usuario.campana_id, req.usuario.sub] : [req.params.id, req.usuario.campana_id]
+    params
   );
   if (!resultado.rows[0]) return res.status(404).json({ ok: false, error: 'No encontrado' });
 
-  getIo().to(`campana:${req.usuario.campana_id}`).emit('voto_confirmado', resultado.rows[0]);
+  getIo().to(`campana:${req.usuario.campana_id}`).emit('voto_confirmado', { id: resultado.rows[0].id }); // 🔒 solo el id: el nombre no viaja a toda la campaña
   res.json({ ok: true, data: resultado.rows[0] });
 });
 
@@ -1056,7 +1082,7 @@ router.post('/simular-eleccion', async (req, res) => {
             [idsAMarcar]
           );
           marcados.rows.forEach((p) => {
-            getIo().to(`campana:${req.usuario.campana_id}`).emit('voto_confirmado', p);
+            getIo().to(`campana:${req.usuario.campana_id}`).emit('voto_confirmado', { id: p.id });
           });
         }
       } catch (e) {

@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { filtroAlcance } from '../lib/alcance.js';
 import { query } from '../db/pool.js';
 import { requiereAuth } from '../middleware/auth.js';
 
@@ -498,11 +499,15 @@ router.get('/seccion/:numero', async (req, res) => {
       if (necesidad) conteoNecesidades[necesidad] = (conteoNecesidades[necesidad] || 0) + 1;
     });
 
+    // 🔒 Casos delicados de personas: solo si esa gente está en tu alcance.
+    const paramsSituaciones = [campanaId, seccion.id];
+    const filtroSituaciones = await filtroAlcance(req.usuario, paramsSituaciones, { personas: ['registrado_por', 'asignado_seguimiento_a'], seccion: 'seccion_id' });
     const situacionesRes = await query(
       `SELECT nombre, situacion_grave, creado_en FROM promovidos
        WHERE campana_id=$1 AND seccion_id=$2 AND situacion_grave IS NOT NULL AND situacion_grave != ''
+       ${filtroSituaciones}
        ORDER BY creado_en DESC LIMIT 10`,
-      [campanaId, seccion.id]
+      paramsSituaciones
     );
 
     // Cálculo de déficit — misma fórmula que el Motor de Priorización general

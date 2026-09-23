@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { dentroDeAlcance, filtroAlcance } from '../lib/alcance.js';
 import { z } from 'zod';
 import { query } from '../db/pool.js';
 import { requiereAuth } from '../middleware/auth.js';
@@ -29,9 +30,11 @@ router.get('/', async (req, res) => {
     WHERE i.campana_id = $1`;
   const params = [req.usuario.campana_id];
 
-  if (['coord_seccional', 'promotor'].includes(req.usuario.rol)) {
-    params.push(req.usuario.sub);
-    sql += ` AND i.reportado_por = $${params.length}`;
+  // 🔒 Territorio + equipo (ver lib/alcance.js). Antes un representante
+  // o voluntario veía TODAS las incidencias de la campaña. El área
+  // jurídica sí las ve todas: atenderlas es su trabajo.
+  if (req.usuario.rol !== 'encargado_juridico') {
+    sql += await filtroAlcance(req.usuario, params, { personas: ['i.reportado_por'], seccion: 'i.seccion_id' });
   }
 
   if (tipo) { params.push(tipo); sql += ` AND i.tipo = $${params.length}`; }
@@ -81,7 +84,9 @@ router.post('/', async (req, res) => {
   );
 
   if (d.urgencia === 'urgente') {
-    getIo().to(`campana:${req.usuario.campana_id}`).emit('incidencia_urgente', resultado.rows[0]);
+    // 🔒 La alerta urgente va solo a coordinación y mandos (antes le llegaba
+    // completa a todo el equipo, incluidos promotores y voluntarios).
+    getIo().to(`campana:${req.usuario.campana_id}:coordinadores`).emit('incidencia_urgente', resultado.rows[0]);
 
     const altosMando = await query(
       `SELECT id FROM usuarios WHERE campana_id=$1 AND rol IN ('candidato','jefe_campana','coord_general')`,
@@ -106,11 +111,12 @@ const esquemaEditar = z.object({
   notificado_ople: z.boolean().optional(),
 });
 
-/** 🔒 Coordinación y mandos: cualquier incidencia. Los demás: solo las que ellos reportaron. */
+/** 🔒 Mandos y jurídico: cualquier incidencia. Coordinadores: su territorio y equipo. Campo: solo las suyas. */
 async function puedeTocarIncidencia(usuario, id) {
-  const r = await query('SELECT reportado_por FROM incidencias WHERE id=$1 AND campana_id=$2', [id, usuario.campana_id]);
+  const r = await query('SELECT reportado_por, seccion_id FROM incidencias WHERE id=$1 AND campana_id=$2', [id, usuario.campana_id]);
   if (!r.rows[0]) return false;
-  return !soloVeLoPropio(usuario) || r.rows[0].reportado_por === usuario.sub;
+  if (usuario.rol === 'encargado_juridico') return true;
+  return dentroDeAlcance(usuario, { personas: [r.rows[0].reportado_por], seccionId: r.rows[0].seccion_id });
 }
 
 router.patch('/:id', async (req, res) => {

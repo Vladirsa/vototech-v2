@@ -4,6 +4,7 @@ import { query } from '../db/pool.js';
 import { requiereAuth } from '../middleware/auth.js';
 import { registrarAuditoria } from '../lib/auditoria.js';
 import { encontrarSeccionRealDelPunto } from '../lib/geoUtils.js';
+import { alcanceDe, dentroDeAlcance, filtroAlcance } from '../lib/alcance.js';
 import { soloVeLoPropio, ROLES_COORDINACION, ROLES_MANDO, usuarioEsDeMiCampana } from '../lib/pertenencia.js';
 import { requiereRol } from '../middleware/auth.js';
 
@@ -16,14 +17,17 @@ import { requiereRol } from '../middleware/auth.js';
  */
 async function puedeTocarPromovido(usuario, promovidoId) {
   const r = await query(
-    'SELECT registrado_por, asignado_seguimiento_a FROM promovidos WHERE id=$1 AND campana_id=$2',
+    'SELECT registrado_por, asignado_seguimiento_a, seccion_id FROM promovidos WHERE id=$1 AND campana_id=$2',
     [promovidoId, usuario.campana_id]
   );
   const p = r.rows[0];
   if (!p) return false;
-  if (!soloVeLoPropio(usuario)) return true;
-  return p.registrado_por === usuario.sub || p.asignado_seguimiento_a === usuario.sub;
+  // 🔒 Territorio + equipo (ver lib/alcance.js).
+  return dentroDeAlcance(usuario, { personas: [p.registrado_por, p.asignado_seguimiento_a], seccionId: p.seccion_id });
 }
+
+// Columnas que definen "de quién es" un promovido.
+const COLS_PROMOVIDO = { personas: ['p.registrado_por', 'p.asignado_seguimiento_a'], seccion: 'p.seccion_id' };
 
 const router = Router();
 router.use(requiereAuth); // todo este módulo requiere sesión
@@ -87,7 +91,8 @@ router.get('/', async (req, res) => {
   const params = [req.usuario.campana_id];
 
   // 🔒 Roles de campo: solo sus propios promovidos.
-  if (soloVeLoPropio(req.usuario)) { params.push(req.usuario.sub); sql += ` AND (p.registrado_por = $${params.length} OR p.asignado_seguimiento_a = $${params.length})`; }
+  // 🔒 Cada quien ve lo de su alcance (territorio + equipo; campo: solo lo suyo).
+  sql += await filtroAlcance(req.usuario, params, COLS_PROMOVIDO);
   if (seccion) { params.push(seccion); sql += ` AND s.numero = $${params.length}`; }
   if (registrador) { params.push(registrador); sql += ` AND p.registrado_por = $${params.length}`; }
   if (buscar) { params.push(`%${buscar}%`); sql += ` AND (unaccent(p.nombre) ILIKE unaccent($${params.length}) OR p.telefono ILIKE $${params.length})`; }
@@ -111,15 +116,17 @@ router.get('/', async (req, res) => {
  * mal repartido entre promotores).
  */
 router.get('/duplicados', async (req, res) => {
+  const params = [req.usuario.campana_id];
+  const filtro = await filtroAlcance(req.usuario, params, COLS_PROMOVIDO);
   const resultado = await query(
     `SELECT p.*, s.numero as seccion_numero, u.nombre as registrado_por_nombre
      FROM promovidos p
      LEFT JOIN secciones s ON s.id = p.seccion_id
      LEFT JOIN usuarios u ON u.id = p.registrado_por
      WHERE p.campana_id = $1 AND p.veces_intentado > 1
-       ${soloVeLoPropio(req.usuario) ? 'AND (p.registrado_por = $2 OR p.asignado_seguimiento_a = $2)' : ''}
+       ${filtro}
      ORDER BY p.veces_intentado DESC LIMIT 100`,
-    soloVeLoPropio(req.usuario) ? [req.usuario.campana_id, req.usuario.sub] : [req.usuario.campana_id]
+    params
   );
   res.json({ ok: true, data: resultado.rows });
 });
@@ -168,16 +175,18 @@ router.get('/resumen', async (req, res) => {
  * registra una vez y nunca más se le vuelve a tocar.
  */
 router.get('/seguimiento-prioritario', async (req, res) => {
+  const params = [req.usuario.campana_id];
+  const filtro = await filtroAlcance(req.usuario, params, COLS_PROMOVIDO);
   const resultado = await query(
     `SELECT p.*, s.numero as seccion_numero,
        EXTRACT(DAY FROM now() - COALESCE(p.ultimo_contacto, p.creado_en))::int as dias_sin_contacto
      FROM promovidos p
      LEFT JOIN secciones s ON s.id = p.seccion_id
      WHERE p.campana_id = $1 AND p.comprometido IS NULL
-       ${soloVeLoPropio(req.usuario) ? 'AND (p.registrado_por = $2 OR p.asignado_seguimiento_a = $2)' : ''}
+       ${filtro}
      ORDER BY p.ultimo_contacto ASC NULLS FIRST, p.creado_en ASC
      LIMIT 50`,
-    soloVeLoPropio(req.usuario) ? [req.usuario.campana_id, req.usuario.sub] : [req.usuario.campana_id]
+    params
   );
   res.json({ ok: true, data: resultado.rows });
 });
@@ -239,8 +248,10 @@ const META_MINIMA_PROMOTOR = 5;
 router.get('/seguimiento', async (req, res) => {
   // 🔒 Roles de campo siempre ven solo los suyos, pidan lo que pidan.
   const soloMios = req.query.solo_mios === 'true' || soloVeLoPropio(req.usuario);
-  const filtroAsignado = soloMios ? 'AND (p.asignado_seguimiento_a=$2 OR p.registrado_por=$2)' : '';
   const params = soloMios ? [req.usuario.campana_id, req.usuario.sub] : [req.usuario.campana_id];
+  const filtroAsignado = soloMios
+    ? 'AND (p.asignado_seguimiento_a=$2 OR p.registrado_por=$2)'
+    : await filtroAlcance(req.usuario, params, COLS_PROMOVIDO);
 
   const resultado = await query(
     `SELECT p.id, p.nombre, p.telefono, p.veces_contactado, p.proximo_seguimiento, p.notas_seguimiento,
@@ -271,6 +282,12 @@ router.patch('/:id/seguimiento', async (req, res) => {
   // 🔒 Solo se reasigna a alguien de esta misma campaña.
   if (asignado_a && !(await usuarioEsDeMiCampana(asignado_a, req.usuario.campana_id))) {
     return res.status(400).json({ ok: false, error: 'La persona asignada no pertenece a esta campaña' });
+  }
+  // 🔒 Un coordinador solo reasigna a gente de SU equipo (antes podía
+  // "regalar" un promovido a otra rama y abrirle el acceso).
+  if (asignado_a && !ROLES_MANDO.includes(req.usuario.rol) && asignado_a !== req.usuario.sub) {
+    const { equipo } = await alcanceDe(req.usuario);
+    if (!equipo.includes(asignado_a)) return res.status(403).json({ ok: false, error: 'Solo puedes asignar el seguimiento a alguien de tu equipo.' });
   }
 
   if (se_convencio) {
@@ -544,6 +561,8 @@ router.post('/:id/interacciones', async (req, res) => {
 
 // 🔒 Supervisión de promotores: solo coordinadores y mandos.
 router.get('/verificacion-campo', requiereRol(...ROLES_COORDINACION), async (req, res) => {
+  const params = [req.usuario.campana_id];
+  const filtro = await filtroAlcance(req.usuario, params, { personas: ['u.id'] });
   const resultado = await query(
     `SELECT
        u.id as promotor_id, u.nombre as promotor_nombre,
@@ -555,10 +574,10 @@ router.get('/verificacion-campo', requiereRol(...ROLES_COORDINACION), async (req
        ROUND(STDDEV(p.promotor_lat)::numeric * 111000) as variacion_ubicacion_metros
      FROM promovidos p
      JOIN usuarios u ON u.id = p.registrado_por
-     WHERE p.campana_id = $1 AND p.promotor_lat IS NOT NULL
+     WHERE p.campana_id = $1 AND p.promotor_lat IS NOT NULL ${filtro}
      GROUP BY u.id, u.nombre
      ORDER BY capturas_lejanas DESC NULLS LAST`,
-    [req.usuario.campana_id]
+    params
   );
   res.json({ ok: true, data: resultado.rows });
 });
@@ -572,15 +591,17 @@ router.get('/verificacion-campo', requiereRol(...ROLES_COORDINACION), async (req
  */
 // 🔒 Ubicación GPS del equipo: solo coordinadores y mandos (antes cualquier promotor veía dónde estaban todos).
 router.get('/ubicaciones-promotores', requiereRol(...ROLES_COORDINACION), async (req, res) => {
+  const params = [req.usuario.campana_id];
+  const filtro = await filtroAlcance(req.usuario, params, { personas: ['u.id'] });
   const resultado = await query(
     `SELECT DISTINCT ON (p.registrado_por)
        p.registrado_por as promotor_id, u.nombre as promotor_nombre,
        p.promotor_lat as lat, p.promotor_lng as lng, p.creado_en as ultima_captura
      FROM promovidos p
      JOIN usuarios u ON u.id = p.registrado_por
-     WHERE p.campana_id = $1 AND p.promotor_lat IS NOT NULL AND p.promotor_lng IS NOT NULL
+     WHERE p.campana_id = $1 AND p.promotor_lat IS NOT NULL AND p.promotor_lng IS NOT NULL ${filtro}
      ORDER BY p.registrado_por, p.creado_en DESC`,
-    [req.usuario.campana_id]
+    params
   );
   res.json({ ok: true, data: resultado.rows });
 });

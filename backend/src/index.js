@@ -12,6 +12,7 @@ import { fileURLToPath } from 'url';
 import { setIo } from './io.js';
 import { query } from './db/pool.js';
 import { requiereAuth, requiereRol, verificarTokenSesion } from './middleware/auth.js';
+import { limpiarCacheAlcance } from './lib/alcance.js';
 import { limiteIA, RUTAS_IA } from './lib/limiteIA.js';
 import { ROLES_COORDINACION } from './lib/pertenencia.js';
 import { requiereModulo, requiereModuloMarketing } from './middleware/permisos.js';
@@ -192,6 +193,12 @@ app.use('/api/resultados', resultadosRoutes);
 app.use('/api/promovidos', requiereAuth, requiereModulo('promovidos'), promovidosRoutes);
 app.use('/api/respaldos', respaldosRoutes);
 app.use('/api/priorizacion', requiereAuth, requiereModulo('priorizacion'), priorizacionRoutes);
+// Cuando cambia el organigrama, territorios o regiones, se recalcula
+// al instante qué le toca ver a cada coordinador (lib/alcance.js).
+app.use('/api/estructura', (req, res, next) => {
+  if (req.method !== 'GET') res.on('finish', limpiarCacheAlcance);
+  next();
+});
 app.use('/api/estructura', requiereAuth, requiereModulo('estructura'), estructuraRoutes);
 app.use('/api/reportes', requiereAuth, requiereModulo('reportes'), reportesRoutes);
 app.use('/api/centro-decisiones', requiereAuth, requiereModulo('centro-decisiones'), centroDecisionesRoutes);
