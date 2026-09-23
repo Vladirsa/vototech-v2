@@ -28,7 +28,9 @@ export const useAuth = create((set, get) => ({
   cerrarSesion: () => {
     // Avisa al servidor para revocar el refresh token — best effort,
     // no bloquea el cierre de sesión local si falla la red.
-    const refreshToken = get().refreshToken;
+    // Se lee el MÁS RECIENTE (se renueva cada 30 min y se guarda en el
+    // almacenamiento del navegador); antes se revocaba uno ya viejo.
+    const refreshToken = localStorage.getItem('vototech_refresh_token') || get().refreshToken;
     if (refreshToken) {
       const baseURL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : '/api';
       fetch(`${baseURL}/auth/cerrar-sesion`, {

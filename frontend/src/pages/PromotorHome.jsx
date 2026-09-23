@@ -1,3 +1,4 @@
+import PanelCambiarPassword from '../components/PanelCambiarPassword';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../lib/api';
@@ -276,6 +277,8 @@ export default function PromotorHome() {
           onCerrar={() => setMostrarEnvioPieza(false)}
         />
       )}
+      {/* 🔒 Quien fue dado de alta por su coordinador debe poder cambiar la contraseña que le pusieron. */}
+      <div className="mt-4"><PanelCambiarPassword /></div>
     </div>
   );
 }

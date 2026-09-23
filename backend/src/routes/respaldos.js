@@ -31,7 +31,8 @@ router.get('/descargar/:archivo', async (req, res) => {
     const url = await generarLinkDescarga(req.usuario.campana_id, req.params.archivo);
     res.json({ ok: true, url });
   } catch (e) {
-    res.status(500).json({ ok: false, error: 'No se pudo generar el link de descarga: ' + e.message });
+    console.error('Respaldo (descarga):', e);
+    res.status(500).json({ ok: false, error: 'No se pudo generar el link de descarga. Intenta de nuevo.' });
   }
 });
 
@@ -85,7 +86,8 @@ router.post('/aprobar-restauracion/:id', async (req, res) => {
       await ejecutarRestauracion(req.params.id);
       return res.json({ ok: true, mensaje: '✅ Restauración completada — la campaña ya está en el estado de esa fecha.' });
     } catch (e) {
-      return res.status(500).json({ ok: false, error: 'Error al restaurar: ' + e.message });
+      console.error('Respaldo (restaurar):', e);
+      return res.status(500).json({ ok: false, error: 'Error al restaurar el respaldo. Contacta a VotoTech antes de volver a intentarlo.' });
     }
   }
   res.json({ ok: true, mensaje: 'Aprobado de tu lado — falta la aprobación del equipo de VotoTech.' });

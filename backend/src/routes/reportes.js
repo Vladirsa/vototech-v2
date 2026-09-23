@@ -1905,7 +1905,9 @@ router.get('/personalizado', async (req, res) => {
     const resultado = await obtenerReportePersonalizado(req.usuario.campana_id, req.query, req.usuario);
     res.json({ ok: true, data: resultado });
   } catch (e) {
-    res.status(400).json({ ok: false, error: e.message || 'No se pudo generar el reporte' });
+    // 🔒 Solo se muestra el mensaje si es de validación propia; los errores de la base no se enseñan.
+    if (!/^agrupar_por/.test(e.message || '')) console.error('Reporte personalizado:', e);
+    res.status(400).json({ ok: false, error: /^agrupar_por/.test(e.message || '') ? e.message : 'No se pudo generar el reporte. Revisa los filtros (fechas, sección).' });
   }
 });
 
@@ -1954,7 +1956,9 @@ router.get('/personalizado/exportar', requiereRol('candidato', 'jefe_campana', '
     await libro.xlsx.write(res);
     res.end();
   } catch (e) {
-    res.status(400).json({ ok: false, error: e.message || 'No se pudo exportar el reporte' });
+    // 🔒 Solo se muestra el mensaje si es de validación propia; los errores de la base no se enseñan.
+    if (!/^agrupar_por/.test(e.message || '')) console.error('Reporte personalizado:', e);
+    res.status(400).json({ ok: false, error: /^agrupar_por/.test(e.message || '') ? e.message : 'No se pudo exportar el reporte. Revisa los filtros (fechas, sección).' });
   }
 });
 

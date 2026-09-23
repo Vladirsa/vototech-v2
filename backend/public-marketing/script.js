@@ -28,5 +28,11 @@ function enviarPorWhatsApp(evento) {
   return false;
 }
 
+// 🔒 El formulario se conecta desde aquí (antes con onsubmit="..." dentro
+// del HTML). La política de seguridad del sitio bloquea el código escrito
+// dentro del HTML, así que el botón de WhatsApp no hacía nada.
+const formContacto = document.getElementById('form-contacto');
+if (formContacto) formContacto.addEventListener('submit', enviarPorWhatsApp);
+
 // (Las secciones de "pantallas" y "testimonios" ahora son
 // cuadrículas estáticas, ya no necesitan JavaScript de rotación)

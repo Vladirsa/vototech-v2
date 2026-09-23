@@ -23,7 +23,7 @@ export default function Panel2FA() {
       setQr(data.data.qr);
       setSecretoManual(data.data.secreto_manual);
       setPaso('qr');
-    } catch (e) { setError('No se pudo generar el código'); }
+    } catch (e) { setError(e.response?.data?.error || 'No se pudo generar el código'); }
     setCargando(false);
   };
 

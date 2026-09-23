@@ -1,8 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { io } from 'socket.io-client';
-import axios from 'axios';
+import { renovarSesion } from './api';
 
-const baseURL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : '/api';
 
 /**
  * Conecta al servidor de WebSockets y se mantiene viva la sesión —
@@ -36,23 +35,25 @@ export function useSocket(eventos = {}) {
     // intenta renovar ANTES del siguiente intento automático de
     // reconexión — así no se queda esperando indefinidamente con un
     // token que ya sabemos que no sirve.
-    socket.on('connect_error', async (err) => {
-      if (err.message === 'Token inválido' || err.message?.includes('jwt expired')) {
-        const refreshToken = localStorage.getItem('vototech_refresh_token');
-        if (!refreshToken) return;
-        try {
-          const { data } = await axios.post(`${baseURL}/auth/refrescar`, { refresh_token: refreshToken });
-          localStorage.setItem('vototech_token', data.token);
-          localStorage.setItem('vototech_refresh_token', data.refresh_token);
-          // El siguiente intento automático de reconexión de
-          // socket.io ya recogerá este token nuevo solo, gracias a
-          // que `auth` es función y no un valor congelado.
-        } catch (e) {
-          // El refresh token también expiró — nada más que hacer
-          // aquí, el interceptor de axios ya se encarga de mandar a
-          // la persona al login en su próxima petición HTTP normal.
-        }
-      }
+    // Si el servidor rechaza la conexión (token vencido) o la corta
+    // (el token caducó, o la cuenta se desactivó), se renueva la sesión
+    // y se vuelve a conectar a mano: socket.io NO reintenta solo en esos
+    // casos. Si la renovación falla, se queda desconectado (la próxima
+    // petición normal manda a la persona al login).
+    let intentos = 0;
+    const reconectar = async () => {
+      if (intentos >= 3) return;
+      intentos++;
+      // Si otra pestaña ya renovó, se usa el token que dejó guardado.
+      const token = (await renovarSesion()) || localStorage.getItem('vototech_token');
+      if (token) setTimeout(() => socket.connect(), 500 * intentos);
+    };
+    socket.on('connect', () => { intentos = 0; });
+    socket.on('connect_error', (err) => {
+      if (err.message === 'Token inválido' || err.message?.includes('jwt expired')) reconectar();
+    });
+    socket.on('disconnect', (motivo) => {
+      if (motivo === 'io server disconnect') reconectar();
     });
 
     Object.entries(eventos).forEach(([evento, manejador]) => {

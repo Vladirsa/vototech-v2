@@ -34,3 +34,7 @@ ALTER FUNCTION public.clasificar_promovido(character varying, character varying,
 ALTER FUNCTION public.fn_generar_folio_unico()    SET search_path = public, pg_temp;
 ALTER FUNCTION public.trg_actualizar_contacto()   SET search_path = public, pg_temp;
 ALTER FUNCTION public.trg_clasificar_promovido()  SET search_path = public, pg_temp;
+
+-- 5) (Ronda 5) Marca de "token canjeado" para detectar robo de sesión
+--    sin castigar cierres de sesión normales. (Ya aplicado.)
+ALTER TABLE refresh_tokens ADD COLUMN IF NOT EXISTS rotado_en timestamptz;

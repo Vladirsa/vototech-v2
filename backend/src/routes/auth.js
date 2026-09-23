@@ -1,16 +1,17 @@
 import { Router } from 'express';
+import rateLimit from 'express-rate-limit';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { Resend } from 'resend';
 import { z } from 'zod';
+import { esquemaContrasena, problemaDeContrasena } from '../lib/contrasenas.js';
 import PDFDocument from 'pdfkit';
 import speakeasy from 'speakeasy';
 import QRCode from 'qrcode';
 import { query } from '../db/pool.js';
 import {
   generarToken, requiereAuth, requiereRol, generarRefreshToken, validarYRotarRefreshToken, revocarRefreshToken,
-  firmarTokenTemporal, verificarTokenTemporal,
-} from '../middleware/auth.js';
+  firmarTokenTemporal, verificarTokenTemporal, estadoVivo, olvidarEstadoUsuario, revocarSesionesDe } from '../middleware/auth.js';
 import { puedeAsignarRol } from '../lib/jerarquiaRoles.js';
 
 // 🔒 Hash falso para comparar cuando el usuario NO existe — así el
@@ -20,12 +21,38 @@ const HASH_FALSO = bcrypt.hashSync('usuario-inexistente-vototech', 12);
 
 const router = Router();
 
+// 🔒 Acciones que piden la contraseña estando dentro (cambiarla, quitar
+// la verificación en 2 pasos): máximo 5 intentos por persona cada 15
+// min. Así, alguien con una sesión robada no puede adivinar la
+// contraseña probando miles de veces.
+const limiteSensiblePorPersona = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  keyGenerator: (req) => `sensible|${req.usuario?.sub || req.ip}`,
+  message: { ok: false, error: 'Demasiados intentos. Espera 15 minutos.' },
+});
+
+/**
+ * 🔒 BITÁCORA DE ACCESOS — antes la tabla registro_accesos existía pero
+ * nadie escribía en ella: no había forma de saber quién entró, desde
+ * dónde, ni cuántos intentos fallidos hubo. Ahora queda registro de
+ * cada entrada, cada intento fallido y cada cambio de contraseña.
+ * No detiene nada si falla (solo es registro).
+ */
+function registrarAcceso(campanaId, usuarioId, evento, req) {
+  if (!campanaId) return;
+  query(
+    'INSERT INTO registro_accesos (campana_id, usuario_id, ip, pagina, user_agent, creado_en) VALUES ($1,$2,$3,$4,$5, now())',
+    [campanaId, usuarioId || null, (req.ip || '').slice(0, 45), evento, String(req.headers['user-agent'] || '').slice(0, 300)]
+  ).catch(() => {});
+}
+
 // ── VALIDACIÓN DE ENTRADA (zod) ──────────────────────────────
 // Nunca confiar en lo que manda el cliente sin validar forma y tipo.
 const esquemaRegistroCampana = z.object({
   nombre_candidato: z.string().min(3).max(200),
   email: z.string().email(),
-  password: z.string().min(8, 'La contraseña debe tener al menos 8 caracteres'),
+  password: esquemaContrasena,
   partido: z.string().min(2, 'Debes seleccionar tu partido').max(50),
   tipo_eleccion: z.enum(['ayuntamiento', 'dip_local', 'dip_federal', 'gobernador', 'pres_comunidad', 'senador']),
   estado_id: z.number().int(),
@@ -171,6 +198,7 @@ router.post('/login', async (req, res) => {
     const usuario = resultado.rows[0];
     const passwordOk = await bcrypt.compare(password, usuario?.password_hash || HASH_FALSO);
     if (!usuario || !passwordOk) {
+      if (usuario) registrarAcceso(usuario.campana_id, usuario.id, 'login_fallido', req);
       return res.status(401).json({ ok: false, error: 'Usuario o contraseña incorrectos' });
     }
 
@@ -200,6 +228,7 @@ router.post('/login', async (req, res) => {
     // solo 5 minutos que únicamente sirve para ese propósito.
     // 🔒 Se firma con la clave de tokens TEMPORALES: ya no sirve como
     // sesión, aunque alguien intente usarlo en otra ruta.
+    registrarAcceso(usuario.campana_id, usuario.id, usuario.dos_factores_activo ? 'login_paso1_ok' : 'login_ok', req);
     if (usuario.dos_factores_activo) {
       const tokenPreAuth = firmarTokenTemporal(usuario.id, 'pre_2fa', '5m');
       return res.json({ ok: true, requiere_2fa: true, token_pre_auth: tokenPreAuth });
@@ -232,7 +261,7 @@ const esquemaRegistroPromotor = z.object({
   // pantallas; antes se podía esconder código ahí para robar sesiones.
   nombre: z.string().min(3).max(200).regex(/^[^<>]*$/, 'El nombre no puede contener los caracteres < o >'),
   email: z.string().email(),
-  password: z.string().min(8),
+  password: esquemaContrasena,
   telefono: z.string().optional(),
 });
 
@@ -260,14 +289,56 @@ router.post('/2fa/verificar-login', async (req, res) => {
   );
   const usuario = resultado.rows[0];
   if (!usuario || !usuario.dos_factores_activo) return res.status(401).json({ ok: false, error: 'No válido' });
+  // 🔒 Se vuelve a confirmar que la cuenta y la campaña sigan vigentes
+  // (pudieron desactivarse en los 5 minutos del segundo paso).
+  const vigencia = await estadoVivo(usuario.id);
+  if (!vigencia.vigente) return res.status(403).json({ ok: false, error: 'Tu cuenta o tu campaña no están activas. Contacta al Jefe de Campaña.' });
 
   const codigoValido = speakeasy.totp.verify({ secret: usuario.dos_factores_secreto, encoding: 'base32', token: codigo, window: 1 });
-  if (!codigoValido) return res.status(401).json({ ok: false, error: 'Código incorrecto. Revisa tu app autenticadora.' });
+  if (!codigoValido) {
+    registrarAcceso(usuario.campana_id, usuario.id, 'login_2fa_fallido', req);
+    return res.status(401).json({ ok: false, error: 'Código incorrecto. Revisa tu app autenticadora.' });
+  }
+  registrarAcceso(usuario.campana_id, usuario.id, 'login_2fa_ok', req);
 
   await query('UPDATE usuarios SET ultimo_acceso = now() WHERE id = $1', [usuario.id]);
   const token = generarToken(usuario);
   const refreshToken = await generarRefreshToken(usuario.id);
   res.json({ ok: true, token, refresh_token: refreshToken, usuario: { id: usuario.id, nombre: usuario.nombre, rol: usuario.rol } });
+});
+
+/**
+ * 🆕 POST /api/auth/cambiar-password
+ * Cambiar la contraseña estando dentro. Pide la ACTUAL (si alguien toma
+ * tu celular con la sesión abierta, no puede cambiarla) y cierra todas
+ * tus demás sesiones. Devuelve una sesión nueva para este aparato.
+ */
+router.post('/cambiar-password', requiereAuth, limiteSensiblePorPersona, async (req, res) => {
+  const { password_actual, nueva_password } = req.body;
+  const demo = await query('SELECT es_demo FROM campanas WHERE id=$1', [req.usuario.campana_id]);
+  if (demo.rows[0]?.es_demo) return res.status(403).json({ ok: false, error: 'En la cuenta demo no se puede cambiar la contraseña.' });
+  const problema = problemaDeContrasena(nueva_password);
+  if (problema) return res.status(400).json({ ok: false, error: problema });
+  const actualRes = await query('SELECT password_hash FROM usuarios WHERE id=$1 AND campana_id=$2', [req.usuario.sub, req.usuario.campana_id]);
+  const correcta = await bcrypt.compare(String(password_actual || ''), actualRes.rows[0]?.password_hash || HASH_FALSO);
+  if (!correcta) {
+    registrarAcceso(req.usuario.campana_id, req.usuario.sub, 'cambio_password_fallido', req);
+    return res.status(400).json({ ok: false, error: 'Tu contraseña actual no es correcta' });
+  }
+  if (await bcrypt.compare(nueva_password, actualRes.rows[0].password_hash)) {
+    return res.status(400).json({ ok: false, error: 'La contraseña nueva debe ser diferente a la actual' });
+  }
+  const hash = await bcrypt.hash(nueva_password, 12);
+  await query('UPDATE usuarios SET password_hash=$1 WHERE id=$2', [hash, req.usuario.sub]);
+  await revocarSesionesDe(req.usuario.sub);
+  registrarAcceso(req.usuario.campana_id, req.usuario.sub, 'password_cambiada', req);
+  const completo = await query(
+    'SELECT u.*, c.estado_id FROM usuarios u JOIN campanas c ON c.id=u.campana_id WHERE u.id=$1',
+    [req.usuario.sub]
+  );
+  const token = generarToken(completo.rows[0]);
+  const refreshToken = await generarRefreshToken(req.usuario.sub);
+  res.json({ ok: true, token, refresh_token: refreshToken });
 });
 
 /**
@@ -283,7 +354,13 @@ router.post('/2fa/generar-secreto', requiereAuth, async (req, res) => {
   // le activara la verificación en dos pasos, nadie más podría entrar.
   const demo = await query('SELECT es_demo FROM campanas WHERE id=$1', [req.usuario.campana_id]);
   if (demo.rows[0]?.es_demo) return res.status(403).json({ ok: false, error: 'La verificación en dos pasos no está disponible en la cuenta demo.' });
-  const usuarioRes = await query('SELECT email FROM usuarios WHERE id=$1', [req.usuario.sub]);
+  const usuarioRes = await query('SELECT email, dos_factores_activo FROM usuarios WHERE id=$1', [req.usuario.sub]);
+  // 🔒 Si ya está activa, NO se puede reemplazar el secreto desde aquí:
+  // alguien con una sesión robada podría quedarse con tu segundo paso.
+  // Para cambiar de celular: primero desactívala (pide tu contraseña).
+  if (usuarioRes.rows[0]?.dos_factores_activo) {
+    return res.status(409).json({ ok: false, error: 'Ya tienes activa la verificación en dos pasos. Para cambiar de celular, primero desactívala con tu contraseña.' });
+  }
   const secreto = speakeasy.generateSecret({ length: 20, name: `VotoTech (${usuarioRes.rows[0].email})`, issuer: 'VotoTech' });
   const qrDataUrl = await QRCode.toDataURL(secreto.otpauth_url);
 
@@ -320,7 +397,7 @@ router.post('/2fa/activar', requiereAuth, async (req, res) => {
  * sesión, porque si alguien roba una sesión activa no debe poder
  * quitar la segunda capa de seguridad tan fácilmente.
  */
-router.post('/2fa/desactivar', requiereAuth, async (req, res) => {
+router.post('/2fa/desactivar', requiereAuth, limiteSensiblePorPersona, async (req, res) => {
   const { password } = req.body;
   const usuarioRes = await query('SELECT password_hash FROM usuarios WHERE id=$1', [req.usuario.sub]);
   const passwordOk = await bcrypt.compare(password || '', usuarioRes.rows[0].password_hash);
@@ -450,6 +527,8 @@ router.post('/restablecer-password', async (req, res) => {
   if (!token_reset || !nueva_password || nueva_password.length < 8) {
     return res.status(400).json({ ok: false, error: 'La contraseña nueva debe tener al menos 8 caracteres' });
   }
+  const problemaPassword = problemaDeContrasena(nueva_password);
+  if (problemaPassword) return res.status(400).json({ ok: false, error: problemaPassword });
 
   let payload;
   try {
@@ -464,6 +543,9 @@ router.post('/restablecer-password', async (req, res) => {
   // Cerrar todas las sesiones activas — la contraseña vieja ya no
   // debe servir para nada, en ningún dispositivo.
   await query('UPDATE refresh_tokens SET revocado_en=now() WHERE usuario_id=$1 AND revocado_en IS NULL', [payload.sub]);
+  olvidarEstadoUsuario(payload.sub);
+  const quien = await query('SELECT campana_id FROM usuarios WHERE id=$1', [payload.sub]);
+  registrarAcceso(quien.rows[0]?.campana_id, payload.sub, 'password_cambiada', req);
 
   res.json({ ok: true, mensaje: 'Contraseña actualizada. Ya puedes iniciar sesión con tu contraseña nueva.' });
 });

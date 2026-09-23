@@ -40,7 +40,7 @@ router.get('/', async (req, res) => {
   if (tipo) { params.push(tipo); sql += ` AND i.tipo = $${params.length}`; }
   if (estado) { params.push(estado); sql += ` AND i.estado = $${params.length}`; }
   if (urgencia) { params.push(urgencia); sql += ` AND i.urgencia = $${params.length}`; }
-  sql += ` ORDER BY CASE i.urgencia WHEN 'urgente' THEN 4 WHEN 'alta' THEN 3 WHEN 'media' THEN 2 ELSE 1 END DESC, i.creado_en DESC`;
+  sql += ` ORDER BY CASE i.urgencia WHEN 'urgente' THEN 4 WHEN 'alta' THEN 3 WHEN 'media' THEN 2 ELSE 1 END DESC, i.creado_en DESC LIMIT 1000`;
 
   const resultado = await query(sql, params);
   res.json({ ok: true, data: resultado.rows });

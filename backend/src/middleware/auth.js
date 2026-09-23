@@ -103,7 +103,8 @@ export async function generarRefreshToken(usuarioId) {
 export async function validarYRotarRefreshToken(valorReal) {
   const hash = sha256(valorReal);
   const fila = await query(
-    `SELECT rt.*, u.id as usuario_id, u.nombre, u.rol, u.puesto, u.campana_id, u.activo, c.estado_id
+    `SELECT rt.*, u.id as usuario_id, u.nombre, u.rol, u.puesto, u.campana_id, u.activo, c.estado_id,
+            c.activa as campana_activa, c.estado_aprobacion, c.fecha_vencimiento, c.es_demo
      FROM refresh_tokens rt
      JOIN usuarios u ON u.id = rt.usuario_id
      JOIN campanas c ON c.id = u.campana_id
@@ -112,11 +113,27 @@ export async function validarYRotarRefreshToken(valorReal) {
   );
   const registro = fila.rows[0];
   if (!registro) return null; // nunca existió
-  if (registro.revocado_en) return null; // ya se usó o se revocó — posible robo, se rechaza
+  if (registro.revocado_en) {
+    // 🔒 Alguien usó un token que YA se había canjeado: o es un robo,
+    // o el dueño lo usó después del ladrón. Por seguridad se cierran
+    // TODAS las sesiones de esa persona (tendrá que volver a entrar).
+    // Margen de 2 min para no castigar dos pestañas renovando a la vez o
+    // una respuesta que se perdió por mala señal.
+    // Solo cuenta como robo si ese token se había ROTADO (canjeado); si se
+    // revocó por cambio de contraseña o cierre de sesión, no se castiga.
+    if (registro.rotado_en && Date.now() - new Date(registro.rotado_en).getTime() > 2 * 60 * 1000) {
+      await query('UPDATE refresh_tokens SET revocado_en=now() WHERE usuario_id=$1 AND revocado_en IS NULL', [registro.usuario_id]);
+    }
+    return null;
+  }
   if (new Date(registro.expira_en) < new Date()) return null; // expiró
   if (!registro.activo) return null; // el usuario fue desactivado
+  // 🔒 La campaña también debe seguir vigente (antes una campaña
+  // suspendida, rechazada o vencida seguía entrando hasta 30 días).
+  if (!registro.campana_activa || ['pendiente', 'rechazada'].includes(registro.estado_aprobacion)) return null;
+  if (!registro.es_demo && registro.fecha_vencimiento && new Date(registro.fecha_vencimiento) < new Date()) return null;
 
-  await query('UPDATE refresh_tokens SET revocado_en=now() WHERE id=$1', [registro.id]);
+  await query('UPDATE refresh_tokens SET revocado_en=now(), rotado_en=now() WHERE id=$1', [registro.id]);
   const nuevoRefresh = await generarRefreshToken(registro.usuario_id);
 
   return {
@@ -138,7 +155,54 @@ export async function revocarRefreshToken(valorReal) {
  * Si es válido, agrega req.usuario con los datos del token
  * (incluido campana_id) para que las rutas siguientes lo usen.
  */
-export function requiereAuth(req, res, next) {
+// 🔒 ESTADO VIVO DE CADA SESIÓN — antes el servidor solo revisaba que
+// el token estuviera bien firmado. Si el Jefe desactivaba a alguien o
+// le bajaba el rol, esa persona seguía entrando con su rol viejo hasta
+// 30 minutos (y su campaña podía estar suspendida). Ahora cada petición
+// confirma contra la base (con memoria de 30 s para no saturarla):
+//  - que la persona siga activa y en la misma campaña,
+//  - que la campaña siga activa, aprobada y al corriente,
+//  - y usa SIEMPRE el rol y puesto actuales, no los del token.
+const cacheEstado = new Map(); // usuario → { hasta, estado }
+
+async function estadoVivo(usuarioId) {
+  const c = cacheEstado.get(usuarioId);
+  if (c && c.hasta > Date.now()) return c.estado;
+  const r = await query(
+    `SELECT u.activo, u.rol, u.puesto, u.campana_id, c.activa as campana_activa, c.estado_aprobacion,
+            c.fecha_vencimiento, c.es_demo
+     FROM usuarios u JOIN campanas c ON c.id = u.campana_id WHERE u.id=$1`,
+    [usuarioId]
+  );
+  const x = r.rows[0];
+  const vigente = !!x && x.activo !== false && x.campana_activa !== false && !['pendiente', 'rechazada'].includes(x.estado_aprobacion)
+    && (x.es_demo || !x.fecha_vencimiento || new Date(x.fecha_vencimiento) >= new Date());
+  const estado = vigente ? { vigente: true, rol: x.rol, puesto: x.puesto, campana_id: x.campana_id } : { vigente: false };
+  if (cacheEstado.size > 20000) cacheEstado.clear();
+  cacheEstado.set(usuarioId, { hasta: Date.now() + 30 * 1000, estado });
+  return estado;
+}
+
+/** Olvida el estado guardado de alguien (al desactivarlo o cambiarle el rol) para que aplique al instante. */
+export function olvidarEstadoUsuario(usuarioId) {
+  if (usuarioId) cacheEstado.delete(usuarioId);
+  else cacheEstado.clear();
+}
+
+/** Cierra todas las sesiones de una persona (sus tokens de renovación). */
+export async function revocarSesionesDe(usuarioId) {
+  olvidarEstadoUsuario(usuarioId);
+  await query('UPDATE refresh_tokens SET revocado_en=now() WHERE usuario_id=$1 AND revocado_en IS NULL', [usuarioId]);
+}
+
+export { estadoVivo };
+
+/**
+ * Middleware: exige que la petición traiga un token válido.
+ * Si es válido, agrega req.usuario con los datos del token
+ * (incluido campana_id) para que las rutas siguientes lo usen.
+ */
+export async function requiereAuth(req, res, next) {
   const authHeader = req.headers.authorization;
   const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
 
@@ -146,12 +210,18 @@ export function requiereAuth(req, res, next) {
     return res.status(401).json({ ok: false, error: 'Token no proporcionado' });
   }
 
+  let usuario;
   try {
-    req.usuario = verificarTokenSesion(token);
-    next();
+    usuario = verificarTokenSesion(token);
   } catch (e) {
     return res.status(401).json({ ok: false, error: 'Token inválido o expirado' });
   }
+  const estado = await estadoVivo(usuario.sub);
+  if (!estado.vigente || estado.campana_id !== usuario.campana_id) {
+    return res.status(401).json({ ok: false, error: 'Tu sesión ya no es válida. Vuelve a entrar.' });
+  }
+  req.usuario = { ...usuario, rol: estado.rol, puesto: estado.puesto || null };
+  next();
 }
 
 /**

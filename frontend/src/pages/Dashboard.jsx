@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api, { descargarArchivo } from '../lib/api';
 import Panel2FA from '../components/Panel2FA';
+import PanelCambiarPassword from '../components/PanelCambiarPassword';
+import { AccesosAlSistema } from './Auditoria';
 import { useAuth } from '../lib/authStore';
 
 const ROL_CORTO = { coord_general: 'Coord. General', coord_distrital: 'Coord. Distrital', coord_municipal: 'Coord. Municipal', coord_seccional: 'Coord. Seccional' };
@@ -521,6 +523,8 @@ export default function Dashboard() {
         )}
 
         {['candidato', 'jefe_campana', 'coord_general'].includes(usuario?.rol) && <Panel2FA />}
+        <PanelCambiarPassword />
+        {['candidato', 'jefe_campana', 'coord_general'].includes(usuario?.rol) && <AccesosAlSistema />}
 
         <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 flex items-center justify-between">
           <div>

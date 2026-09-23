@@ -92,6 +92,59 @@ export default function Auditoria() {
         </div>
       )}
       <p className="text-[9px] text-slate-600 text-center">Se muestran los últimos 300 registros que coinciden con los filtros.</p>
+
+      <AccesosAlSistema />
+    </div>
+  );
+}
+
+const EVENTO_ACCESO = {
+  login_ok: { texto: '✅ Entró', color: 'text-emerald-400 bg-emerald-500/10' },
+  login_paso1_ok: { texto: '🔑 Contraseña correcta (falta 2º paso)', color: 'text-sky-400 bg-sky-500/10' },
+  login_2fa_ok: { texto: '✅ Entró con 2 pasos', color: 'text-emerald-400 bg-emerald-500/10' },
+  login_fallido: { texto: '⛔ Contraseña incorrecta', color: 'text-red-400 bg-red-500/10' },
+  login_2fa_fallido: { texto: '⛔ Código de 2 pasos incorrecto', color: 'text-red-400 bg-red-500/10' },
+  password_cambiada: { texto: '🔁 Cambió su contraseña', color: 'text-amber-400 bg-amber-500/10' },
+};
+
+/**
+ * 🔒 Entradas al sistema: quién entró, cuándo, desde qué IP y con qué
+ * aparato, e intentos fallidos. Muchos "⛔" seguidos de la misma persona
+ * o IP = alguien probando contraseñas.
+ */
+export function AccesosAlSistema() {
+  const [accesos, setAccesos] = useState(null);
+  const [abierto, setAbierto] = useState(false);
+  useEffect(() => {
+    if (abierto && accesos === null) api.get('/auditoria/accesos').then((r) => setAccesos(r.data.data)).catch(() => setAccesos([]));
+  }, [abierto]);
+  const fallidos = (accesos || []).filter((a) => a.evento?.includes('fallido')).length;
+  return (
+    <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3">
+      <button onClick={() => setAbierto(!abierto)} className="w-full flex items-center justify-between text-left">
+        <span className="text-sm font-black text-white">🔐 Entradas al sistema</span>
+        <span className="text-xs text-slate-400">{abierto ? '▲ Ocultar' : '▼ Ver'}</span>
+      </button>
+      {abierto && (
+        accesos === null ? <div className="text-center text-slate-500 text-xs py-6">⏳ Cargando...</div>
+        : accesos.length === 0 ? <div className="text-center text-slate-500 text-xs py-6">Todavía no hay entradas registradas.</div>
+        : (
+          <div className="space-y-1.5 mt-3">
+            {fallidos > 0 && <div className="text-[11px] text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2">⚠️ {fallidos} intento(s) fallido(s) en los últimos registros. Si son muchos de la misma persona, pídele que cambie su contraseña.</div>}
+            {accesos.map((a, i) => {
+              const ev = EVENTO_ACCESO[a.evento] || { texto: a.evento, color: 'text-slate-400 bg-slate-800' };
+              return (
+                <div key={i} className="flex items-center gap-2 text-xs border-b border-slate-800/60 py-1.5">
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap ${ev.color}`}>{ev.texto}</span>
+                  <span className="text-white font-bold truncate">{a.nombre || '—'}</span>
+                  <span className="text-slate-500 truncate hidden sm:inline">{a.ip}</span>
+                  <span className="ml-auto text-[10px] text-slate-500 whitespace-nowrap">{new Date(a.creado_en).toLocaleString('es-MX', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
+                </div>
+              );
+            })}
+          </div>
+        )
+      )}
     </div>
   );
 }

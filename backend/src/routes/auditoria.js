@@ -46,4 +46,19 @@ router.get('/', requiereRol('candidato', 'jefe_campana', 'coord_general'), async
   });
 });
 
+/**
+ * 🆕 GET /api/auditoria/accesos
+ * Quién entró al sistema, cuándo, desde qué IP y con qué aparato, y
+ * los intentos fallidos (ej. alguien probando contraseñas). Solo mandos.
+ */
+router.get('/accesos', requiereRol('candidato', 'jefe_campana', 'coord_general'), async (req, res) => {
+  const resultado = await query(
+    `SELECT a.creado_en, a.pagina as evento, a.ip, a.user_agent, u.nombre, u.rol
+     FROM registro_accesos a LEFT JOIN usuarios u ON u.id = a.usuario_id
+     WHERE a.campana_id=$1 ORDER BY a.creado_en DESC LIMIT 500`,
+    [req.usuario.campana_id]
+  );
+  res.json({ ok: true, data: resultado.rows });
+});
+
 export default router;

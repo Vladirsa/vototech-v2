@@ -22,33 +22,51 @@ api.interceptors.request.use((config) => {
 // siente continua aunque el token de acceso individual sea corto.
 let renovando = null; // evita que 10 peticiones simultáneas disparen 10 renovaciones a la vez
 
+/**
+ * Renueva el token de acceso UNA sola vez aunque varias partes de la
+ * app lo pidan al mismo tiempo (peticiones + conexión en vivo). Si dos
+ * renovaciones usaran el mismo token de renovación, el servidor lo
+ * tomaría como robo y cerraría todas las sesiones.
+ * Regresa el token nuevo, o null si ya no se puede renovar.
+ */
+export async function renovarSesion() {
+  const refreshToken = localStorage.getItem('vototech_refresh_token');
+  if (!refreshToken) return null;
+  try {
+    if (!renovando) {
+      renovando = axios.post(`${baseURL}/auth/refrescar`, { refresh_token: refreshToken })
+        .then(({ data }) => {
+          localStorage.setItem('vototech_token', data.token);
+          localStorage.setItem('vototech_refresh_token', data.refresh_token);
+          return data.token;
+        })
+        .finally(() => { setTimeout(() => { renovando = null; }, 0); });
+    }
+    return await renovando;
+  } catch {
+    return null;
+  }
+}
+
 api.interceptors.response.use(
   (res) => res,
   async (err) => {
     const peticionOriginal = err.config;
-    const esErrorDeSesion = err.response?.status === 401 && !peticionOriginal?._reintentada;
+    // Las pantallas de entrar / 2 pasos / contraseña manejan su propio
+    // 401 (ej. "contraseña incorrecta"): no se debe recargar la página.
+    const esRutaDeAcceso = /^\/?auth\/(login|2fa\/verificar-login|olvide|restablecer|verificar-codigo|registrar)/.test(peticionOriginal?.url || '');
+    const esErrorDeSesion = err.response?.status === 401 && !peticionOriginal?._reintentada && !esRutaDeAcceso;
 
     if (esErrorDeSesion) {
-      const refreshToken = localStorage.getItem('vototech_refresh_token');
-      if (refreshToken) {
-        peticionOriginal._reintentada = true;
-        try {
-          if (!renovando) {
-            renovando = axios.post(`${baseURL}/auth/refrescar`, { refresh_token: refreshToken });
-          }
-          const { data } = await renovando;
-          renovando = null;
-          localStorage.setItem('vototech_token', data.token);
-          localStorage.setItem('vototech_refresh_token', data.refresh_token);
-          peticionOriginal.headers.Authorization = `Bearer ${data.token}`;
-          return api(peticionOriginal); // reintenta la petición original, ya con token nuevo
-        } catch (e) {
-          renovando = null;
-          // El refresh token también falló (expiró a los 30 días, o
-          // fue revocado) — ahí sí ya no hay forma de continuar sin
-          // que la persona vuelva a poner su contraseña.
-        }
+      peticionOriginal._reintentada = true;
+      const tokenNuevo = await renovarSesion();
+      if (tokenNuevo) {
+        peticionOriginal.headers.Authorization = `Bearer ${tokenNuevo}`;
+        return api(peticionOriginal); // reintenta la petición original, ya con token nuevo
       }
+      // El refresh token también falló (expiró a los 30 días, fue
+      // revocado o la cuenta se desactivó) — ahí sí ya no hay forma
+      // de continuar sin que la persona vuelva a poner su contraseña.
       localStorage.clear();
       window.location.href = '/login';
     }

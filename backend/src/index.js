@@ -11,7 +11,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { setIo } from './io.js';
 import { query } from './db/pool.js';
-import { requiereAuth, requiereRol, verificarTokenSesion } from './middleware/auth.js';
+import { requiereAuth, requiereRol, verificarTokenSesion, estadoVivo } from './middleware/auth.js';
 import { limpiarCacheAlcance } from './lib/alcance.js';
 import { limiteIA, RUTAS_IA } from './lib/limiteIA.js';
 import { ROLES_COORDINACION } from './lib/pertenencia.js';
@@ -100,7 +100,9 @@ function origenPermitido(origin) {
     origin.endsWith('.vototech.mx') ||
     origin.endsWith('.vototech.com.mx') ||
     origin === 'https://vototech.com.mx' ||
-    origin.endsWith('.vercel.app') ||
+    // 🔒 Antes se aceptaba CUALQUIER sitio en vercel.app (cualquiera puede
+    // publicar uno gratis). Ahora solo los de este proyecto: vototech-v2.
+    /^https:\/\/vototech-v2(-[a-z0-9-]+)?\.vercel\.app$/.test(origin) ||
     origin === 'http://localhost:5173' ||
     !!process.env.DOMINIOS_PERMITIDOS?.split(',').includes(origin)
   );
@@ -109,10 +111,10 @@ function origenPermitido(origin) {
 app.use(cors({
   origin: (origin, callback) => {
     if (!origin) return callback(null, true);
-    const permitido = origenPermitido(origin);
-    callback(permitido ? null : new Error('Origen no permitido por CORS'), permitido);
+    // Un sitio no permitido simplemente no recibe permiso del navegador
+    // (antes provocaba un error 500 en el servidor).
+    callback(null, origenPermitido(origin));
   },
-  credentials: true,
 }));
 
 app.use(express.json({ limit: '2mb' }));
@@ -167,7 +169,16 @@ app.use('/api/auth/verificar-codigo-recuperacion',
 // token temporal de 5 min), más un tope por IP.
 app.use('/api/auth/2fa/verificar-login',
   rateLimit({ windowMs: QUINCE_MIN, max: 20, message: MENSAJE_INTENTOS }),
-  rateLimit({ windowMs: QUINCE_MIN, max: 5, message: MENSAJE_INTENTOS, keyGenerator: (req) => String(req.body?.token_pre_auth || '').slice(-40) }),
+  // 🔒 Se cuenta por PERSONA (no por token): antes, con la contraseña,
+  // se podían sacar tokens nuevos y seguir probando códigos sin límite.
+  rateLimit({ windowMs: QUINCE_MIN, max: 8, message: MENSAJE_INTENTOS, keyGenerator: (req) => {
+    try {
+      const cuerpo = String(req.body?.token_pre_auth || '').split('.')[1];
+      const sub = JSON.parse(Buffer.from(cuerpo, 'base64url').toString()).sub;
+      if (sub) return `2fa|${sub}`;
+    } catch { /* token mal formado: se cuenta por texto */ }
+    return String(req.body?.token_pre_auth || '').slice(-40);
+  } }),
 );
 
 // Registro con código de invitación — evita que alguien pruebe códigos
@@ -394,6 +405,18 @@ function barraLateralHTML(recientes) {
     </aside>`;
 }
 
+// 🔒 El blog muestra videos de YouTube/Vimeo e imágenes guardadas en
+// Supabase. La política de seguridad general (helmet) los bloqueaba;
+// aquí se permiten SOLO para las páginas del blog.
+const cspBlog = helmet.contentSecurityPolicy({
+  directives: {
+    ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+    'img-src': ["'self'", 'data:', 'https:'],
+    'frame-src': ['https://www.youtube.com', 'https://www.youtube-nocookie.com', 'https://player.vimeo.com'],
+  },
+});
+app.use('/blog', cspBlog);
+
 app.get('/blog', async (req, res) => {
   const r = await query(`SELECT titulo, slug, tipo, resumen, imagen_portada, url_archivo, etiquetas, fecha_publicacion FROM blog_publicaciones WHERE publicado=true ORDER BY fecha_publicacion DESC LIMIT 100`);
   const tarjetas = r.rows.map(limpiarPost).map((p) => {
@@ -491,7 +514,7 @@ app.get('/blog/:slug', async (req, res) => {
             <a href="https://wa.me/?text=${encodeURIComponent(`${p.titulo_crudo} — https://www.vototech.com.mx/blog/${p.slug}`)}" target="_blank" rel="noopener">💬 WhatsApp</a>
             <a href="https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(`https://www.vototech.com.mx/blog/${p.slug}`)}" target="_blank" rel="noopener">📘 Facebook</a>
             <a href="https://twitter.com/intent/tweet?text=${encodeURIComponent(p.titulo_crudo)}&url=${encodeURIComponent(`https://www.vototech.com.mx/blog/${p.slug}`)}" target="_blank" rel="noopener">🐦 X</a>
-            <button onclick="navigator.clipboard.writeText('https://www.vototech.com.mx/blog/${p.slug}').then(()=>{this.textContent='✅ Copiado';setTimeout(()=>{this.textContent='🔗 Copiar link'},2000)})">🔗 Copiar link</button>
+            <button class="copiar-link" data-url="https://www.vototech.com.mx/blog/${p.slug}">🔗 Copiar link</button>
           </div>
           ${cuerpoMedia}
           <div class="art-contenido">${markdownAHtml(p.contenido)}</div>
@@ -505,7 +528,7 @@ app.get('/blog/:slug', async (req, res) => {
         </div>
         ${barraLateralHTML(recientes.rows)}
       </div>
-    </div></body></html>`);
+    </div><script src="/blog.js" defer></script></body></html>`);
 });
 
 app.use(express.static(path.join(__dirname, '../public-marketing')));
@@ -539,10 +562,15 @@ export const io = new Server(httpServer, {
 });
 setIo(io);
 
-io.use((socket, next) => {
+io.use(async (socket, next) => {
   try {
     const token = socket.handshake.auth?.token;
-    socket.usuario = verificarTokenSesion(token);
+    const usuario = verificarTokenSesion(token);
+    // 🔒 Misma revisión que en cada petición: persona activa, campaña
+    // vigente, y rol ACTUAL (no el que traía el token).
+    const estado = await estadoVivo(usuario.sub);
+    if (!estado.vigente || estado.campana_id !== usuario.campana_id) return next(new Error('Token inválido'));
+    socket.usuario = { ...usuario, rol: estado.rol, puesto: estado.puesto || null };
     next();
   } catch (e) {
     next(new Error('Token inválido'));
@@ -559,6 +587,12 @@ io.on('connection', (socket) => {
   // para mandos (canal de coordinadores) — así los mensajes privados
   // ya no viajan al celular de toda la campaña.
   socket.join(`usuario:${sub}`);
+  // 🔒 La conexión en vivo se corta cuando vence el token (antes seguía
+  // recibiendo mensajes de la campaña indefinidamente). La app renueva
+  // la sesión y se vuelve a conectar sola.
+  const msHastaVencer = (socket.usuario.exp || 0) * 1000 - Date.now();
+  const temporizador = setTimeout(() => socket.disconnect(true), Math.max(msHastaVencer, 1000));
+  socket.on('disconnect', () => clearTimeout(temporizador));
   // Solo roles de coordinación y mando (antes entraban también
   // representantes de casilla y voluntarios).
   if (ROLES_COORDINACION.includes(rol)) socket.join(`campana:${campana_id}:coordinadores`);

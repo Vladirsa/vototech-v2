@@ -90,7 +90,7 @@ router.get('/', async (req, res) => {
   const resultado = await query(
     `SELECT c.*, u.nombre as creado_por_nombre FROM caminatas c
      LEFT JOIN usuarios u ON u.id = c.creado_por
-     WHERE c.campana_id=$1 ORDER BY c.fecha DESC NULLS LAST, c.creado_en DESC`,
+     WHERE c.campana_id=$1 ORDER BY c.fecha DESC NULLS LAST, c.creado_en DESC LIMIT 500`,
     [req.usuario.campana_id]
   );
   res.json({ ok: true, data: resultado.rows });

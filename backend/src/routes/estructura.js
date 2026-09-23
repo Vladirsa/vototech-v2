@@ -1,12 +1,14 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { esquemaContrasena } from '../lib/contrasenas.js';
 import bcrypt from 'bcryptjs';
 import PDFDocument from 'pdfkit';
 import { query } from '../db/pool.js';
-import { requiereAuth, requiereRol } from '../middleware/auth.js';
+import { requiereAuth, requiereRol, revocarSesionesDe, olvidarEstadoUsuario } from '../middleware/auth.js';
 import { alcanceDe, filtroAlcance, territorioPermitido } from '../lib/alcance.js';
 import { ROLES_MANDO } from '../lib/pertenencia.js';
 import { registrarAuditoria } from '../lib/auditoria.js';
+import { getIo } from '../io.js';
 import { limpiarCachePermisos } from '../middleware/permisos.js';
 import { puedeAsignarRol, puedeGestionarA, CAMPOS_EDITABLES_DE_UNO_MISMO, MENSAJE_SIN_RANGO } from '../lib/jerarquiaRoles.js';
 const router = Router();
@@ -953,7 +955,7 @@ const esquemaMiembro = z.object({
   nombre: nombreSeguro,
   email: z.string().email(),
   telefono: z.string().max(20).optional(),
-  password: z.string().min(8),
+  password: esquemaContrasena,
   rol: z.enum(['jefe_campana', 'coord_general', 'coord_regional', 'coord_distrital', 'coord_municipal', 'coord_seccional', 'promotor', 'encargado_juridico', 'encargado_finanzas', 'representante_casilla', 'voluntario']),
   puesto: z.string().max(100).optional(),
   parent_id: z.string().uuid().optional(),
@@ -1112,6 +1114,13 @@ router.patch('/:id', async (req, res) => {
     valores
   );
   if (!resultado.rows[0]) return res.status(404).json({ ok: false, error: 'No encontrado' });
+  // 🔒 Si se desactiva a la persona, se le cierran todas sus sesiones al
+  // instante; si cambia su rol o puesto, su nuevo nivel aplica ya.
+  if (d.activo === false) {
+    await revocarSesionesDe(req.params.id);
+    try { getIo().in(`usuario:${req.params.id}`).disconnectSockets(true); } catch { /* sin conexión en vivo */ }
+  }
+  else if ('rol' in d || 'puesto' in d || 'activo' in d) olvidarEstadoUsuario(req.params.id);
   if ('rol' in d || 'activo' in d) {
     registrarAuditoria({
       campanaId: req.usuario.campana_id, usuarioId: req.usuario.sub, usuarioNombre: req.usuario.nombre,
