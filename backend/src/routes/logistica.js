@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { query } from '../db/pool.js';
 import { requiereAuth } from '../middleware/auth.js';
+import { eventoEsDeMiCampana, usuarioEsDeMiCampana } from '../lib/pertenencia.js';
 
 const router = Router();
 router.use(requiereAuth);
@@ -60,7 +61,7 @@ router.post('/vehiculos', async (req, res) => {
 router.get('/choferes', async (req, res) => {
   const resultado = await query(
     `SELECT c.*, a.subtipo as vehiculo_subtipo, a.notas as vehiculo_notas, a.codigo_inventario as vehiculo_codigo
-     FROM choferes c LEFT JOIN activos a ON a.id = c.vehiculo_id
+     FROM choferes c LEFT JOIN activos a ON a.id = c.vehiculo_id AND a.campana_id = c.campana_id
      WHERE c.campana_id=$1 ORDER BY c.nombre`,
     [req.usuario.campana_id]
   );
@@ -80,6 +81,12 @@ router.post('/choferes', async (req, res) => {
   const parseado = esquemaChofer.safeParse(req.body);
   if (!parseado.success) return res.status(400).json({ ok: false, error: parseado.error.errors[0].message });
   const d = parseado.data;
+  // 🔒 El vehículo debe ser de MI campaña (antes se podía ligar un
+  // vehículo de otra campaña y ver sus datos en el listado de choferes).
+  if (d.vehiculo_id) {
+    const v = await query('SELECT 1 FROM activos WHERE id=$1 AND campana_id=$2', [d.vehiculo_id, req.usuario.campana_id]);
+    if (!v.rows[0]) return res.status(400).json({ ok: false, error: 'El vehículo no pertenece a esta campaña' });
+  }
   const resultado = await query(
     `INSERT INTO choferes (campana_id, nombre, telefono, licencia_vigencia, vehiculo_id, disponible, notas, creado_por)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
@@ -92,6 +99,12 @@ router.patch('/choferes/:id', async (req, res) => {
   const parseado = esquemaChofer.partial().safeParse(req.body);
   if (!parseado.success) return res.status(400).json({ ok: false, error: parseado.error.errors[0].message });
   const d = parseado.data;
+  // 🔒 El vehículo debe ser de MI campaña (antes se podía ligar un
+  // vehículo de otra campaña y ver sus datos en el listado de choferes).
+  if (d.vehiculo_id) {
+    const v = await query('SELECT 1 FROM activos WHERE id=$1 AND campana_id=$2', [d.vehiculo_id, req.usuario.campana_id]);
+    if (!v.rows[0]) return res.status(400).json({ ok: false, error: 'El vehículo no pertenece a esta campaña' });
+  }
   const campos = [];
   const valores = [];
   let i = 1;
@@ -130,9 +143,9 @@ const CHECKLIST_ESTANDAR = [
 router.get('/checklist/:eventoId', async (req, res) => {
   const resultado = await query(
     `SELECT c.*, r.nombre as responsable_nombre FROM agenda_checklist c
-     LEFT JOIN usuarios r ON r.id = c.responsable_id
-     WHERE c.evento_id=$1 ORDER BY c.categoria`,
-    [req.params.eventoId]
+     LEFT JOIN usuarios r ON r.id = c.responsable_id AND r.campana_id = c.campana_id
+     WHERE c.evento_id=$1 AND c.campana_id=$2 ORDER BY c.categoria`,
+    [req.params.eventoId, req.usuario.campana_id]
   );
   res.json({ ok: true, data: resultado.rows, categorias: CATEGORIA_LABEL });
 });
@@ -167,6 +180,13 @@ router.post('/checklist/:eventoId', async (req, res) => {
   const parseado = esquemaChecklistItem.safeParse(req.body);
   if (!parseado.success) return res.status(400).json({ ok: false, error: parseado.error.errors[0].message });
   const d = parseado.data;
+  // 🔒 Evento y responsable deben ser de MI campaña.
+  if (!(await eventoEsDeMiCampana(req.params.eventoId, req.usuario.campana_id))) {
+    return res.status(404).json({ ok: false, error: 'Evento no encontrado' });
+  }
+  if (d.responsable_id && !(await usuarioEsDeMiCampana(d.responsable_id, req.usuario.campana_id))) {
+    return res.status(400).json({ ok: false, error: 'El responsable no pertenece a esta campaña' });
+  }
   const resultado = await query(
     `INSERT INTO agenda_checklist (evento_id, campana_id, categoria, item, responsable_id, notas)
      VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
@@ -176,12 +196,12 @@ router.post('/checklist/:eventoId', async (req, res) => {
 });
 
 router.patch('/checklist/item/:itemId/completar', async (req, res) => {
-  const resultado = await query('UPDATE agenda_checklist SET completado = NOT completado WHERE id=$1 RETURNING *', [req.params.itemId]);
+  const resultado = await query('UPDATE agenda_checklist SET completado = NOT completado WHERE id=$1 AND campana_id=$2 RETURNING *', [req.params.itemId, req.usuario.campana_id]);
   res.json({ ok: true, data: resultado.rows[0] });
 });
 
 router.delete('/checklist/item/:itemId', async (req, res) => {
-  await query('DELETE FROM agenda_checklist WHERE id=$1', [req.params.itemId]);
+  await query('DELETE FROM agenda_checklist WHERE id=$1 AND campana_id=$2', [req.params.itemId, req.usuario.campana_id]);
   res.json({ ok: true });
 });
 
@@ -197,8 +217,8 @@ router.get('/asignaciones/:agendaId', async (req, res) => {
   const resultado = await query(
     `SELECT la.*, a.subtipo as vehiculo_nombre, c.nombre as chofer_nombre, c.telefono as chofer_telefono
      FROM logistica_asignaciones la
-     LEFT JOIN activos a ON a.id = la.vehiculo_id
-     LEFT JOIN choferes c ON c.id = la.chofer_id
+     LEFT JOIN activos a ON a.id = la.vehiculo_id AND a.campana_id = la.campana_id
+     LEFT JOIN choferes c ON c.id = la.chofer_id AND c.campana_id = la.campana_id
      WHERE la.agenda_id=$1 AND la.campana_id=$2 ORDER BY la.creado_en`,
     [req.params.agendaId, req.usuario.campana_id]
   );
@@ -217,6 +237,19 @@ router.post('/asignaciones/:agendaId', async (req, res) => {
   if (!parseado.success) return res.status(400).json({ ok: false, error: parseado.error.errors[0].message });
   const d = parseado.data;
   if (!d.vehiculo_id && !d.chofer_id) return res.status(400).json({ ok: false, error: 'Elige al menos un vehículo o un chofer' });
+  // 🔒 Evento, vehículo y chofer deben ser de MI campaña (antes se podía
+  // "asignar" el chofer de otra campaña y así ver su nombre y teléfono).
+  if (!(await eventoEsDeMiCampana(req.params.agendaId, req.usuario.campana_id))) {
+    return res.status(404).json({ ok: false, error: 'Evento no encontrado' });
+  }
+  if (d.vehiculo_id) {
+    const v = await query('SELECT 1 FROM activos WHERE id=$1 AND campana_id=$2', [d.vehiculo_id, req.usuario.campana_id]);
+    if (!v.rows[0]) return res.status(400).json({ ok: false, error: 'El vehículo no pertenece a esta campaña' });
+  }
+  if (d.chofer_id) {
+    const c = await query('SELECT 1 FROM choferes WHERE id=$1 AND campana_id=$2', [d.chofer_id, req.usuario.campana_id]);
+    if (!c.rows[0]) return res.status(400).json({ ok: false, error: 'El chofer no pertenece a esta campaña' });
+  }
   const resultado = await query(
     `INSERT INTO logistica_asignaciones (campana_id, agenda_id, vehiculo_id, chofer_id, hora_salida, notas)
      VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,

@@ -8,6 +8,7 @@ import { createClient } from '@supabase/supabase-js';
 import { query } from '../db/pool.js';
 import { requiereAuth } from '../middleware/auth.js';
 import { encontrarSeccionRealDelPunto } from '../lib/geoUtils.js';
+import { eventoEsDeMiCampana, usuarioEsDeMiCampana, nombreArchivoSeguro } from '../lib/pertenencia.js';
 
 const router = Router();
 router.use(requiereAuth);
@@ -283,8 +284,9 @@ router.get('/tiempos-traslado', async (req, res) => {
 router.get('/:id/documentos', async (req, res) => {
   const resultado = await query(
     `SELECT d.*, u.nombre as subido_por_nombre FROM agenda_documentos d
+     JOIN agenda a ON a.id = d.evento_id AND a.campana_id = $2
      LEFT JOIN usuarios u ON u.id = d.subido_por WHERE d.evento_id=$1 ORDER BY d.creado_en DESC`,
-    [req.params.id]
+    [req.params.id, req.usuario.campana_id]
   );
   res.json({ ok: true, data: resultado.rows });
 });
@@ -292,8 +294,12 @@ router.post('/:id/documentos', upload.single('archivo'), async (req, res) => {
   const supabase = clienteSupabase();
   if (!supabase) return res.status(500).json({ ok: false, error: 'Almacenamiento no configurado' });
   if (!req.file) return res.status(400).json({ ok: false, error: 'No se recibió ningún archivo' });
+  // 🔒 El evento debe ser de MI campaña (antes se podían subir archivos a eventos de otra campaña).
+  if (!(await eventoEsDeMiCampana(req.params.id, req.usuario.campana_id))) {
+    return res.status(404).json({ ok: false, error: 'Evento no encontrado' });
+  }
 
-  const ruta = `${req.usuario.campana_id}/agenda-documentos/${crypto.randomBytes(8).toString('hex')}-${req.file.originalname}`;
+  const ruta = `${req.usuario.campana_id}/agenda-documentos/${crypto.randomBytes(8).toString('hex')}-${nombreArchivoSeguro(req.file.originalname)}`;
   const { error } = await supabase.storage.from('documentos').upload(ruta, req.file.buffer, { contentType: req.file.mimetype });
   if (error) return res.status(500).json({ ok: false, error: 'No se pudo subir el archivo' });
   const { data: urlData } = supabase.storage.from('documentos').getPublicUrl(ruta);
@@ -305,21 +311,33 @@ router.post('/:id/documentos', upload.single('archivo'), async (req, res) => {
   res.status(201).json({ ok: true, data: resultado.rows[0] });
 });
 router.delete('/documentos/:docId', async (req, res) => {
-  await query('DELETE FROM agenda_documentos WHERE id=$1', [req.params.docId]);
+  // 🔒 Solo se borran documentos de eventos de MI campaña.
+  await query(
+    'DELETE FROM agenda_documentos d USING agenda a WHERE d.id=$1 AND a.id=d.evento_id AND a.campana_id=$2',
+    [req.params.docId, req.usuario.campana_id]
+  );
   res.json({ ok: true });
 });
 
 router.get('/:id/compromisos', async (req, res) => {
   const resultado = await query(
     `SELECT c.*, r.nombre as responsable_nombre FROM agenda_compromisos c
-     LEFT JOIN usuarios r ON r.id = c.responsable_id WHERE c.evento_id=$1 ORDER BY c.completado, c.fecha_limite`,
-    [req.params.id]
+     LEFT JOIN usuarios r ON r.id = c.responsable_id AND r.campana_id = c.campana_id
+     WHERE c.evento_id=$1 AND c.campana_id=$2 ORDER BY c.completado, c.fecha_limite`,
+    [req.params.id, req.usuario.campana_id]
   );
   res.json({ ok: true, data: resultado.rows });
 });
 router.post('/:id/compromisos', async (req, res) => {
   const { descripcion, responsable_id, fecha_limite } = req.body;
   if (!descripcion) return res.status(400).json({ ok: false, error: 'Falta la descripción del compromiso' });
+  // 🔒 Evento y responsable deben ser de MI campaña.
+  if (!(await eventoEsDeMiCampana(req.params.id, req.usuario.campana_id))) {
+    return res.status(404).json({ ok: false, error: 'Evento no encontrado' });
+  }
+  if (responsable_id && !(await usuarioEsDeMiCampana(responsable_id, req.usuario.campana_id))) {
+    return res.status(400).json({ ok: false, error: 'El responsable no pertenece a esta campaña' });
+  }
   const resultado = await query(
     `INSERT INTO agenda_compromisos (evento_id, campana_id, descripcion, responsable_id, fecha_limite, creado_por)
      VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
@@ -329,13 +347,13 @@ router.post('/:id/compromisos', async (req, res) => {
 });
 router.patch('/compromisos/:compId/completar', async (req, res) => {
   const resultado = await query(
-    `UPDATE agenda_compromisos SET completado=true, completado_en=now() WHERE id=$1 RETURNING *`,
-    [req.params.compId]
+    `UPDATE agenda_compromisos SET completado=true, completado_en=now() WHERE id=$1 AND campana_id=$2 RETURNING *`,
+    [req.params.compId, req.usuario.campana_id]
   );
   res.json({ ok: true, data: resultado.rows[0] });
 });
 router.delete('/compromisos/:compId', async (req, res) => {
-  await query('DELETE FROM agenda_compromisos WHERE id=$1', [req.params.compId]);
+  await query('DELETE FROM agenda_compromisos WHERE id=$1 AND campana_id=$2', [req.params.compId, req.usuario.campana_id]);
   res.json({ ok: true });
 });
 
@@ -562,8 +580,8 @@ router.get('/:id/sedes', async (req, res) => {
      FROM agenda_sedes s
      LEFT JOIN usuarios u ON u.id = s.usuario_id
      LEFT JOIN secciones sec ON sec.id = s.seccion_id
-     WHERE s.evento_id=$1 ORDER BY s.creado_en ASC`,
-    [req.params.id]
+     WHERE s.evento_id=$1 AND s.campana_id=$2 ORDER BY s.creado_en ASC`,
+    [req.params.id, req.usuario.campana_id]
   );
   const totalEsperadas = resultado.rows.reduce((sum, s) => sum + (s.personas_esperadas || 0), 0);
   const totalConfirmadas = resultado.rows.reduce((sum, s) => sum + (s.personas_confirmadas || 0), 0);
@@ -593,6 +611,9 @@ router.post('/:id/sedes', async (req, res) => {
 
   const evento = await query('SELECT id FROM agenda WHERE id=$1 AND campana_id=$2', [req.params.id, req.usuario.campana_id]);
   if (!evento.rows[0]) return res.status(404).json({ ok: false, error: 'Evento no encontrado' });
+  if (d.usuario_id && !(await usuarioEsDeMiCampana(d.usuario_id, req.usuario.campana_id))) {
+    return res.status(400).json({ ok: false, error: 'El enlace no pertenece a esta campaña' });
+  }
 
   let seccionId = null;
   if (d.seccion_numero) {
@@ -613,8 +634,8 @@ router.post('/:id/sedes', async (req, res) => {
 router.patch('/sedes/:sedeId/conectar', async (req, res) => {
   const { personas_confirmadas } = req.body;
   const resultado = await query(
-    `UPDATE agenda_sedes SET conectado=true, personas_confirmadas=$1 WHERE id=$2 RETURNING *`,
-    [personas_confirmadas ?? null, req.params.sedeId]
+    `UPDATE agenda_sedes SET conectado=true, personas_confirmadas=$1 WHERE id=$2 AND campana_id=$3 RETURNING *`,
+    [personas_confirmadas ?? null, req.params.sedeId, req.usuario.campana_id]
   );
   if (!resultado.rows[0]) return res.status(404).json({ ok: false, error: 'Sede no encontrada' });
   res.json({ ok: true, data: resultado.rows[0] });
@@ -632,13 +653,17 @@ router.patch('/sedes/:sedeId', async (req, res) => {
     campos.push(`${campo}=$${i++}`); valores.push(valor);
   }
   if (campos.length === 0) return res.status(400).json({ ok: false, error: 'Nada que actualizar' });
-  valores.push(req.params.sedeId);
-  const resultado = await query(`UPDATE agenda_sedes SET ${campos.join(', ')} WHERE id=$${i} RETURNING *`, valores);
+  if (d.usuario_id && !(await usuarioEsDeMiCampana(d.usuario_id, req.usuario.campana_id))) {
+    return res.status(400).json({ ok: false, error: 'El enlace no pertenece a esta campaña' });
+  }
+  valores.push(req.params.sedeId, req.usuario.campana_id);
+  const resultado = await query(`UPDATE agenda_sedes SET ${campos.join(', ')} WHERE id=$${i} AND campana_id=$${i + 1} RETURNING *`, valores);
+  if (!resultado.rows[0]) return res.status(404).json({ ok: false, error: 'Sede no encontrada' });
   res.json({ ok: true, data: resultado.rows[0] });
 });
 
 router.delete('/sedes/:sedeId', async (req, res) => {
-  await query('DELETE FROM agenda_sedes WHERE id=$1', [req.params.sedeId]);
+  await query('DELETE FROM agenda_sedes WHERE id=$1 AND campana_id=$2', [req.params.sedeId, req.usuario.campana_id]);
   res.json({ ok: true });
 });
 

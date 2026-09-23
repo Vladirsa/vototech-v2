@@ -3,6 +3,7 @@ import { query } from '../db/pool.js';
 import { requiereAuth } from '../middleware/auth.js';
 import { getIo } from '../io.js';
 import { enviarPush } from './push.js';
+import { usuarioEsDeMiCampana } from '../lib/pertenencia.js';
 
 const router = Router();
 router.use(requiereAuth);
@@ -60,6 +61,17 @@ router.post('/:canal', async (req, res) => {
   if (!texto || !texto.trim()) return res.status(400).json({ ok: false, error: 'Mensaje vacío' });
   if (texto.length > 2000) return res.status(400).json({ ok: false, error: 'Mensaje demasiado largo' });
 
+  // 🔒 En mensajes directos, la otra persona debe ser de MI campaña —
+  // antes se podían mandar notificaciones a usuarios de otras campañas.
+  let destinatarioId = null;
+  if (canal.startsWith('dm-')) {
+    const [, idA, idB] = canal.match(/^dm-([0-9a-f-]{36})-([0-9a-f-]{36})$/);
+    destinatarioId = idA === req.usuario.sub ? idB : idA;
+    if (!(await usuarioEsDeMiCampana(destinatarioId, req.usuario.campana_id))) {
+      return res.status(403).json({ ok: false, error: 'Esa persona no pertenece a tu campaña' });
+    }
+  }
+
   const resultado = await query(
     `INSERT INTO chat_mensajes (campana_id, canal, autor_id, texto) VALUES ($1,$2,$3,$4)
      RETURNING id, canal, texto, creado_en`,
@@ -73,14 +85,23 @@ router.post('/:canal', async (req, res) => {
     autor_rol: req.usuario.rol,
   };
 
-  getIo().to(`campana:${req.usuario.campana_id}`).emit('chat_mensaje', mensajeCompleto);
+  // 🔒 Cada mensaje en vivo llega SOLO a quien le corresponde. Antes
+  // todo se mandaba a la campaña completa, así que el celular de
+  // cualquier promotor recibía los mensajes privados y los del canal
+  // de coordinadores (aunque la pantalla no los mostrara).
+  const io = getIo();
+  if (destinatarioId) {
+    io.to(`usuario:${req.usuario.sub}`).to(`usuario:${destinatarioId}`).emit('chat_mensaje', mensajeCompleto);
+  } else if (canal === 'coordinadores') {
+    io.to(`campana:${req.usuario.campana_id}:coordinadores`).emit('chat_mensaje', mensajeCompleto);
+  } else {
+    io.to(`campana:${req.usuario.campana_id}`).emit('chat_mensaje', mensajeCompleto);
+  }
 
   // Push real SOLO en mensajes directos — en canales grupales (General,
   // Coordinadores) mandaríamos demasiadas notificaciones y la gente
   // terminaría apagándolas todas, incluyendo las que sí importan.
-  if (canal.startsWith('dm-')) {
-    const [, idA, idB] = canal.match(/^dm-([0-9a-f-]{36})-([0-9a-f-]{36})$/);
-    const destinatarioId = idA === req.usuario.sub ? idB : idA;
+  if (destinatarioId) {
     enviarPush(destinatarioId, { titulo: `💬 ${req.usuario.nombre}`, cuerpo: texto.trim(), url: '/dashboard' }).catch(() => {});
   }
 

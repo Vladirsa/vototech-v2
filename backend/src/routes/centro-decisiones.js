@@ -3,6 +3,7 @@ import { z } from 'zod';
 import Anthropic from '@anthropic-ai/sdk';
 import { query } from '../db/pool.js';
 import { requiereAuth } from '../middleware/auth.js';
+import { usuarioEsDeMiCampana } from '../lib/pertenencia.js';
 
 const router = Router();
 router.use(requiereAuth);
@@ -34,6 +35,10 @@ function requierePermisoCD(permiso) {
 
 /** GET /api/centro-decisiones/permisos/:usuarioId — ver los permisos de una persona */
 router.get('/permisos/:usuarioId', requierePermisoCD('ADMIN'), async (req, res) => {
+  // 🔒 Solo personas de MI campaña.
+  if (!(await usuarioEsDeMiCampana(req.params.usuarioId, req.usuario.campana_id))) {
+    return res.status(404).json({ ok: false, error: 'Persona no encontrada' });
+  }
   const r = await query(`SELECT permiso FROM permisos_centro_decisiones WHERE usuario_id=$1`, [req.params.usuarioId]);
   res.json({ ok: true, data: r.rows.map((x) => x.permiso) });
 });
@@ -42,6 +47,11 @@ router.get('/permisos/:usuarioId', requierePermisoCD('ADMIN'), async (req, res) 
 router.post('/permisos', requierePermisoCD('ADMIN'), async (req, res) => {
   const { usuario_id, permiso } = req.body;
   if (!PERMISOS_VALIDOS.includes(permiso)) return res.status(400).json({ ok: false, error: 'Permiso inválido' });
+  // 🔒 Solo se otorgan permisos a personas de MI campaña (antes un
+  // candidato podía dar permisos de ADMIN a alguien de otra campaña).
+  if (!usuario_id || !(await usuarioEsDeMiCampana(usuario_id, req.usuario.campana_id))) {
+    return res.status(404).json({ ok: false, error: 'Persona no encontrada' });
+  }
   await query(
     `INSERT INTO permisos_centro_decisiones (usuario_id, permiso, otorgado_por) VALUES ($1,$2,$3) ON CONFLICT (usuario_id, permiso) DO NOTHING`,
     [usuario_id, permiso, req.usuario.sub]
@@ -52,6 +62,9 @@ router.post('/permisos', requierePermisoCD('ADMIN'), async (req, res) => {
 /** DELETE /api/centro-decisiones/permisos — quitar un permiso */
 router.delete('/permisos', requierePermisoCD('ADMIN'), async (req, res) => {
   const { usuario_id, permiso } = req.body;
+  if (!usuario_id || !(await usuarioEsDeMiCampana(usuario_id, req.usuario.campana_id))) {
+    return res.status(404).json({ ok: false, error: 'Persona no encontrada' });
+  }
   await query(`DELETE FROM permisos_centro_decisiones WHERE usuario_id=$1 AND permiso=$2`, [usuario_id, permiso]);
   res.json({ ok: true });
 });
@@ -109,7 +122,7 @@ router.get('/', async (req, res) => {
     `SELECT d.*, u_creador.nombre as creado_por_nombre, u_resp.nombre as responsable_nombre
      FROM decision_logs d
      LEFT JOIN usuarios u_creador ON u_creador.id = d.creado_por
-     LEFT JOIN usuarios u_resp ON u_resp.id = d.responsable_asignado_id
+     LEFT JOIN usuarios u_resp ON u_resp.id = d.responsable_asignado_id AND u_resp.campana_id = d.campana_id
      WHERE d.campana_id=$1 ${filtroEstado}
      ORDER BY d.creado_en DESC`,
     params
@@ -123,7 +136,7 @@ router.get('/:id', async (req, res) => {
     `SELECT d.*, u_creador.nombre as creado_por_nombre, u_resp.nombre as responsable_nombre
      FROM decision_logs d
      LEFT JOIN usuarios u_creador ON u_creador.id = d.creado_por
-     LEFT JOIN usuarios u_resp ON u_resp.id = d.responsable_asignado_id
+     LEFT JOIN usuarios u_resp ON u_resp.id = d.responsable_asignado_id AND u_resp.campana_id = d.campana_id
      WHERE d.id=$1 AND d.campana_id=$2`,
     [req.params.id, req.usuario.campana_id]
   );
@@ -140,6 +153,11 @@ router.post('/', requierePermisoCD('DECISION_LOG'), async (req, res) => {
   const parseado = esquemaDecision.safeParse(req.body);
   if (!parseado.success) return res.status(400).json({ ok: false, error: parseado.error.errors[0].message });
   const d = parseado.data;
+  // 🔒 El responsable debe ser de MI campaña (antes se podía poner a
+  // alguien de otra campaña y así ver su nombre en los listados).
+  if (d.responsable_asignado_id && !(await usuarioEsDeMiCampana(d.responsable_asignado_id, req.usuario.campana_id))) {
+    return res.status(400).json({ ok: false, error: 'El responsable no pertenece a esta campaña' });
+  }
 
   const resultado = await query(
     `INSERT INTO decision_logs
@@ -167,6 +185,11 @@ router.patch('/:id', requierePermisoCD('DECISION_LOG'), async (req, res) => {
   const parseado = esquemaActualizacion.safeParse(req.body);
   if (!parseado.success) return res.status(400).json({ ok: false, error: parseado.error.errors[0].message });
   const d = parseado.data;
+  // 🔒 El responsable debe ser de MI campaña (antes se podía poner a
+  // alguien de otra campaña y así ver su nombre en los listados).
+  if (d.responsable_asignado_id && !(await usuarioEsDeMiCampana(d.responsable_asignado_id, req.usuario.campana_id))) {
+    return res.status(400).json({ ok: false, error: 'El responsable no pertenece a esta campaña' });
+  }
 
   const campos = [];
   const valores = [];
@@ -315,7 +338,7 @@ router.get('/tareas', async (req, res) => {
     `SELECT t.*, u.nombre as responsable_nombre, uc.nombre as creado_por_nombre,
        (t.fecha_limite IS NOT NULL AND t.fecha_limite < CURRENT_DATE AND t.estado NOT IN ('completada','cancelada')) as vencida
      FROM tareas t
-     LEFT JOIN usuarios u ON u.id = t.responsable_id
+     LEFT JOIN usuarios u ON u.id = t.responsable_id AND u.campana_id = t.campana_id
      LEFT JOIN usuarios uc ON uc.id = t.creado_por
      WHERE t.campana_id=$1 ${filtros}
      ORDER BY (t.estado IN ('completada','cancelada')) ASC, t.fecha_limite ASC NULLS LAST, t.creado_en DESC`,
@@ -328,6 +351,11 @@ router.post('/tareas', async (req, res) => {
   const parseado = esquemaTarea.safeParse(req.body);
   if (!parseado.success) return res.status(400).json({ ok: false, error: parseado.error.errors[0].message });
   const d = parseado.data;
+  // 🔒 El responsable debe ser de MI campaña (antes se podía poner a
+  // alguien de otra campaña y así ver su nombre en los listados).
+  if (d.responsable_id && !(await usuarioEsDeMiCampana(d.responsable_id, req.usuario.campana_id))) {
+    return res.status(400).json({ ok: false, error: 'El responsable no pertenece a esta campaña' });
+  }
   const resultado = await query(
     `INSERT INTO tareas (campana_id, descripcion, origen, prioridad, responsable_id, territorio_tipo, territorio_id, fecha_limite, estado, creado_por)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
@@ -349,6 +377,11 @@ router.patch('/tareas/:id', async (req, res) => {
   const parseado = esquemaActualizarTarea.safeParse(req.body);
   if (!parseado.success) return res.status(400).json({ ok: false, error: parseado.error.errors[0].message });
   const d = parseado.data;
+  // 🔒 El responsable debe ser de MI campaña (antes se podía poner a
+  // alguien de otra campaña y así ver su nombre en los listados).
+  if (d.responsable_id && !(await usuarioEsDeMiCampana(d.responsable_id, req.usuario.campana_id))) {
+    return res.status(400).json({ ok: false, error: 'El responsable no pertenece a esta campaña' });
+  }
 
   const campos = [];
   const valores = [];

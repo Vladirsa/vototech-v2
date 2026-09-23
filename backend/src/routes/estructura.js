@@ -5,8 +5,36 @@ import PDFDocument from 'pdfkit';
 import { query } from '../db/pool.js';
 import { requiereAuth } from '../middleware/auth.js';
 import { registrarAuditoria } from '../lib/auditoria.js';
+import { puedeAsignarRol, puedeGestionarA, CAMPOS_EDITABLES_DE_UNO_MISMO, MENSAJE_SIN_RANGO } from '../lib/jerarquiaRoles.js';
 const router = Router();
 router.use(requiereAuth);
+
+// 🔒 Nombres sin "<" ni ">" — impide esconder código dentro de un
+// nombre (se mostraba en el mapa y podía robar sesiones).
+const nombreSeguro = z.string().min(2).max(200).regex(/^[^<>]*$/, 'El nombre no puede contener los caracteres < o >');
+
+/** 🔒 Rol y puesto actuales de un miembro de MI campaña (null si no existe o es de otra campaña). */
+async function miembroDeMiCampana(usuarioId, campanaId) {
+  const r = await query('SELECT rol, puesto FROM usuarios WHERE id=$1 AND campana_id=$2', [usuarioId, campanaId]);
+  return r.rows[0] ?? null;
+}
+
+/**
+ * 🔒 Confirma que un coordinador (parent_id) o región (region_id) que
+ * llega en la petición pertenece a MI campaña — antes se aceptaba
+ * cualquier identificador, incluso de otra campaña.
+ */
+async function referenciasSonDeMiCampana({ parent_id, region_id }, campanaId) {
+  if (parent_id) {
+    const p = await query('SELECT 1 FROM usuarios WHERE id=$1 AND campana_id=$2', [parent_id, campanaId]);
+    if (!p.rows[0]) return 'El coordinador indicado no pertenece a esta campaña';
+  }
+  if (region_id) {
+    const r = await query('SELECT 1 FROM regiones_campana WHERE id=$1 AND campana_id=$2', [region_id, campanaId]);
+    if (!r.rows[0]) return 'La región indicada no pertenece a esta campaña';
+  }
+  return null;
+}
 
 /** 🆕 Mismas funciones de formato profesional que usa reportes.js —
  * duplicadas aquí en vez de importadas entre routers, para no acoplar
@@ -110,6 +138,11 @@ router.put('/permisos', async (req, res) => {
   if (rol === 'candidato') {
     return res.status(400).json({ ok: false, error: 'El rol Candidato nunca se puede restringir — es una protección para que nadie se bloquee a sí mismo' });
   }
+  // 🔒 Solo se pueden cambiar permisos de roles INFERIORES al propio
+  // (antes un Coordinador General podía restringir al Jefe de Campaña).
+  if (!puedeGestionarA(req.usuario, { rol })) {
+    return res.status(403).json({ ok: false, error: MENSAJE_SIN_RANGO });
+  }
   await query(
     `INSERT INTO permisos_personalizados (campana_id, rol, modulo, permitido) VALUES ($1,$2,$3,$4)
      ON CONFLICT (campana_id, rol, modulo) DO UPDATE SET permitido=$4`,
@@ -124,6 +157,9 @@ router.delete('/permisos', async (req, res) => {
   }
   const { rol, modulo } = req.body;
   if (!rol || !modulo) return res.status(400).json({ ok: false, error: 'Faltan datos (rol, modulo)' });
+  if (!puedeGestionarA(req.usuario, { rol })) {
+    return res.status(403).json({ ok: false, error: MENSAJE_SIN_RANGO });
+  }
   await query(
     'DELETE FROM permisos_personalizados WHERE campana_id=$1 AND rol=$2 AND modulo=$3',
     [req.usuario.campana_id, rol, modulo]
@@ -459,6 +495,13 @@ router.patch('/:usuarioId/asignar-territorio', async (req, res) => {
   const { territorio_tipo, territorio_id } = req.body;
   if (!['seccion', 'municipio', 'distrito_local', 'distrito_federal', 'estatal'].includes(territorio_tipo)) {
     return res.status(400).json({ ok: false, error: 'territorio_tipo inválido' });
+  }
+  // 🔒 Solo se asigna territorio a alguien de rango inferior (antes
+  // cualquiera con acceso a Estructura podía mover a cualquiera).
+  const objetivo = await miembroDeMiCampana(req.params.usuarioId, req.usuario.campana_id);
+  if (!objetivo) return res.status(404).json({ ok: false, error: 'Usuario no encontrado' });
+  if (!puedeGestionarA(req.usuario, objetivo)) {
+    return res.status(403).json({ ok: false, error: MENSAJE_SIN_RANGO });
   }
   const resultado = await query(
     `UPDATE usuarios SET territorio_tipo=$1, territorio_id=$2 WHERE id=$3 AND campana_id=$4 RETURNING id, nombre, territorio_tipo, territorio_id`,
@@ -851,7 +894,7 @@ router.get('/salud', async (req, res) => {
 // region_id por completo (el formulario ya lo mandaba, pero se
 // perdía silenciosamente porque el esquema no lo reconocía).
 const esquemaMiembro = z.object({
-  nombre: z.string().min(2).max(200),
+  nombre: nombreSeguro,
   email: z.string().email(),
   telefono: z.string().max(20).optional(),
   password: z.string().min(8),
@@ -870,6 +913,14 @@ router.post('/', async (req, res) => {
     return res.status(400).json({ ok: false, error: parseado.error.errors[0].message });
   }
   const d = parseado.data;
+  // 🔒 Solo se pueden dar de alta personas de rango INFERIOR al propio
+  // (antes un Coordinador Seccional podía crear un Jefe de Campaña con
+  // contraseña elegida por él y entrar con esa cuenta).
+  if (!puedeAsignarRol(req.usuario, d.rol, d.puesto)) {
+    return res.status(403).json({ ok: false, error: MENSAJE_SIN_RANGO });
+  }
+  const errorReferencia = await referenciasSonDeMiCampana(d, req.usuario.campana_id);
+  if (errorReferencia) return res.status(400).json({ ok: false, error: errorReferencia });
   try {
     const existente = await query(
       'SELECT id FROM usuarios WHERE campana_id=$1 AND email=$2',
@@ -910,8 +961,9 @@ router.post('/', async (req, res) => {
 // sus columnas dinámicamente a partir de lo que llegue validado
 // aquí, así que con solo agregar el campo ya queda funcional.
 const esquemaEditar = z.object({
-  nombre: z.string().min(2).max(200).optional(),
-  telefono: z.string().max(20).optional(),
+  nombre: nombreSeguro.optional(),
+  // nullable: el formulario manda null cuando se borra el teléfono
+  telefono: z.string().max(20).nullable().optional(),
   rol: z.enum(['jefe_campana', 'coord_general', 'coord_regional', 'coord_distrital', 'coord_municipal', 'coord_seccional', 'promotor', 'encargado_juridico', 'encargado_finanzas', 'representante_casilla', 'voluntario']).optional(),
   puesto: z.string().max(100).nullable().optional(),
   parent_id: z.string().uuid().nullable().optional(),
@@ -927,6 +979,43 @@ router.patch('/:id', async (req, res) => {
   if (!parseado.success) return res.status(400).json({ ok: false, error: parseado.error.errors[0].message });
   const d = parseado.data;
   if (d.parent_id === req.params.id) return res.status(400).json({ ok: false, error: 'No puede ser su propio coordinador' });
+
+  // 🔒 JERARQUÍA — antes cualquiera con acceso a Estructura podía
+  // editar a cualquiera, incluyéndose a sí mismo: bastaba mandar
+  // {"rol":"jefe_campana"} para subirse de rango.
+  const actualRes = await query(
+    `SELECT rol, puesto, parent_id, territorio_tipo, territorio_id, region_id, meta_diaria, activo, nombre, telefono
+     FROM usuarios WHERE id=$1 AND campana_id=$2`,
+    [req.params.id, req.usuario.campana_id]
+  );
+  const actual = actualRes.rows[0];
+  if (!actual) return res.status(404).json({ ok: false, error: 'No encontrado' });
+  // El formulario manda todos los campos aunque no cambien — solo
+  // cuentan los que SÍ cambian de valor.
+  const cambiosReales = Object.keys(d).filter((c) => String(d[c] ?? '') !== String(actual[c] ?? ''))
+    // Si el territorio no cambia, el "tipo" que el formulario rellena
+    // por defecto tampoco cuenta como cambio.
+    .filter((c) => !(c === 'territorio_tipo' && String(d.territorio_id ?? actual.territorio_id ?? '') === String(actual.territorio_id ?? '')));
+  const esUnoMismo = req.params.id === req.usuario.sub;
+  if (esUnoMismo) {
+    const camposProhibidos = cambiosReales.filter((c) => !CAMPOS_EDITABLES_DE_UNO_MISMO.includes(c));
+    if (camposProhibidos.length > 0) {
+      return res.status(403).json({ ok: false, error: 'De tu propio perfil solo puedes cambiar tu nombre y teléfono. Pide a tu coordinador cualquier otro cambio.' });
+    }
+  } else {
+    if (!puedeGestionarA(req.usuario, actual)) {
+      return res.status(403).json({ ok: false, error: MENSAJE_SIN_RANGO });
+    }
+    // Si cambia el rol o el puesto, el NUEVO nivel también debe quedar
+    // por debajo de quien hace el cambio.
+    if ((cambiosReales.includes('rol') || cambiosReales.includes('puesto'))
+      && !puedeAsignarRol(req.usuario, d.rol ?? actual.rol, 'puesto' in d ? d.puesto : actual.puesto)) {
+      return res.status(403).json({ ok: false, error: MENSAJE_SIN_RANGO });
+    }
+  }
+  const errorReferencia = await referenciasSonDeMiCampana(d, req.usuario.campana_id);
+  if (errorReferencia) return res.status(400).json({ ok: false, error: errorReferencia });
+
   if ('parent_id' in d) {
     const actual = await query('SELECT parent_id FROM usuarios WHERE id=$1 AND campana_id=$2', [req.params.id, req.usuario.campana_id]);
     if (actual.rows[0] && actual.rows[0].parent_id !== d.parent_id) {
@@ -967,6 +1056,15 @@ router.post('/:id/reasignar-equipo', async (req, res) => {
   const { nuevo_parent_id } = req.body;
   if (!nuevo_parent_id) return res.status(400).json({ ok: false, error: 'Falta el nuevo coordinador destino' });
   if (nuevo_parent_id === req.params.id) return res.status(400).json({ ok: false, error: 'No puede reasignarse a sí mismo' });
+  // 🔒 Solo se mueve el equipo de alguien de rango inferior, y solo
+  // hacia un coordinador de esta misma campaña.
+  const objetivo = await miembroDeMiCampana(req.params.id, req.usuario.campana_id);
+  if (!objetivo) return res.status(404).json({ ok: false, error: 'No encontrado' });
+  if (!puedeGestionarA(req.usuario, objetivo)) {
+    return res.status(403).json({ ok: false, error: MENSAJE_SIN_RANGO });
+  }
+  const errorReferencia = await referenciasSonDeMiCampana({ parent_id: nuevo_parent_id }, req.usuario.campana_id);
+  if (errorReferencia) return res.status(400).json({ ok: false, error: errorReferencia });
   const hijos = await query('SELECT id FROM usuarios WHERE parent_id=$1 AND campana_id=$2', [req.params.id, req.usuario.campana_id]);
   if (hijos.rows.length === 0) return res.json({ ok: true, movidos: 0 });
   for (const h of hijos.rows) {
@@ -1336,27 +1434,21 @@ const esquemaCasillaOficial = z.object({
 });
 
 router.post('/casillas-oficiales', async (req, res) => {
-  if (!['candidato', 'jefe_campana', 'coord_general'].includes(req.usuario.rol)) {
-    return res.status(403).json({ ok: false, error: 'Solo altos mandos pueden ajustar la base de casillas' });
-  }
-  const parseado = esquemaCasillaOficial.safeParse(req.body);
-  if (!parseado.success) return res.status(400).json({ ok: false, error: parseado.error.errors[0].message });
-  const d = parseado.data;
-  const seccion = await query('SELECT id FROM secciones WHERE estado_id=$1 AND numero=$2', [req.usuario.estado_id, d.seccion_numero]);
-  if (!seccion.rows[0]) return res.status(404).json({ ok: false, error: 'Sección no encontrada' });
-  const resultado = await query(
-    `INSERT INTO casillas_oficiales (seccion_id, tipo, electores_estimados) VALUES ($1,$2,$3) RETURNING *`,
-    [seccion.rows[0].id, d.tipo, d.electores_estimados || null]
-  );
-  res.status(201).json({ ok: true, data: resultado.rows[0] });
+    // 🔒 La base oficial de casillas es COMPARTIDA por todas las
+    // campañas del estado (viene del INE). Antes cualquier campaña
+    // podía agregar o borrar casillas y alterar la base de TODAS las
+    // demás. Ahora solo se ajusta desde el panel de administrador de
+    // VotoTech.
+    return res.status(403).json({ ok: false, error: 'La base oficial de casillas es compartida y solo la ajusta el equipo de VotoTech. Si ves un error, escríbenos por WhatsApp y lo corregimos.' });
 });
 
 router.delete('/casillas-oficiales/:id', async (req, res) => {
-  if (!['candidato', 'jefe_campana', 'coord_general'].includes(req.usuario.rol)) {
-    return res.status(403).json({ ok: false, error: 'Solo altos mandos pueden ajustar la base de casillas' });
-  }
-  await query('DELETE FROM casillas_oficiales WHERE id=$1', [req.params.id]);
-  res.json({ ok: true });
+    // 🔒 La base oficial de casillas es COMPARTIDA por todas las
+    // campañas del estado (viene del INE). Antes cualquier campaña
+    // podía agregar o borrar casillas y alterar la base de TODAS las
+    // demás. Ahora solo se ajusta desde el panel de administrador de
+    // VotoTech.
+    return res.status(403).json({ ok: false, error: 'La base oficial de casillas es compartida y solo la ajusta el equipo de VotoTech. Si ves un error, escríbenos por WhatsApp y lo corregimos.' });
 });
 
 const PORCENTAJE_META_PERSONAL = 0.08;

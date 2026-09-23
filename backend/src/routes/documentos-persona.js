@@ -83,7 +83,14 @@ router.post('/:usuarioId/:tipoDocumento/subir', upload.single('archivo'), async 
   const supabase = clienteSupabase();
   if (!supabase) return res.status(500).json({ ok: false, error: 'Almacenamiento no configurado en el servidor' });
 
-  const extension = req.file.originalname.split('.').pop() || 'jpg';
+  // 🔒 Tipo de documento y extensión solo con letras/números/guion —
+  // antes se usaban tal cual en la ruta del archivo, y con "../" se
+  // podía escribir fuera de la carpeta de la campaña.
+  if (!/^[a-z0-9_-]{1,40}$/i.test(req.params.tipoDocumento)) {
+    return res.status(400).json({ ok: false, error: 'Tipo de documento inválido' });
+  }
+  const extensionCruda = (req.file.originalname.split('.').pop() || 'jpg').toLowerCase();
+  const extension = /^[a-z0-9]{1,5}$/.test(extensionCruda) ? extensionCruda : 'bin';
   const ruta = `${req.usuario.campana_id}/documentos-persona/${req.params.usuarioId}/${req.params.tipoDocumento}-${crypto.randomBytes(6).toString('hex')}.${extension}`;
   const { error } = await supabase.storage.from('documentos').upload(ruta, req.file.buffer, { contentType: req.file.mimetype });
   if (error) return res.status(500).json({ ok: false, error: 'No se pudo subir el archivo' });

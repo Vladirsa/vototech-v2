@@ -77,6 +77,11 @@ router.post('/:id/responder', async (req, res) => {
 
   const encuesta = await query('SELECT id FROM encuestas WHERE id=$1 AND campana_id=$2', [req.params.id, req.usuario.campana_id]);
   if (!encuesta.rows[0]) return res.status(404).json({ ok: false, error: 'Encuesta no encontrada' });
+  // 🔒 El promovido ligado debe ser de MI campaña.
+  if (promovido_id) {
+    const p = await query('SELECT 1 FROM promovidos WHERE id=$1 AND campana_id=$2', [promovido_id, req.usuario.campana_id]);
+    if (!p.rows[0]) return res.status(400).json({ ok: false, error: 'El promovido no pertenece a esta campaña' });
+  }
 
   let seccionId = null;
   if (seccion_numero) {
@@ -99,9 +104,11 @@ router.post('/:id/responder', async (req, res) => {
 router.get('/:id/mapa', async (req, res) => {
   const resultado = await query(
     `SELECT r.id, r.lat, r.lng, s.numero as seccion_numero, r.creado_en
-     FROM encuesta_respuestas r LEFT JOIN secciones s ON s.id = r.seccion_id
+     FROM encuesta_respuestas r
+     JOIN encuestas e ON e.id = r.encuesta_id AND e.campana_id = $2
+     LEFT JOIN secciones s ON s.id = r.seccion_id
      WHERE r.encuesta_id=$1 AND r.lat IS NOT NULL`,
-    [req.params.id]
+    [req.params.id, req.usuario.campana_id]
   );
   res.json({ ok: true, data: resultado.rows });
 });
@@ -111,6 +118,9 @@ router.get('/:id/mapa', async (req, res) => {
  * Agregados: conteo por opción (opción múltiple), lista de textos (abiertas).
  */
 router.get('/:id/resultados', async (req, res) => {
+  // 🔒 La encuesta debe ser de MI campaña (antes cualquier campaña podía ver resultados de otra).
+  const propia = await query('SELECT 1 FROM encuestas WHERE id=$1 AND campana_id=$2', [req.params.id, req.usuario.campana_id]);
+  if (!propia.rows[0]) return res.status(404).json({ ok: false, error: 'Encuesta no encontrada' });
   const preguntas = await query('SELECT * FROM encuesta_preguntas WHERE encuesta_id=$1 ORDER BY orden', [req.params.id]);
   const respuestas = await query('SELECT respuestas FROM encuesta_respuestas WHERE encuesta_id=$1', [req.params.id]);
 

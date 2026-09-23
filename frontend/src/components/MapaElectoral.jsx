@@ -11,6 +11,20 @@ import 'leaflet.heat';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import api from '../lib/api';
+
+/**
+ * 🔒 Convierte cualquier texto en texto "inofensivo" antes de pasarlo a
+ * Leaflet (que lo interpreta como HTML). Así los nombres de personas u
+ * otros datos capturados nunca pueden ejecutar código en el navegador.
+ */
+function escaparHTML(texto) {
+  return String(texto ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 // 🆕 Corregido — antes coloreaba por "clasificación" (dato ya no
 // confiable, se congela con la fecha de la última edición porque el
 // campo que lo alimentaba se quitó). Ahora colorea por el campo
@@ -1015,7 +1029,10 @@ export default function MapaElectoral({ campanaId, estadoId = 29, territorioTipo
     } else {
       textoTooltip = String(numero).padStart(3, '0');
     }
-    capa.bindTooltip(textoTooltip, {
+    // 🔒 Leaflet pinta el tooltip como HTML: se escapa el texto para que
+    // un nombre con código escondido (ej. "<img onerror=...>") se vea
+    // como texto y nunca se ejecute.
+    capa.bindTooltip(escaparHTML(textoTooltip), {
       permanent: false, direction: 'center', className: 'etiqueta-seccion',
     });
   };
@@ -1081,7 +1098,7 @@ export default function MapaElectoral({ campanaId, estadoId = 29, territorioTipo
             })}
             onEachFeature={(feat, capa) => {
               capa.on({ click: () => setManzanaActiva(feat.properties.manzana) });
-              capa.bindTooltip(`Manzana ${feat.properties.manzana} — toca para ver casas`, { direction: 'center' });
+              capa.bindTooltip(escaparHTML(`Manzana ${feat.properties.manzana} — toca para ver casas`), { direction: 'center' });
             }}
           />
         )}

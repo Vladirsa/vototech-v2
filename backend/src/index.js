@@ -7,12 +7,11 @@ import { Server } from 'socket.io';
 import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
-import jwt from 'jsonwebtoken';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { setIo } from './io.js';
 import { query } from './db/pool.js';
-import { requiereAuth } from './middleware/auth.js';
+import { requiereAuth, verificarTokenSesion } from './middleware/auth.js';
 import { requiereModulo, requiereModuloMarketing } from './middleware/permisos.js';
 import { correrSeed, cargarHistorico2021 } from '../seed.js';
 
@@ -83,16 +82,31 @@ if (process.env.SENTRY_DSN) {
   console.log('ℹ️ SENTRY_DSN no configurado — Sentry desactivado (normal en desarrollo local)');
 }
 
+// 🔒 CRÍTICO PARA RENDER — el servidor vive detrás del "proxy" de
+// Render. Sin esta línea, Express veía TODAS las peticiones como si
+// vinieran de la misma IP (la del proxy), así que los límites de
+// intentos se compartían entre todos los usuarios del país: 10 intentos
+// fallidos de login de cualquier persona bloqueaban el acceso a todo
+// el mundo por 15 minutos. Con esto, cada persona cuenta por su propia IP.
+app.set('trust proxy', 1);
+
 app.use(helmet());
+
+function origenPermitido(origin) {
+  return (
+    origin.endsWith('.vototech.mx') ||
+    origin.endsWith('.vototech.com.mx') ||
+    origin === 'https://vototech.com.mx' ||
+    origin.endsWith('.vercel.app') ||
+    origin === 'http://localhost:5173' ||
+    !!process.env.DOMINIOS_PERMITIDOS?.split(',').includes(origin)
+  );
+}
 
 app.use(cors({
   origin: (origin, callback) => {
     if (!origin) return callback(null, true);
-    const permitido =
-      origin.endsWith('.vototech.mx') ||
-      origin.endsWith('.vercel.app') ||
-      origin === 'http://localhost:5173' ||
-      process.env.DOMINIOS_PERMITIDOS?.split(',').includes(origin);
+    const permitido = origenPermitido(origin);
     callback(permitido ? null : new Error('Origen no permitido por CORS'), permitido);
   },
   credentials: true,
@@ -100,26 +114,65 @@ app.use(cors({
 
 app.use(express.json({ limit: '2mb' }));
 
-const limiteGeneral = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 1500,
-  message: { ok: false, error: 'Demasiadas peticiones, intenta de nuevo en unos minutos' },
-});
+const MENSAJE_LIMITE = { ok: false, error: 'Demasiadas peticiones, intenta de nuevo en unos minutos' };
+const MENSAJE_INTENTOS = { ok: false, error: 'Demasiados intentos. Por seguridad, espera 15 minutos antes de volver a intentar.' };
+const QUINCE_MIN = 15 * 60 * 1000;
+
+/**
+ * 🔒 Llave "por cuenta" — cuenta los intentos por campaña+correo, sin
+ * importar desde cuántas IPs distintas lleguen. Esto es lo que frena a
+ * alguien que cambia de IP para seguir adivinando una contraseña o un
+ * código de recuperación.
+ */
+const llavePorCuenta = (req) =>
+  `${String(req.body?.subdominio || '').toLowerCase().trim()}|${String(req.body?.email || '').toLowerCase().trim()}`;
+
+const limiteGeneral = rateLimit({ windowMs: QUINCE_MIN, max: 1500, message: MENSAJE_LIMITE });
 app.use('/api/', limiteGeneral);
 
-const limiteDiaEleccion = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 3000,
-  message: { ok: false, error: 'Demasiadas peticiones, intenta de nuevo en unos minutos' },
-});
+const limiteDiaEleccion = rateLimit({ windowMs: QUINCE_MIN, max: 3000, message: MENSAJE_LIMITE });
 app.use('/api/dia-eleccion/', limiteDiaEleccion);
 
-const limiteLogin = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 10,
-  message: { ok: false, error: 'Demasiados intentos de acceso. Espera unos minutos.' },
-});
-app.use('/api/auth/login', limiteLogin);
+// Login — tres candados:
+//  1) por IP (60): frena ataques masivos; es holgado porque en campo
+//     muchos celulares de la misma compañía telefónica comparten IP.
+//  2) por cuenta + IP (10): el candado fino para quien adivina desde un lugar.
+//  3) por cuenta (50, solo intentos FALLIDOS): frena a quien rota IPs,
+//     pero es lo bastante alto para que un tercero no pueda bloquearle
+//     la cuenta al candidato con unos cuantos intentos a propósito.
+app.use('/api/auth/login',
+  rateLimit({ windowMs: QUINCE_MIN, max: 60, message: MENSAJE_INTENTOS }),
+  rateLimit({ windowMs: QUINCE_MIN, max: 10, message: MENSAJE_INTENTOS, keyGenerator: (req) => `${llavePorCuenta(req)}|${req.ip}` }),
+  rateLimit({ windowMs: QUINCE_MIN, max: 50, message: MENSAJE_INTENTOS, keyGenerator: llavePorCuenta, skipSuccessfulRequests: true }),
+);
+
+// Recuperar contraseña — antes NO tenía límite propio: se podían probar
+// ~1,400 códigos cada 15 minutos. Ahora: 5 intentos por cuenta.
+app.use('/api/auth/olvide-password',
+  rateLimit({ windowMs: QUINCE_MIN, max: 10, message: MENSAJE_INTENTOS }),
+  rateLimit({ windowMs: QUINCE_MIN, max: 3, message: MENSAJE_INTENTOS, keyGenerator: llavePorCuenta }),
+);
+app.use('/api/auth/verificar-codigo-recuperacion',
+  rateLimit({ windowMs: QUINCE_MIN, max: 20, message: MENSAJE_INTENTOS }),
+  rateLimit({ windowMs: QUINCE_MIN, max: 5, message: MENSAJE_INTENTOS, keyGenerator: llavePorCuenta }),
+);
+
+// Código de 2FA — 5 intentos por cada sesión de verificación (el
+// token temporal de 5 min), más un tope por IP.
+app.use('/api/auth/2fa/verificar-login',
+  rateLimit({ windowMs: QUINCE_MIN, max: 20, message: MENSAJE_INTENTOS }),
+  rateLimit({ windowMs: QUINCE_MIN, max: 5, message: MENSAJE_INTENTOS, keyGenerator: (req) => String(req.body?.token_pre_auth || '').slice(-40) }),
+);
+
+// Registro con código de invitación — evita que alguien pruebe códigos
+// al azar. Tope holgado (60 por IP) porque en un mitin decenas de
+// personas se registran con el MISMO código masivo desde la misma red.
+app.use('/api/auth/registrar-con-codigo',
+  rateLimit({ windowMs: QUINCE_MIN, max: 60, message: MENSAJE_INTENTOS }),
+);
+app.use('/api/auth/registrar-campana',
+  rateLimit({ windowMs: QUINCE_MIN, max: 10, message: MENSAJE_INTENTOS }),
+);
 
 app.use('/api/auth', authRoutes);
 app.use('/api/geo', geoRoutes);
@@ -425,19 +478,23 @@ process.on('unhandledRejection', (razon) => {
   console.error('⚠️ Promesa rechazada sin manejar (el servidor sigue corriendo):', razon);
 });
 
-const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-key-cambiar-en-produccion';
 const httpServer = createServer(app);
 
+// 🔒 Antes: WebSockets aceptaban cualquier origen ('*') y verificaban
+// con una clave de respaldo escrita en el código. Ahora usan el mismo
+// filtro de origen y la misma verificación de sesión que el resto.
 export const io = new Server(httpServer, {
-  cors: { origin: '*', credentials: true },
+  cors: {
+    origin: (origin, callback) => callback(null, !origin || origenPermitido(origin)),
+    credentials: true,
+  },
 });
 setIo(io);
 
 io.use((socket, next) => {
   try {
     const token = socket.handshake.auth?.token;
-    const payload = jwt.verify(token, JWT_SECRET);
-    socket.usuario = payload;
+    socket.usuario = verificarTokenSesion(token);
     next();
   } catch (e) {
     next(new Error('Token inválido'));
@@ -447,9 +504,14 @@ io.use((socket, next) => {
 const usuariosEnLinea = new Map();
 
 io.on('connection', (socket) => {
-  const { campana_id, sub } = socket.usuario;
+  const { campana_id, sub, rol } = socket.usuario;
   const sala = `campana:${campana_id}`;
   socket.join(sala);
+  // 🔒 Salas privadas: una por persona (mensajes directos) y una solo
+  // para mandos (canal de coordinadores) — así los mensajes privados
+  // ya no viajan al celular de toda la campaña.
+  socket.join(`usuario:${sub}`);
+  if (rol !== 'promotor') socket.join(`campana:${campana_id}:coordinadores`);
   console.log(`🔌 ${socket.usuario.nombre} conectado a ${sala}`);
 
   if (!usuariosEnLinea.has(campana_id)) usuariosEnLinea.set(campana_id, new Set());

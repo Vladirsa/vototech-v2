@@ -4,11 +4,19 @@ import crypto from 'crypto';
 import { Resend } from 'resend';
 import { z } from 'zod';
 import PDFDocument from 'pdfkit';
-import jwt from 'jsonwebtoken';
 import speakeasy from 'speakeasy';
 import QRCode from 'qrcode';
 import { query } from '../db/pool.js';
-import { generarToken, requiereAuth, requiereRol, generarRefreshToken, validarYRotarRefreshToken, revocarRefreshToken } from '../middleware/auth.js';
+import {
+  generarToken, requiereAuth, requiereRol, generarRefreshToken, validarYRotarRefreshToken, revocarRefreshToken,
+  firmarTokenTemporal, verificarTokenTemporal,
+} from '../middleware/auth.js';
+import { puedeAsignarRol } from '../lib/jerarquiaRoles.js';
+
+// 🔒 Hash falso para comparar cuando el usuario NO existe — así el
+// login tarda lo mismo exista o no la cuenta, y no se puede adivinar
+// qué correos están registrados midiendo el tiempo de respuesta.
+const HASH_FALSO = bcrypt.hashSync('usuario-inexistente-vototech', 12);
 
 const router = Router();
 
@@ -156,10 +164,15 @@ router.post('/login', async (req, res) => {
       [subdominio, email]
     );
 
-    if (resultado.rows.length === 0) {
+    // 🔒 Primero se valida la contraseña, y SOLO si es correcta se
+    // revelan los avisos de "cuenta desactivada / en revisión /
+    // suscripción vencida". Antes esos avisos salían sin contraseña,
+    // lo que permitía confirmar qué correos existen en cada campaña.
+    const usuario = resultado.rows[0];
+    const passwordOk = await bcrypt.compare(password, usuario?.password_hash || HASH_FALSO);
+    if (!usuario || !passwordOk) {
       return res.status(401).json({ ok: false, error: 'Usuario o contraseña incorrectos' });
     }
-    const usuario = resultado.rows[0];
 
     if (!usuario.activo) {
       return res.status(403).json({ ok: false, error: 'Tu cuenta está desactivada. Contacta al Jefe de Campaña.' });
@@ -181,21 +194,14 @@ router.post('/login', async (req, res) => {
       return res.status(403).json({ ok: false, error: '💳 Tu suscripción venció. Contacta a VotoTech para renovar tu servicio.' });
     }
 
-    const passwordOk = await bcrypt.compare(password, usuario.password_hash);
-    if (!passwordOk) {
-      return res.status(401).json({ ok: false, error: 'Usuario o contraseña incorrectos' });
-    }
-
     // Si tiene 2FA activo, la contraseña correcta NO es suficiente
     // todavía — se detiene aquí y se pide el código de la app
     // autenticadora en un segundo paso, con un token temporal de
     // solo 5 minutos que únicamente sirve para ese propósito.
+    // 🔒 Se firma con la clave de tokens TEMPORALES: ya no sirve como
+    // sesión, aunque alguien intente usarlo en otra ruta.
     if (usuario.dos_factores_activo) {
-      const tokenPreAuth = jwt.sign(
-        { sub: usuario.id, tipo: 'pre_2fa' },
-        process.env.JWT_SECRET || 'CAMBIAR_EN_PRODUCCION',
-        { expiresIn: '5m' }
-      );
+      const tokenPreAuth = firmarTokenTemporal(usuario.id, 'pre_2fa', '5m');
       return res.json({ ok: true, requiere_2fa: true, token_pre_auth: tokenPreAuth });
     }
 
@@ -222,7 +228,9 @@ router.post('/login', async (req, res) => {
  */
 const esquemaRegistroPromotor = z.object({
   codigo: z.string(),
-  nombre: z.string().min(3),
+  // 🔒 Sin "<" ni ">" — el nombre se muestra en el mapa y otras
+  // pantallas; antes se podía esconder código ahí para robar sesiones.
+  nombre: z.string().min(3).max(200).regex(/^[^<>]*$/, 'El nombre no puede contener los caracteres < o >'),
   email: z.string().email(),
   password: z.string().min(8),
   telefono: z.string().optional(),
@@ -241,8 +249,7 @@ router.post('/2fa/verificar-login', async (req, res) => {
 
   let payload;
   try {
-    payload = jwt.verify(token_pre_auth, process.env.JWT_SECRET || 'CAMBIAR_EN_PRODUCCION');
-    if (payload.tipo !== 'pre_2fa') throw new Error('tipo incorrecto');
+    payload = verificarTokenTemporal(token_pre_auth, 'pre_2fa');
   } catch (e) {
     return res.status(401).json({ ok: false, error: 'Sesión de verificación expirada, inicia sesión de nuevo' });
   }
@@ -365,9 +372,15 @@ router.post('/olvide-password', async (req, res) => {
   const mensajeGenerico = { ok: true, mensaje: 'Si el correo existe, te llegará un código en un momento — revisa también spam.' };
   if (!usuario) return res.json(mensajeGenerico);
 
-  const codigo = String(Math.floor(100000 + Math.random() * 900000)); // 6 dígitos
+  // 🔒 Código de 6 dígitos con azar criptográfico (antes Math.random,
+  // que es predecible). Y solo UN código vigente a la vez: al pedir uno
+  // nuevo, los anteriores se anulan — antes cada solicitud agregaba
+  // otro código válido, lo que multiplicaba las probabilidades de
+  // adivinar uno.
+  const codigo = String(crypto.randomInt(100000, 1000000));
   if (process.env.MOSTRAR_CODIGO_EN_LOG === 'true') console.log('🔑 CÓDIGO DE PRUEBA (solo con MOSTRAR_CODIGO_EN_LOG=true):', codigo);
   const codigoHash = crypto.createHash('sha256').update(codigo).digest('hex');
+  await query('UPDATE codigos_recuperacion SET usado=true WHERE usuario_id=$1 AND usado=false', [usuario.id]);
   await query(
     `INSERT INTO codigos_recuperacion (usuario_id, codigo_hash, expira_en) VALUES ($1,$2, now() + interval '10 minutes')`,
     [usuario.id, codigoHash]
@@ -414,11 +427,9 @@ router.post('/verificar-codigo-recuperacion', async (req, res) => {
 
   await query('UPDATE codigos_recuperacion SET usado=true WHERE id=$1', [codigoRes.rows[0].id]);
 
-  const tokenReset = jwt.sign(
-    { sub: usuarioRes.rows[0].id, tipo: 'reset_password' },
-    process.env.JWT_SECRET || 'CAMBIAR_EN_PRODUCCION',
-    { expiresIn: '10m' }
-  );
+  // 🔒 Token temporal firmado con la clave de temporales — solo sirve
+  // para cambiar la contraseña, nunca como sesión.
+  const tokenReset = firmarTokenTemporal(usuarioRes.rows[0].id, 'reset_password', '10m');
   res.json({ ok: true, token_reset: tokenReset });
 });
 
@@ -436,13 +447,13 @@ router.post('/restablecer-password', async (req, res) => {
 
   let payload;
   try {
-    payload = jwt.verify(token_reset, process.env.JWT_SECRET || 'CAMBIAR_EN_PRODUCCION');
-    if (payload.tipo !== 'reset_password') throw new Error('tipo incorrecto');
+    payload = verificarTokenTemporal(token_reset, 'reset_password');
   } catch (e) {
     return res.status(401).json({ ok: false, error: 'Sesión de recuperación expirada, empieza de nuevo' });
   }
 
-  const hash = await bcrypt.hash(nueva_password, 10);
+  // 🔒 Mismo nivel de cifrado (12) que en el resto del sistema — antes aquí era 10.
+  const hash = await bcrypt.hash(nueva_password, 12);
   await query('UPDATE usuarios SET password_hash=$1 WHERE id=$2', [hash, payload.sub]);
   // Cerrar todas las sesiones activas — la contraseña vieja ya no
   // debe servir para nada, en ningún dispositivo.
@@ -472,18 +483,47 @@ router.post('/registrar-con-codigo', async (req, res) => {
     }
     const invitacion = codigoRow.rows[0];
 
-    const passwordHash = await bcrypt.hash(datos.password, 12);
-    const nuevoUsuario = await query(
-      `INSERT INTO usuarios (campana_id, nombre, email, telefono, password_hash, rol, parent_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, nombre, rol`,
-      [invitacion.campana_id, datos.nombre, datos.email, datos.telefono || null,
-       passwordHash, invitacion.rol_asignado, invitacion.creado_por]
-    );
+    // 🔒 Se revisa que quien creó el código TENGA HOY un rango mayor al
+    // que regala — esto invalida cualquier código de "subir de rango"
+    // que alguien haya generado antes de este arreglo.
+    const creador = await query('SELECT rol, puesto, activo FROM usuarios WHERE id=$1 AND campana_id=$2', [invitacion.creado_por, invitacion.campana_id]);
+    if (!creador.rows[0] || creador.rows[0].activo === false || !puedeAsignarRol(creador.rows[0], invitacion.rol_asignado)) {
+      return res.status(400).json({ ok: false, error: 'Este código de invitación ya no es válido. Pide uno nuevo a tu coordinador.' });
+    }
 
-    await query(
-      'UPDATE codigos_invitacion SET usos_actuales = usos_actuales + 1 WHERE id = $1',
+    // 🔒 Un correo = una cuenta por campaña. Antes alguien podía
+    // registrarse con el correo del candidato y confundir su acceso.
+    const correoExistente = await query('SELECT 1 FROM usuarios WHERE campana_id=$1 AND lower(email)=lower($2)', [invitacion.campana_id, datos.email]);
+    if (correoExistente.rows[0]) {
+      return res.status(409).json({ ok: false, error: 'Ese correo ya tiene una cuenta en esta campaña. Si olvidaste tu contraseña, usa "¿Olvidaste tu contraseña?".' });
+    }
+
+    // 🔒 Se "aparta" el uso del código de forma atómica ANTES de crear
+    // la cuenta — antes, dos registros al mismo tiempo podían usar un
+    // código de un solo uso dos veces.
+    const apartado = await query(
+      `UPDATE codigos_invitacion SET usos_actuales = usos_actuales + 1
+       WHERE id = $1 AND usos_actuales < usos_maximos RETURNING id`,
       [invitacion.id]
     );
+    if (!apartado.rows[0]) {
+      return res.status(400).json({ ok: false, error: 'Código de invitación inválido, expirado o ya usado' });
+    }
+
+    const passwordHash = await bcrypt.hash(datos.password, 12);
+    let nuevoUsuario;
+    try {
+      nuevoUsuario = await query(
+        `INSERT INTO usuarios (campana_id, nombre, email, telefono, password_hash, rol, parent_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, nombre, rol`,
+        [invitacion.campana_id, datos.nombre, datos.email, datos.telefono || null,
+         passwordHash, invitacion.rol_asignado, invitacion.creado_por]
+      );
+    } catch (e) {
+      // Si falló crear la cuenta, se devuelve el uso del código.
+      await query('UPDATE codigos_invitacion SET usos_actuales = usos_actuales - 1 WHERE id = $1', [invitacion.id]).catch(() => {});
+      throw e;
+    }
 
     const campanaDatos = await query('SELECT estado_id FROM campanas WHERE id=$1', [invitacion.campana_id]);
 

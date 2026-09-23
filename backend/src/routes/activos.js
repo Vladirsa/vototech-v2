@@ -386,8 +386,9 @@ router.get('/:id/kardex', async (req, res) => {
      LEFT JOIN usuarios ra ON ra.id = k.responsable_anterior_id
      LEFT JOIN usuarios rn ON rn.id = k.responsable_nuevo_id
      LEFT JOIN usuarios u ON u.id = k.realizado_por
+     JOIN activos act ON act.id = k.activo_id AND act.campana_id = $2
      WHERE k.activo_id=$1 ORDER BY k.creado_en DESC`,
-    [req.params.id]
+    [req.params.id, req.usuario.campana_id]
   );
   res.json({ ok: true, data: resultado.rows });
 });

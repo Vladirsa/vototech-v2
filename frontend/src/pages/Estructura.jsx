@@ -28,6 +28,33 @@ const ROL_LABEL = {
   encargado_juridico: 'Encargado Jurídico', encargado_finanzas: 'Encargado de Finanzas', voluntario: 'Voluntario',
 };
 
+/**
+ * 🔒 Mismos niveles que el servidor (backend/src/lib/jerarquiaRoles.js).
+ * Solo sirve para ESCONDER de las listas los roles que no puedes
+ * asignar; quien decide de verdad es el servidor. Si cambian allá,
+ * cambiarlos aquí también.
+ */
+const NIVEL_ROL = {
+  candidato: 100, jefe_campana: 90, coord_general: 80, coord_regional: 70, coord_distrital: 60,
+  coord_municipal: 50, encargado_juridico: 45, encargado_finanzas: 45, coord_seccional: 40,
+  promotor: 20, representante_casilla: 15, voluntario: 10,
+};
+function puedoAsignarRol(miRol, rol) {
+  // El Jefe de Campaña sí puede dar de alta "Nivel Dirección" (que usa
+  // el mismo rol, con un puesto de dirección) — el servidor lo valida.
+  if (miRol === 'jefe_campana' && rol === 'jefe_campana') return true;
+  return (NIVEL_ROL[rol] ?? 0) < (NIVEL_ROL[miRol] ?? 0);
+}
+
+/**
+ * 🔒 Muestra el motivo real cuando el servidor rechaza una acción
+ * (por ejemplo: "solo puedes gestionar personas de un nivel inferior
+ * al tuyo"), en vez de que el botón no haga nada y parezca descompuesto.
+ */
+function avisarError(err, accion) {
+  alert(`No se pudo ${accion}: ${err.response?.data?.error || err.message || 'error desconocido'}`);
+}
+
 const PUESTOS_POR_ROL = {
   jefe_campana: ['Secretario Particular', 'Coordinador General de Campaña', 'Coordinador Jurídico', 'Coordinador Territorial', 'Coordinador Político', 'Coordinador de Comunicación', 'Coordinador de Finanzas'],
   coord_general: ['Coordinador de Enlace con Partidos', 'Coordinador de Alianzas', 'Coordinador de Vinculación Social', 'Coordinador de Prensa', 'Coordinador de Redes Sociales'],
@@ -237,9 +264,12 @@ function rolPorPuesto(puesto) {
 }
 
 function ModalAgregarMiembro({ miembros, onCerrar, onGuardado, puestoInicial }) {
+  const miRol = useAuth((s) => s.usuario?.rol);
+  // Si el rol sugerido está por encima de quien da de alta, se empieza en Promotor.
+  const rolSugerido = (puestoInicial && rolPorPuesto(puestoInicial)) || 'coord_seccional';
   const [form, setForm] = useState({
     nombre: '', email: '', password: '', telefono: '',
-    rol: (puestoInicial && rolPorPuesto(puestoInicial)) || 'coord_seccional',
+    rol: puedoAsignarRol(miRol, rolSugerido) ? rolSugerido : 'promotor',
     puesto: puestoInicial || '',
     parent_id: '', territorio_tipo: 'seccion', territorio_id: '', region_id: '', meta_diaria: '',
   });
@@ -292,7 +322,7 @@ function ModalAgregarMiembro({ miembros, onCerrar, onGuardado, puestoInicial }) 
           <label className="block text-[10px] text-slate-500 font-bold mb-1">Nivel jerárquico (controla cuánta gente sana puede tener a cargo)</label>
           <select value={form.rol} onChange={(e) => setForm({ ...form, rol: e.target.value, puesto: '' })}
             className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
-            {Object.entries(ROL_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            {Object.entries(ROL_LABEL).filter(([k]) => puedoAsignarRol(miRol, k)).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
           </select>
         </div>
         <div>
@@ -360,6 +390,7 @@ function ModalAgregarMiembro({ miembros, onCerrar, onGuardado, puestoInicial }) 
 }
 
 function ModalDetalleMiembro({ miembro, miembros, onCerrar, onActualizado }) {
+  const miRol = useAuth((s) => s.usuario?.rol);
   const [cadena, setCadena] = useState(null);
   const [zonas, setZonas] = useState(null);
   const [rendimientoRama, setRendimientoRama] = useState(null);
@@ -415,30 +446,39 @@ function ModalDetalleMiembro({ miembro, miembros, onCerrar, onActualizado }) {
   }, [miembro.id]);
   const reasignarEquipo = async () => {
     if (!nuevoDestino) return;
-    const { data } = await api.post(`/estructura/${miembro.id}/reasignar-equipo`, { nuevo_parent_id: nuevoDestino });
+    let data;
+    try {
+      ({ data } = await api.post(`/estructura/${miembro.id}/reasignar-equipo`, { nuevo_parent_id: nuevoDestino }));
+    } catch (err) { avisarError(err, 'mover al equipo'); return; }
     alert(`✅ ${data.movidos} personas movidas`);
     setReasignando(false);
     onActualizado();
     onCerrar();
   };
   const generarCodigoParaEl = async () => {
-    const { data } = await api.post('/codigos', { rol_asignado: 'promotor', usos_maximos: 1 });
-    setCodigoPropio(data.data.codigo);
+    try {
+      const { data } = await api.post('/codigos', { rol_asignado: 'promotor', usos_maximos: 1 });
+      setCodigoPropio(data.data.codigo);
+    } catch (err) { avisarError(err, 'generar el código'); }
   };
   const guardarCambios = async () => {
-    await api.patch(`/estructura/${miembro.id}`, {
-      nombre: form.nombre, telefono: form.telefono || null, rol: form.rol, puesto: form.puesto || null,
-      parent_id: form.parent_id || null,
-      meta_diaria: form.meta_diaria ? parseInt(form.meta_diaria) : undefined,
-      territorio_tipo: form.territorio_id ? form.territorio_tipo : undefined,
-      territorio_id: form.territorio_id ? parseInt(form.territorio_id) : undefined,
-    });
+    try {
+      await api.patch(`/estructura/${miembro.id}`, {
+        nombre: form.nombre, telefono: form.telefono || null, rol: form.rol, puesto: form.puesto || null,
+        parent_id: form.parent_id || null,
+        meta_diaria: form.meta_diaria ? parseInt(form.meta_diaria) : undefined,
+        territorio_tipo: form.territorio_id ? form.territorio_tipo : undefined,
+        territorio_id: form.territorio_id ? parseInt(form.territorio_id) : undefined,
+      });
+    } catch (err) { avisarError(err, 'guardar los cambios'); return; }
     setEditando(false);
     onActualizado();
   };
   const desactivar = async () => {
     if (!confirm(`¿Dar de baja a ${miembro.nombre}? Su historial se conserva, pero ya no podrá entrar al sistema.`)) return;
-    await api.patch(`/estructura/${miembro.id}`, { activo: false });
+    try {
+      await api.patch(`/estructura/${miembro.id}`, { activo: false });
+    } catch (err) { avisarError(err, 'dar de baja'); return; }
     onActualizado();
     onCerrar();
   };
@@ -661,7 +701,7 @@ function ModalDetalleMiembro({ miembro, miembros, onCerrar, onActualizado }) {
               className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
             <select value={form.rol} onChange={(e) => setForm({ ...form, rol: e.target.value })}
               className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
-              {Object.entries(ROL_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+              {Object.entries(ROL_LABEL).filter(([k]) => k === miembro.rol || puedoAsignarRol(miRol, k)).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
             </select>
             <input list="lista-puestos-editar" value={form.puesto} onChange={(e) => setForm({ ...form, puesto: e.target.value })}
               placeholder="Puesto específico" className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" />
@@ -745,6 +785,7 @@ function NodoOrganigrama({ miembro, hijos, onClick, esRaiz, busqueda, expandidos
 }
 
 function PanelCodigosMasivos() {
+  const miRol = useAuth((s) => s.usuario?.rol);
   const [codigos, setCodigos] = useState([]);
   const [rol, setRol] = useState('promotor');
   const [usos, setUsos] = useState(10);
@@ -752,7 +793,9 @@ function PanelCodigosMasivos() {
   const cargar = () => api.get('/codigos').then((r) => setCodigos(r.data.data));
   useEffect(() => { cargar(); }, []);
   const generar = async () => {
-    await api.post('/codigos', { rol_asignado: rol, usos_maximos: usos });
+    try {
+      await api.post('/codigos', { rol_asignado: rol, usos_maximos: usos });
+    } catch (err) { avisarError(err, 'generar el código'); return; }
     cargar();
   };
   const copiar = (codigo) => {
@@ -765,12 +808,11 @@ function PanelCodigosMasivos() {
       <p className="text-[11px] text-slate-500">Para cuando reparte UN código a varias personas de un jalón (ej. en un mitin) — distinto al código personal de cada quien, que sí queda ligado a su cadena de invitación.</p>
       <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 flex flex-col md:flex-row gap-2">
         <select value={rol} onChange={(e) => setRol(e.target.value)} className="flex-1 px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm">
-          <option value="promotor">🤝 Promotor</option>
-          <option value="coord_seccional">📍 Coord. Seccional</option>
-          <option value="voluntario">🙋 Voluntario</option>
-          <option value="encargado_juridico">⚖️ Encargado Jurídico</option>
-          <option value="encargado_finanzas">💰 Encargado de Finanzas</option>
-          <option value="coord_municipal">🏘️ Coord. Municipal</option>
+          {[
+            ['promotor', '🤝 Promotor'], ['coord_seccional', '📍 Coord. Seccional'], ['voluntario', '🙋 Voluntario'],
+            ['encargado_juridico', '⚖️ Encargado Jurídico'], ['encargado_finanzas', '💰 Encargado de Finanzas'],
+            ['coord_municipal', '🏘️ Coord. Municipal'],
+          ].filter(([k]) => puedoAsignarRol(miRol, k)).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
         </select>
         <input type="number" min={1} value={usos} onChange={(e) => setUsos(+e.target.value)}
           className="w-24 px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm" title="Usos máximos" />
@@ -1358,7 +1400,9 @@ export default function Estructura() {
   // gestión operativa del equipo.
   const confirmarAsignacion = async (usuarioId) => {
     if (!formAsignar.territorio_id) return;
-    await api.patch(`/estructura/${usuarioId}/asignar-territorio`, formAsignar);
+    try {
+      await api.patch(`/estructura/${usuarioId}/asignar-territorio`, formAsignar);
+    } catch (err) { avisarError(err, 'asignar el territorio'); return; }
     setAsignandoId(null);
     setFormAsignar({ territorio_tipo: 'seccion', territorio_id: '' });
     cargarDetector();
@@ -1405,16 +1449,26 @@ export default function Estructura() {
   useEffect(cargar, []);
   const agregarCasillaOficial = async (seccionNumero) => {
     if (!nuevaCasilla.tipo) return;
-    await api.post('/estructura/casillas-oficiales', {
-      seccion_numero: seccionNumero, tipo: nuevaCasilla.tipo,
-      electores_estimados: nuevaCasilla.electores_estimados ? parseInt(nuevaCasilla.electores_estimados) : undefined,
-    });
+    try {
+      await api.post('/estructura/casillas-oficiales', {
+        seccion_numero: seccionNumero, tipo: nuevaCasilla.tipo,
+        electores_estimados: nuevaCasilla.electores_estimados ? parseInt(nuevaCasilla.electores_estimados) : undefined,
+      });
+    } catch (err) {
+      alert(err.response?.data?.error || 'No se pudo agregar la casilla');
+      return;
+    }
     setNuevaCasilla({ tipo: 'especial', electores_estimados: '' });
     cargar();
   };
   const quitarCasillaOficial = async (id) => {
     if (!confirm('¿Quitar esta casilla de la base oficial?')) return;
-    await api.delete(`/estructura/casillas-oficiales/${id}`);
+    try {
+      await api.delete(`/estructura/casillas-oficiales/${id}`);
+    } catch (err) {
+      alert(err.response?.data?.error || 'No se pudo quitar la casilla');
+      return;
+    }
     cargar();
   };
   const exportarImagen = async () => {

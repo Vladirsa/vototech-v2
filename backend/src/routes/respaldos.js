@@ -22,6 +22,11 @@ router.get('/', async (req, res) => {
 /** GET /api/respaldos/descargar/:archivo — link temporal de descarga (1 hora) */
 router.get('/descargar/:archivo', async (req, res) => {
   if (!esMandoMaximo(req)) return res.status(403).json({ ok: false, error: 'No autorizado' });
+  // 🔒 Solo nombres con el formato exacto de un respaldo — sin "/" ni
+  // "..", así nadie puede pedir el respaldo de la carpeta de otra campaña.
+  if (!/^respaldo-\d{4}-\d{2}-\d{2}\.json$/.test(req.params.archivo)) {
+    return res.status(400).json({ ok: false, error: 'Nombre de respaldo inválido' });
+  }
   try {
     const url = await generarLinkDescarga(req.usuario.campana_id, req.params.archivo);
     res.json({ ok: true, url });

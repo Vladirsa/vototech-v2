@@ -2,7 +2,53 @@ import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import { query } from '../db/pool.js';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'CAMBIAR_EN_PRODUCCION_' + Math.random();
+/**
+ * 🔒 SEGURIDAD — una sola clave para todo el sistema.
+ *
+ * Antes había 3 claves de respaldo distintas escritas en el código
+ * ('CAMBIAR_EN_PRODUCCION', 'dev-secret-key-...'). Si en el servidor
+ * faltaba la variable JWT_SECRET, cualquiera que leyera el código
+ * podía fabricar sesiones falsas. Ahora, si falta, se usa una clave
+ * ALEATORIA que nadie conoce (lo peor que pasa es que las sesiones se
+ * cierran al reiniciar el servidor) y se avisa fuerte en los logs.
+ */
+if (!process.env.JWT_SECRET) {
+  console.error('🚨 JWT_SECRET NO está configurada en el servidor — se usa una clave aleatoria temporal. Configúrala en Render → Environment.');
+}
+export const JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(48).toString('hex');
+
+/**
+ * 🔒 Los permisos TEMPORALES (paso intermedio de 2FA, y recuperación
+ * de contraseña) se firman con una clave DERIVADA, distinta a la de
+ * las sesiones normales. Así es matemáticamente imposible que uno de
+ * esos permisos temporales se acepte como sesión completa — que era
+ * exactamente el hueco que permitía saltarse la verificación en dos
+ * pasos con solo la contraseña.
+ */
+const JWT_SECRET_TEMPORAL = crypto.createHash('sha256').update(`${JWT_SECRET}::tokens-temporales`).digest('hex');
+
+export function firmarTokenTemporal(sub, tipo, expiresIn) {
+  return jwt.sign({ sub, tipo }, JWT_SECRET_TEMPORAL, { expiresIn });
+}
+
+/** Regresa el payload si el token temporal es válido Y del tipo esperado; si no, lanza error. */
+export function verificarTokenTemporal(token, tipoEsperado) {
+  const payload = jwt.verify(token, JWT_SECRET_TEMPORAL);
+  if (payload.tipo !== tipoEsperado) throw new Error('Tipo de token incorrecto');
+  return payload;
+}
+
+/**
+ * Verifica un token de SESIÓN normal (el de 30 minutos). Rechaza
+ * cualquier token que traiga "tipo" (esos son temporales) o que no
+ * traiga campaña — doble candado además de la clave distinta.
+ * Lo usan tanto las rutas normales como los WebSockets.
+ */
+export function verificarTokenSesion(token) {
+  const payload = jwt.verify(token, JWT_SECRET);
+  if (payload.tipo || !payload.campana_id || !payload.sub) throw new Error('Token no es de sesión');
+  return payload;
+}
 
 /**
  * Genera un token JWT de ACCESO — corto a propósito (30 min). La
@@ -57,7 +103,7 @@ export async function generarRefreshToken(usuarioId) {
 export async function validarYRotarRefreshToken(valorReal) {
   const hash = sha256(valorReal);
   const fila = await query(
-    `SELECT rt.*, u.id as usuario_id, u.nombre, u.rol, u.campana_id, u.activo, c.estado_id
+    `SELECT rt.*, u.id as usuario_id, u.nombre, u.rol, u.puesto, u.campana_id, u.activo, c.estado_id
      FROM refresh_tokens rt
      JOIN usuarios u ON u.id = rt.usuario_id
      JOIN campanas c ON c.id = u.campana_id
@@ -74,7 +120,10 @@ export async function validarYRotarRefreshToken(valorReal) {
   const nuevoRefresh = await generarRefreshToken(registro.usuario_id);
 
   return {
-    usuario: { id: registro.usuario_id, nombre: registro.nombre, rol: registro.rol, campana_id: registro.campana_id, estado_id: registro.estado_id },
+    // 🔒 Incluye el puesto — antes se perdía al renovar la sesión (cada
+    // 30 min), y un Coord. General limitado por su puesto terminaba
+    // viendo TODOS los módulos después de la primera renovación.
+    usuario: { id: registro.usuario_id, nombre: registro.nombre, rol: registro.rol, puesto: registro.puesto, campana_id: registro.campana_id, estado_id: registro.estado_id },
     refresh_token: nuevoRefresh,
   };
 }
@@ -98,8 +147,7 @@ export function requiereAuth(req, res, next) {
   }
 
   try {
-    const payload = jwt.verify(token, JWT_SECRET);
-    req.usuario = payload;
+    req.usuario = verificarTokenSesion(token);
     next();
   } catch (e) {
     return res.status(401).json({ ok: false, error: 'Token inválido o expirado' });
