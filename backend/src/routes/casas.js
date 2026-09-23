@@ -5,9 +5,16 @@ import { fileURLToPath } from 'url';
 import { z } from 'zod';
 import { query } from '../db/pool.js';
 import { requiereAuth } from '../middleware/auth.js';
+import { condicionAlcance, dentroDeAlcance } from '../lib/alcance.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const router = Router();
+
+async function puedeTocarPromovidoCasa(usuario, promovidoId) {
+  const r = await query('SELECT registrado_por, asignado_seguimiento_a, seccion_id FROM promovidos WHERE id=$1 AND campana_id=$2', [promovidoId, usuario.campana_id]);
+  const p = r.rows[0];
+  return !!p && dentroDeAlcance(usuario, { personas: [p.registrado_por, p.asignado_seguimiento_a], seccionId: p.seccion_id });
+}
 router.use(requiereAuth);
 
 let cacheManzanas = null;
@@ -85,13 +92,15 @@ router.get('/:seccion/:manzana', async (req, res) => {
     if (!seccionRow.rows[0]) return res.status(404).json({ ok: false, error: 'Sección no encontrada' });
     const seccionId = seccionRow.rows[0].id;
 
-    let casas = await query(
-      `SELECT c.*, p.nombre as promovido_nombre FROM casas_simuladas c
-       LEFT JOIN promovidos p ON p.id = c.promovido_id
+    // 🔒 El nombre de la persona en cada casa solo se muestra si está
+    // en tu alcance (territorio + equipo); si no, la casa se ve sin nombre.
+    const paramsCasas = [req.usuario.campana_id, seccionId, manzana];
+    const veNombre = await condicionAlcance(req.usuario, paramsCasas, { personas: ['p.registrado_por', 'p.asignado_seguimiento_a'], seccion: 'p.seccion_id' });
+    const consultaCasas = `SELECT c.*, CASE WHEN ${veNombre} THEN p.nombre ELSE NULL END as promovido_nombre FROM casas_simuladas c
+       LEFT JOIN promovidos p ON p.id = c.promovido_id AND p.campana_id = c.campana_id
        WHERE c.campana_id=$1 AND c.seccion_id=$2 AND c.manzana_num=$3
-       ORDER BY c.creado_en`,
-      [req.usuario.campana_id, seccionId, manzana]
-    );
+       ORDER BY c.creado_en`;
+    let casas = await query(consultaCasas, paramsCasas);
 
     // Si no existen todavía para esta campaña, generarlas del polígono real
     if (casas.rows.length === 0) {
@@ -108,12 +117,7 @@ router.get('/:seccion/:manzana', async (req, res) => {
           [req.usuario.campana_id, seccionId, manzana, lat, lng]
         );
       }
-      casas = await query(
-        `SELECT c.*, p.nombre as promovido_nombre FROM casas_simuladas c
-         LEFT JOIN promovidos p ON p.id = c.promovido_id
-         WHERE c.campana_id=$1 AND c.seccion_id=$2 AND c.manzana_num=$3`,
-        [req.usuario.campana_id, seccionId, manzana]
-      );
+      casas = await query(consultaCasas, paramsCasas);
     }
 
     res.json({ ok: true, data: casas.rows });
@@ -139,6 +143,10 @@ router.patch('/:id', async (req, res) => {
   const parseado = esquemaActualizar.safeParse(req.body);
   if (!parseado.success) return res.status(400).json({ ok: false, error: 'Datos inválidos' });
   const d = parseado.data;
+  // 🔒 Solo se puede ligar a un promovido de ESTA campaña y de tu alcance.
+  if (d.promovido_id && !(await puedeTocarPromovidoCasa(req.usuario, d.promovido_id))) {
+    return res.status(404).json({ ok: false, error: 'Promovido no encontrado' });
+  }
 
   const resultado = await query(
     `UPDATE casas_simuladas

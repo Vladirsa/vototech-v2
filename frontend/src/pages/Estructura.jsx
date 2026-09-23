@@ -433,11 +433,13 @@ function ModalDetalleMiembro({ miembro, miembros, onCerrar, onActualizado }) {
   const [form, setForm] = useState({ nombre: miembro.nombre, telefono: miembro.telefono || '', rol: miembro.rol, puesto: miembro.puesto || '', parent_id: miembro.parent_id || '', meta_diaria: miembro.meta_diaria || '', territorio_tipo: miembro.territorio_tipo || 'seccion', territorio_id: miembro.territorio_id || '' });
   const hijosDirectos = miembros.filter((m) => m.parent_id === miembro.id);
   useEffect(() => {
-    api.get(`/estructura/cadena/${miembro.id}`).then((r) => setCadena(r.data.data));
-    api.get(`/estructura/${miembro.id}/zonas`).then((r) => setZonas(r.data.data));
-    api.get(`/estructura/${miembro.id}/historial`).then((r) => setHistorial(r.data.data));
+    // Si esta persona está fuera de tu rama (ej. tu jefe directo), el
+    // servidor no da su detalle: los paneles simplemente quedan vacíos.
+    api.get(`/estructura/cadena/${miembro.id}`).then((r) => setCadena(r.data.data)).catch(() => {});
+    api.get(`/estructura/${miembro.id}/zonas`).then((r) => setZonas(r.data.data)).catch(() => {});
+    api.get(`/estructura/${miembro.id}/historial`).then((r) => setHistorial(r.data.data)).catch(() => {});
     if (miembro.rol !== 'promotor') {
-      api.get(`/estructura/${miembro.id}/rendimiento-rama`).then((r) => setRendimientoRama(r.data.data));
+      api.get(`/estructura/${miembro.id}/rendimiento-rama`).then((r) => setRendimientoRama(r.data.data)).catch(() => {});
       // Reporte jerárquico — solo tiene sentido si esta persona tiene
       // "nietos" (gente que reporta a su gente), como un Coordinador
       // Municipal con Enlaces Seccionales que a su vez tienen Promotores.
@@ -1496,7 +1498,10 @@ export default function Estructura() {
       </div>
     );
   }
-  const raiz = miembros.filter((m) => !m.parent_id);
+  // Raíz = quien no tiene jefe, o cuyo jefe no está en la lista (un
+  // coordinador solo recibe su rama, así que su jefe directo es la raíz).
+  const idsVisibles = new Set(miembros.map((m) => m.id));
+  const raiz = miembros.filter((m) => !m.parent_id || !idsVisibles.has(m.parent_id));
 
   return (
     <div className="min-h-screen bg-slate-950 p-4 md:p-8">

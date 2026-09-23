@@ -1,4 +1,6 @@
 import { Router } from 'express';
+import { alcanceDe } from '../lib/alcance.js';
+import { ROLES_MANDO } from '../lib/pertenencia.js';
 import { z } from 'zod';
 import { query } from '../db/pool.js';
 import { requiereAuth, requiereRol } from '../middleware/auth.js';
@@ -43,11 +45,16 @@ router.post('/asignar', requiereRol(...ROLES_COORDINACION), async (req, res) => 
 
   const usuarioValido = await query('SELECT id FROM usuarios WHERE id=$1 AND campana_id=$2', [usuario_id, req.usuario.campana_id]);
   if (!usuarioValido.rows[0]) return res.status(404).json({ ok: false, error: 'Usuario no encontrado en tu campaña' });
+  // 🔒 Coordinadores: solo a gente de su equipo y solo secciones de su territorio.
+  const esMando = ROLES_MANDO.includes(req.usuario.rol);
+  const alcance = esMando ? null : await alcanceDe(req.usuario);
+  if (alcance && !alcance.equipo.includes(usuario_id)) return res.status(403).json({ ok: false, error: 'Esa persona no está en tu equipo.' });
 
   let asignadas = 0;
   for (const numero of secciones) {
     const s = await query('SELECT id FROM secciones WHERE estado_id=$2 AND numero=$1', [numero, req.usuario.estado_id]);
     if (!s.rows[0]) continue;
+    if (alcance && !alcance.secciones.includes(s.rows[0].id)) continue; // fuera de su territorio: se ignora
     await query(
       `INSERT INTO zonas_asignadas (campana_id, usuario_id, seccion_id, asignado_por)
        VALUES ($1,$2,$3,$4) ON CONFLICT (campana_id, usuario_id, seccion_id) DO NOTHING`,

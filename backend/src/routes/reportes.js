@@ -1669,7 +1669,8 @@ Reglas OBLIGATORIAS:
  * eso es un resultado bueno, solo se etiqueta. Cada hallazgo dice
  * qué ocurre, dónde, cuándo, y de qué módulo viene.
  */
-router.get('/auditoria-inconsistencias', async (req, res) => {
+// 🔒 Trae nombres y teléfonos duplicados de todo el padrón: solo dirección de campaña.
+router.get('/auditoria-inconsistencias', requiereRol('candidato', 'jefe_campana', 'coord_general'), async (req, res) => {
   const campanaId = req.usuario.campana_id;
 
   const [seccionesSinResponsable, promovidosSinSeccion, estructuraSinResponsable, seccionesSinActividad, duplicadosPorTelefono, incompletos] = await Promise.all([

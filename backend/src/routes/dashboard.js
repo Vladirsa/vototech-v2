@@ -2,6 +2,9 @@ import { Router } from 'express';
 import { query } from '../db/pool.js';
 import { requiereAuth } from '../middleware/auth.js';
 import { tieneModulo } from '../middleware/permisos.js';
+import { filtroAlcance } from '../lib/alcance.js';
+
+const COLS_PROMOVIDO = { personas: ['p.registrado_por', 'p.asignado_seguimiento_a'], seccion: 'p.seccion_id' };
 
 const router = Router();
 router.use(requiereAuth);
@@ -57,10 +60,15 @@ router.get('/resumen', async (req, res) => {
       });
     }
 
+    // 🔒 Totales y "actividad reciente" según el alcance de quien mira:
+    // un coordinador ve los números de SU territorio y equipo (así
+    // coinciden con sus listas) y un promotor los suyos.
+    const paramsPromos = [campanaId];
+    const filtroPromos = await filtroAlcance(req.usuario, paramsPromos, COLS_PROMOVIDO);
     const promosRes = await query(
       `SELECT p.seccion_id, p.clasificacion, p.creado_en, p.comprometido, p.registrado_por
-       FROM promovidos p WHERE p.campana_id=$1`,
-      [campanaId]
+       FROM promovidos p WHERE p.campana_id=$1 ${filtroPromos}`,
+      paramsPromos
     );
 
     let seccionesGanadas = 0, seccionesPerdidas = 0, seccionesConPromotores = 0, seccionesSinPromover = 0;
@@ -111,8 +119,8 @@ router.get('/resumen', async (req, res) => {
     );
 
     const reportesHoyRes = await query(
-      `SELECT COUNT(*) as total FROM promovidos WHERE campana_id=$1 AND creado_en::date = CURRENT_DATE`,
-      [campanaId]
+      `SELECT COUNT(*) as total FROM promovidos p WHERE p.campana_id=$1 AND p.creado_en::date = CURRENT_DATE ${filtroPromos}`,
+      paramsPromos
     );
     const reportesHoy = parseInt(reportesHoyRes.rows[0].total);
 
@@ -137,9 +145,9 @@ router.get('/resumen', async (req, res) => {
       actividadDistritoRes = await query(
         `SELECT s.numero as clave, COUNT(*) as total
          FROM promovidos p JOIN secciones s ON s.id = p.seccion_id
-         WHERE p.campana_id=$1 AND p.creado_en > now() - interval '7 days'
+         WHERE p.campana_id=$1 AND p.creado_en > now() - interval '7 days' ${filtroPromos}
          GROUP BY s.numero ORDER BY s.numero`,
-        [campanaId]
+        paramsPromos
       );
     } else if (esCampanaDeDistrito) {
       unidadActividad = 'distrito';
@@ -147,18 +155,18 @@ router.get('/resumen', async (req, res) => {
       actividadDistritoRes = await query(
         `SELECT ${columnaDistrito} as clave, COUNT(*) as total
          FROM promovidos p JOIN secciones s ON s.id = p.seccion_id
-         WHERE p.campana_id=$1 AND p.creado_en > now() - interval '7 days' AND ${columnaDistrito} IS NOT NULL
+         WHERE p.campana_id=$1 AND p.creado_en > now() - interval '7 days' AND ${columnaDistrito} IS NOT NULL ${filtroPromos}
          GROUP BY ${columnaDistrito} ORDER BY ${columnaDistrito}`,
-        [campanaId]
+        paramsPromos
       );
     } else {
       unidadActividad = 'municipio';
       actividadDistritoRes = await query(
         `SELECT m.nombre as clave, COUNT(*) as total
          FROM promovidos p JOIN secciones s ON s.id = p.seccion_id JOIN municipios m ON m.id = s.municipio_id
-         WHERE p.campana_id=$1 AND p.creado_en > now() - interval '7 days'
+         WHERE p.campana_id=$1 AND p.creado_en > now() - interval '7 days' ${filtroPromos}
          GROUP BY m.nombre ORDER BY total DESC`,
-        [campanaId]
+        paramsPromos
       );
     }
 
@@ -166,17 +174,20 @@ router.get('/resumen', async (req, res) => {
       `SELECT p.nombre as promovido, u.nombre as promotor, p.creado_en, s.numero as seccion_numero
        FROM promovidos p JOIN usuarios u ON u.id = p.registrado_por
        LEFT JOIN secciones s ON s.id = p.seccion_id
-       WHERE p.campana_id=$1 ORDER BY p.creado_en DESC LIMIT 8`,
-      [campanaId]
+       WHERE p.campana_id=$1 ${filtroPromos} ORDER BY p.creado_en DESC LIMIT 8`,
+      paramsPromos
     );
 
+    // 🔒 Nombres de personas del equipo: solo de tu rama (mandos: todos).
+    const paramsEquipo = [campanaId];
+    const filtroEquipo = await filtroAlcance(req.usuario, paramsEquipo, { personas: ['u.id'] });
     const mejorPromotorRes = await query(
       `SELECT u.id, u.nombre, COUNT(p.id) as total_promovidos,
               COUNT(p.id) FILTER (WHERE p.comprometido) as comprometidos
        FROM usuarios u LEFT JOIN promovidos p ON p.registrado_por = u.id AND p.campana_id=$1
-       WHERE u.campana_id=$1 AND u.rol='promotor'
+       WHERE u.campana_id=$1 AND u.rol='promotor' ${filtroEquipo}
        GROUP BY u.id, u.nombre ORDER BY total_promovidos DESC LIMIT 1`,
-      [campanaId]
+      paramsEquipo
     );
 
     const coordinadoresRes = await query(
@@ -184,9 +195,9 @@ router.get('/resumen', async (req, res) => {
               (SELECT COUNT(*) FROM usuarios h WHERE h.parent_id = u.id) as equipo,
               (SELECT COUNT(*) FROM promovidos p2 JOIN usuarios h2 ON h2.id = p2.registrado_por
                WHERE h2.parent_id = u.id AND p2.campana_id=$1) as promovidos_equipo
-       FROM usuarios u WHERE u.campana_id=$1 AND u.rol IN ('coord_general','coord_distrital','coord_municipal','coord_seccional')
+       FROM usuarios u WHERE u.campana_id=$1 AND u.rol IN ('coord_general','coord_distrital','coord_municipal','coord_seccional') ${filtroEquipo}
        ORDER BY promovidos_equipo DESC`,
-      [campanaId]
+      paramsEquipo
     );
 
     const activosRes = await query(

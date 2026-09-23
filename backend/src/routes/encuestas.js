@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { filtroAlcance } from '../lib/alcance.js';
 import { z } from 'zod';
 import { query } from '../db/pool.js';
 import { requiereAuth, requiereRol } from '../middleware/auth.js';
@@ -105,13 +106,16 @@ router.post('/:id/responder', async (req, res) => {
  * Respuestas con ubicación real — para la capa nueva del mapa.
  */
 router.get('/:id/mapa', async (req, res) => {
+  // 🔒 Ubicación de quienes respondieron: solo las secciones de tu territorio (mandos: todas).
+  const paramsMapa = [req.params.id, req.usuario.campana_id];
+  const filtroMapa = await filtroAlcance(req.usuario, paramsMapa, { seccion: 'r.seccion_id' });
   const resultado = await query(
     `SELECT r.id, r.lat, r.lng, s.numero as seccion_numero, r.creado_en
      FROM encuesta_respuestas r
      JOIN encuestas e ON e.id = r.encuesta_id AND e.campana_id = $2
      LEFT JOIN secciones s ON s.id = r.seccion_id
-     WHERE r.encuesta_id=$1 AND r.lat IS NOT NULL`,
-    [req.params.id, req.usuario.campana_id]
+     WHERE r.encuesta_id=$1 AND r.lat IS NOT NULL ${filtroMapa}`,
+    paramsMapa
   );
   res.json({ ok: true, data: resultado.rows });
 });

@@ -131,7 +131,10 @@ router.get('/', async (req, res) => {
 });
 
 /** GET /api/centro-decisiones/:id — detalle de una decisión */
-router.get('/:id', async (req, res) => {
+// 🆕 /:id solo acepta un ID real: antes "atrapaba" /sugerencias, /tareas,
+// /alertas, /que-cambio, /auditoria e /historico (declaradas más abajo)
+// y esas pantallas fallaban siempre.
+router.get('/:id([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})', async (req, res) => {
   const resultado = await query(
     `SELECT d.*, u_creador.nombre as creado_por_nombre, u_resp.nombre as responsable_nombre
      FROM decision_logs d
@@ -181,7 +184,7 @@ const esquemaActualizacion = z.object({
   responsable_asignado_id: z.string().uuid().optional(),
   fecha_limite: z.string().optional(),
 });
-router.patch('/:id', requierePermisoCD('DECISION_LOG'), async (req, res) => {
+router.patch('/:id([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})', requierePermisoCD('DECISION_LOG'), async (req, res) => {
   const parseado = esquemaActualizacion.safeParse(req.body);
   if (!parseado.success) return res.status(400).json({ ok: false, error: parseado.error.errors[0].message });
   const d = parseado.data;
@@ -516,7 +519,8 @@ router.post('/alertas/generar', async (req, res) => {
   res.json({ ok: true, data: { creadas, actualizadas, resueltas_automaticamente: resueltas } });
 });
 
-router.get('/alertas', async (req, res) => {
+// 🔒 Trae teléfonos de responsables: requiere permiso VIEW del Centro de Decisiones.
+router.get('/alertas', requierePermisoCD('VIEW'), async (req, res) => {
   const { nivel, estado } = req.query;
   const params = [req.usuario.campana_id];
   let filtros = '';
@@ -724,7 +728,8 @@ router.get('/escenarios/base', requierePermisoCD('SCENARIOS'), async (req, res) 
  * GET /api/centro-decisiones/auditoria — ver el registro completo
  * de qué se consultó y qué se hizo en este módulo.
  */
-router.get('/auditoria', async (req, res) => {
+// 🔒 Bitácora del Centro de Decisiones: solo quien administra permisos.
+router.get('/auditoria', requierePermisoCD('ADMIN'), async (req, res) => {
   const resultado = await query(
     `SELECT a.*, u.nombre as usuario_nombre FROM auditoria_centro_decisiones a
      LEFT JOIN usuarios u ON u.id = a.usuario_id

@@ -16,14 +16,19 @@ router.get('/', async (req, res) => {
      WHERE c.campana_id = $1 ORDER BY c.creado_en DESC`,
     [req.usuario.campana_id]
   );
-  res.json({ ok: true, data: resultado.rows });
+  // 🔒 Cada quien ve solo los códigos que él mismo podría crear (o los
+  // que creó). Antes un coordinador seccional veía el código para
+  // registrarse como Coordinador General y podía usarlo para darse
+  // una cuenta de más rango.
+  const visibles = resultado.rows.filter((c) => c.creado_por === req.usuario.sub || puedeAsignarRol(req.usuario, c.rol_asignado));
+  res.json({ ok: true, data: visibles });
 });
 
 const esquemaCodigo = z.object({
   // Incluye los roles que la pantalla ya ofrecía (voluntario, encargados)
   // y que antes el servidor rechazaba. La jerarquía de abajo decide
   // quién puede invitar a qué.
-  rol_asignado: z.enum(['coord_general', 'coord_distrital', 'coord_municipal', 'coord_seccional', 'promotor',
+  rol_asignado: z.enum(['coord_general', 'coord_regional', 'coord_distrital', 'coord_municipal', 'coord_seccional', 'promotor',
     'voluntario', 'encargado_juridico', 'encargado_finanzas', 'representante_casilla']).default('promotor'),
   usos_maximos: z.number().int().min(1).default(1),
   dias_validez: z.number().int().min(1).max(365).optional(),
@@ -34,7 +39,7 @@ const esquemaCodigo = z.object({
  * Solo roles de coordinación pueden generar códigos — un promotor
  * normal no debería poder invitar gente con rol de coordinador.
  */
-router.post('/', requiereRol('candidato', 'jefe_campana', 'coord_general', 'coord_distrital', 'coord_municipal', 'coord_seccional'), async (req, res) => {
+router.post('/', requiereRol('candidato', 'jefe_campana', 'coord_general', 'coord_regional', 'coord_distrital', 'coord_municipal', 'coord_seccional'), async (req, res) => {
   const parseado = esquemaCodigo.safeParse(req.body);
   if (!parseado.success) {
     return res.status(400).json({ ok: false, error: parseado.error.errors[0].message });
@@ -67,7 +72,7 @@ router.post('/', requiereRol('candidato', 'jefe_campana', 'coord_general', 'coor
 });
 
 // 🔒 Mismos roles que pueden crear códigos (antes cualquiera podía desactivarlos).
-router.patch('/:id/desactivar', requiereRol('candidato', 'jefe_campana', 'coord_general', 'coord_distrital', 'coord_municipal', 'coord_seccional'), async (req, res) => {
+router.patch('/:id/desactivar', requiereRol('candidato', 'jefe_campana', 'coord_general', 'coord_regional', 'coord_distrital', 'coord_municipal', 'coord_seccional'), async (req, res) => {
   await query('UPDATE codigos_invitacion SET activo=false WHERE id=$1 AND campana_id=$2', [req.params.id, req.usuario.campana_id]);
   res.json({ ok: true });
 });

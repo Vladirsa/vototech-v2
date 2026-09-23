@@ -50,22 +50,7 @@ export async function alcanceDe(usuario) {
   const { territorio_tipo: tipo, territorio_id: tid, region_id: regionId } = yo.rows[0] || {};
   const estado = usuario.estado_id;
   let secciones = [];
-  let r = null;
-  if (tipo === 'seccion' && tid) {
-    r = await query('SELECT id FROM secciones WHERE estado_id=$1 AND numero=$2', [estado, tid]);
-  } else if (tipo === 'distrito_local' && tid) {
-    r = await query('SELECT id FROM secciones WHERE estado_id=$1 AND distrito_local=$2', [estado, tid]);
-  } else if (tipo === 'distrito_federal' && tid) {
-    r = await query('SELECT id FROM secciones WHERE estado_id=$1 AND distrito_federal=$2', [estado, tid]);
-  } else if (tipo === 'municipio' && tid) {
-    // En usuarios, "municipio" guarda la CLAVE INE (no el id interno).
-    r = await query(
-      'SELECT s.id FROM secciones s JOIN municipios m ON m.id=s.municipio_id WHERE s.estado_id=$1 AND m.clave_ine=$2',
-      [estado, tid]
-    );
-  } else if (tipo === 'estatal') {
-    r = await query('SELECT id FROM secciones WHERE estado_id=$1', [estado]);
-  }
+  let r = await seccionesDeTerritorio(estado, tipo, tid);
   if (!r && regionId) {
     const region = await query('SELECT municipios_ids, unidad_tipo FROM regiones_campana WHERE id=$1 AND campana_id=$2', [regionId, usuario.campana_id]);
     const reg = region.rows[0];
@@ -83,6 +68,41 @@ export async function alcanceDe(usuario) {
   return alcance;
 }
 
+/** Secciones (id interno) que abarca un territorio. null si no hay territorio. */
+async function seccionesDeTerritorio(estado, tipo, tid) {
+  if (tipo === 'seccion' && tid) return query('SELECT id FROM secciones WHERE estado_id=$1 AND numero=$2', [estado, tid]);
+  if (tipo === 'distrito_local' && tid) return query('SELECT id FROM secciones WHERE estado_id=$1 AND distrito_local=$2', [estado, tid]);
+  if (tipo === 'distrito_federal' && tid) return query('SELECT id FROM secciones WHERE estado_id=$1 AND distrito_federal=$2', [estado, tid]);
+  if (tipo === 'municipio' && tid) {
+    // En usuarios, "municipio" guarda la CLAVE INE (no el id interno).
+    return query(
+      'SELECT s.id FROM secciones s JOIN municipios m ON m.id=s.municipio_id WHERE s.estado_id=$1 AND m.clave_ine=$2',
+      [estado, tid]
+    );
+  }
+  if (tipo === 'estatal') return query('SELECT id FROM secciones WHERE estado_id=$1', [estado]);
+  return null;
+}
+
+/**
+ * 🔒 ¿`usuario` puede asignarle a alguien este territorio?
+ * Mandos: cualquiera. Coordinadores: solo un territorio que quede
+ * DENTRO del suyo (antes un coordinador municipal podía darle
+ * "todo el estado" a alguien de su equipo — o a una cuenta suya —
+ * y así ver el padrón completo).
+ */
+export async function territorioPermitido(usuario, tipo, tid) {
+  if (ROLES_MANDO.includes(usuario.rol)) return true;
+  if (!tipo) return true; // quitar territorio siempre se puede
+  if (tipo === 'estatal') return false;
+  const r = await seccionesDeTerritorio(usuario.estado_id, tipo, tid);
+  const nuevas = r ? r.rows.map((x) => x.id) : [];
+  if (!nuevas.length) return false;
+  const { secciones } = await alcanceDe(usuario);
+  const mias = new Set(secciones);
+  return nuevas.every((id) => mias.has(id));
+}
+
 /** Para borrar el cálculo guardado cuando cambia el organigrama o un territorio. */
 export function limpiarCacheAlcance() {
   cache.clear();
@@ -97,9 +117,19 @@ export function limpiarCacheAlcance() {
  * @param columnas  { personas: ['p.registrado_por', ...], seccion: 'p.seccion_id' }
  * @returns '' si ve todo, o ' AND (...)'
  */
-export async function filtroAlcance(usuario, params, { personas = [], seccion = null }) {
+export async function filtroAlcance(usuario, params, columnas) {
+  const cond = await condicionAlcance(usuario, params, columnas);
+  return cond === 'TRUE' ? '' : ` AND ${cond}`;
+}
+
+/**
+ * Igual que filtroAlcance pero regresa solo la condición (sin "AND"),
+ * para usarla dentro de un CASE (ej. mostrar el nombre solo si la
+ * persona está en tu alcance). 'TRUE' si ve todo.
+ */
+export async function condicionAlcance(usuario, params, { personas = [], seccion = null }) {
   const a = await alcanceDe(usuario);
-  if (a.todo) return '';
+  if (a.todo) return 'TRUE';
   const partes = [];
   if (personas.length) {
     params.push(a.equipo);
@@ -110,7 +140,7 @@ export async function filtroAlcance(usuario, params, { personas = [], seccion = 
     params.push(a.secciones);
     partes.push(`${seccion} = ANY($${params.length}::int[])`);
   }
-  return partes.length ? ` AND (${partes.join(' OR ')})` : ' AND 1=0';
+  return partes.length ? `(${partes.join(' OR ')})` : 'FALSE';
 }
 
 /** ¿Este registro concreto está dentro del alcance? (para ver/editar uno) */

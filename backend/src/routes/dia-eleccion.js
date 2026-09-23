@@ -771,6 +771,9 @@ router.get('/ultimos-reportes', async (req, res) => {
 router.get('/alertas-sin-reportar', async (req, res) => {
   if (soloVeLoPropio(req.usuario)) return res.json({ ok: true, data: [] });
   const campanaId = req.usuario.campana_id;
+  // 🔒 Coordinadores: solo casillas de su territorio o equipo.
+  const paramsAlertas = [campanaId];
+  const filtroAlertas = await filtroAlcance(req.usuario, paramsAlertas, COLS_CASILLA);
   const casillas = await query(
     `SELECT c.id, s.numero as seccion_numero, c.numero as casilla_numero, u.nombre as representante_nombre, u.telefono
      FROM casillas c JOIN secciones s ON s.id=c.seccion_id
@@ -778,8 +781,8 @@ router.get('/alertas-sin-reportar', async (req, res) => {
      WHERE c.campana_id=$1 AND c.confirmado_asistencia=true
        AND NOT EXISTS (
          SELECT 1 FROM resultados_casilla r WHERE r.campana_id=$1 AND r.seccion_id=c.seccion_id AND r.casilla=c.numero
-       )`,
-    [campanaId]
+       ) ${filtroAlertas}`,
+    paramsAlertas
   );
   res.json({ ok: true, data: casillas.rows });
 });
@@ -865,6 +868,9 @@ router.get('/avance-estructura', async (req, res) => {
   if (soloVeLoPropio(req.usuario)) return res.status(403).json({ ok: false, error: 'Solo coordinadores y mandos pueden hacer esto.' });
   const campanaId = req.usuario.campana_id;
 
+  // 🔒 Coordinadores: solo su territorio o equipo (teléfonos de representantes).
+  const paramsAvance = [campanaId];
+  const filtroAvance = await filtroAlcance(req.usuario, paramsAvance, COLS_CASILLA);
   const casillas = await query(
     `SELECT c.id, s.numero as seccion_numero, c.numero as casilla_letra,
             u.nombre as representante_nombre, u.telefono as representante_telefono,
@@ -874,9 +880,9 @@ router.get('/avance-estructura', async (req, res) => {
      JOIN secciones s ON s.id = c.seccion_id
      LEFT JOIN usuarios u ON u.id = c.representante_id
      LEFT JOIN resultados_casilla rc ON rc.campana_id = c.campana_id AND rc.seccion_id = c.seccion_id AND rc.casilla = c.numero
-     WHERE c.campana_id = $1
+     WHERE c.campana_id = $1 ${filtroAvance}
      ORDER BY (rc.id IS NULL) DESC, s.numero`,
-    [campanaId]
+    paramsAvance
   );
 
   const total = casillas.rows.length;

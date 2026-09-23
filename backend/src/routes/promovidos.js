@@ -133,6 +133,9 @@ router.get('/duplicados', async (req, res) => {
 
 router.get('/resumen', async (req, res) => {
   const campanaId = req.usuario.campana_id;
+  // 🔒 Totales de SU alcance (coinciden con lo que ve en su lista).
+  const pr = [campanaId];
+  const f = await filtroAlcance(req.usuario, pr, { personas: ['registrado_por', 'asignado_seguimiento_a'], seccion: 'seccion_id' });
 
   // 🆕 Corregido — antes agrupaba por "clasificación" (campo ya
   // quitado); ahora agrupa por el único campo real: ¿va a votar?
@@ -141,20 +144,20 @@ router.get('/resumen', async (req, res) => {
        COUNT(*) FILTER (WHERE comprometido IS TRUE) as si,
        COUNT(*) FILTER (WHERE comprometido IS FALSE) as no,
        COUNT(*) FILTER (WHERE comprometido IS NULL) as sin_definir
-     FROM promovidos WHERE campana_id=$1`,
-    [campanaId]
+     FROM promovidos WHERE campana_id=$1 ${f}`,
+    pr
   );
 
   const sinSeguimiento = await query(
     `SELECT COUNT(*) as total FROM promovidos
      WHERE campana_id=$1 AND comprometido IS NULL
-       AND (ultimo_contacto IS NULL OR ultimo_contacto < now() - interval '15 days')`,
-    [campanaId]
+       AND (ultimo_contacto IS NULL OR ultimo_contacto < now() - interval '15 days') ${f}`,
+    pr
   );
 
   const totalHoy = await query(
-    `SELECT COUNT(*) as total FROM promovidos WHERE campana_id=$1 AND creado_en::date = CURRENT_DATE`,
-    [campanaId]
+    `SELECT COUNT(*) as total FROM promovidos WHERE campana_id=$1 AND creado_en::date = CURRENT_DATE ${f}`,
+    pr
   );
 
   res.json({

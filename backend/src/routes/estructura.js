@@ -3,7 +3,9 @@ import { z } from 'zod';
 import bcrypt from 'bcryptjs';
 import PDFDocument from 'pdfkit';
 import { query } from '../db/pool.js';
-import { requiereAuth } from '../middleware/auth.js';
+import { requiereAuth, requiereRol } from '../middleware/auth.js';
+import { alcanceDe, filtroAlcance, territorioPermitido } from '../lib/alcance.js';
+import { ROLES_MANDO } from '../lib/pertenencia.js';
 import { registrarAuditoria } from '../lib/auditoria.js';
 import { limpiarCachePermisos } from '../middleware/permisos.js';
 import { puedeAsignarRol, puedeGestionarA, CAMPOS_EDITABLES_DE_UNO_MISMO, MENSAJE_SIN_RANGO } from '../lib/jerarquiaRoles.js';
@@ -25,6 +27,48 @@ async function miembroDeMiCampana(usuarioId, campanaId) {
  * llega en la petición pertenece a MI campaña — antes se aceptaba
  * cualquier identificador, incluso de otra campaña.
  */
+/**
+ * 🔒 Reglas de RAMA y TERRITORIO para coordinadores (los mandos no
+ * tienen estas restricciones). Antes un coordinador podía:
+ *  - "jalar" a su rama a promotores de otro equipo (y ver su gente),
+ *  - darle a alguien de su equipo un territorio más grande que el suyo
+ *    (hasta "todo el estado") y así ver el padrón completo,
+ *  - crear o cambiar regiones.
+ * Regresa un texto de error, o null si todo está bien.
+ */
+async function errorDeRamaOTerritorio(actor, d, objetivoId = null) {
+  if (ROLES_MANDO.includes(actor.rol)) return null;
+  const { equipo } = await alcanceDe(actor);
+  if (objetivoId && objetivoId !== actor.sub && !equipo.includes(objetivoId)) return 'Esa persona no está en tu equipo.';
+  if ('parent_id' in d && !d.parent_id && objetivoId) return 'Solo la dirección de campaña puede dejar a alguien sin coordinador.';
+  if (d.parent_id && !equipo.includes(d.parent_id)) return 'Solo puedes poner a la persona bajo alguien de tu propio equipo.';
+  if (d.region_id) return 'Solo la dirección de campaña asigna regiones.';
+  if (d.territorio_tipo || d.territorio_id) {
+    if (!(await territorioPermitido(actor, d.territorio_tipo, d.territorio_id))) {
+      const { secciones } = await alcanceDe(actor);
+      return secciones.length
+        ? 'Solo puedes asignar un territorio que esté dentro del tuyo.'
+        : 'Tú no tienes territorio asignado todavía; pide a la dirección de campaña que te lo asigne (o que asigne el de tu equipo).';
+    }
+  }
+  return null;
+}
+
+/** 🔒 Fichas y reportes de una persona: solo de tu propia rama (mandos: cualquiera). */
+async function soloMiRama(req, res, next) {
+  if (ROLES_MANDO.includes(req.usuario.rol)) return next();
+  const id = req.params.usuarioId || req.params.id;
+  const { equipo } = await alcanceDe(req.usuario);
+  if (equipo.includes(id)) return next();
+  // Datos básicos (cadena, zonas, historial) de tu jefe directo sí se ven.
+  if (req.soloDatosBasicos) {
+    const yo = await query('SELECT parent_id FROM usuarios WHERE id=$1 AND campana_id=$2', [req.usuario.sub, req.usuario.campana_id]);
+    if (yo.rows[0]?.parent_id === id) return next();
+  }
+  return res.status(403).json({ ok: false, error: 'Esa persona no está en tu equipo.' });
+}
+const datosBasicos = (req, res, next) => { req.soloDatosBasicos = true; next(); };
+
 async function referenciasSonDeMiCampana({ parent_id, region_id }, campanaId) {
   if (parent_id) {
     const p = await query('SELECT 1 FROM usuarios WHERE id=$1 AND campana_id=$2', [parent_id, campanaId]);
@@ -423,6 +467,10 @@ router.get('/cobertura-mapa', async (req, res) => {
 
 router.get('/detector-duplicidad', async (req, res) => {
   const campanaId = req.usuario.campana_id;
+  // 🔒 Coordinadores: solo revisan a su propio equipo.
+  const pd = [campanaId];
+  let fd = '';
+  if (!ROLES_MANDO.includes(req.usuario.rol)) { pd.push((await alcanceDe(req.usuario)).equipo); fd = 'AND id = ANY($2::uuid[])'; }
 
   const [mismoTerritorioMismoRol, telefonoDuplicado] = await Promise.all([
     // Mismo territorio (tipo+id) asignado a 2+ personas del MISMO
@@ -431,16 +479,16 @@ router.get('/detector-duplicidad', async (req, res) => {
     // clasifica como REVISIÓN, no como ERROR automático.
     query(
       `SELECT territorio_tipo, territorio_id, rol, array_agg(nombre) as nombres, array_agg(id) as ids, COUNT(*) as total
-       FROM usuarios WHERE campana_id=$1 AND activo != false AND territorio_id IS NOT NULL
+       FROM usuarios WHERE campana_id=$1 AND activo != false AND territorio_id IS NOT NULL ${fd}
        GROUP BY territorio_tipo, territorio_id, rol HAVING COUNT(*) > 1 ORDER BY total DESC`,
-      [campanaId]
+      pd
     ),
     // Mismo teléfono usado por 2+ personas DISTINTAS en tu estructura
     query(
       `SELECT telefono, array_agg(nombre) as nombres, array_agg(id) as ids, array_agg(rol) as roles, COUNT(*) as total
-       FROM usuarios WHERE campana_id=$1 AND activo != false AND telefono IS NOT NULL AND telefono != ''
+       FROM usuarios WHERE campana_id=$1 AND activo != false AND telefono IS NOT NULL AND telefono != '' ${fd}
        GROUP BY telefono HAVING COUNT(*) > 1 ORDER BY total DESC`,
-      [campanaId]
+      pd
     ),
   ]);
 
@@ -506,6 +554,8 @@ router.patch('/:usuarioId/asignar-territorio', async (req, res) => {
   if (!puedeGestionarA(req.usuario, objetivo)) {
     return res.status(403).json({ ok: false, error: MENSAJE_SIN_RANGO });
   }
+  const errorRama = await errorDeRamaOTerritorio(req.usuario, { territorio_tipo, territorio_id }, req.params.usuarioId);
+  if (errorRama) return res.status(403).json({ ok: false, error: errorRama });
   const resultado = await query(
     `UPDATE usuarios SET territorio_tipo=$1, territorio_id=$2 WHERE id=$3 AND campana_id=$4 RETURNING id, nombre, territorio_tipo, territorio_id`,
     [territorio_tipo, territorio_id, req.params.usuarioId, req.usuario.campana_id]
@@ -521,7 +571,7 @@ router.patch('/:usuarioId/asignar-territorio', async (req, res) => {
   res.json({ ok: true, data: resultado.rows[0] });
 });
 
-router.get('/ficha-persona/:usuarioId', async (req, res) => {
+router.get('/ficha-persona/:usuarioId', soloMiRama, async (req, res) => {
   const campanaId = req.usuario.campana_id;
   const usuarioId = req.params.usuarioId;
 
@@ -657,7 +707,7 @@ const ROL_LABEL_PDF = {
  * Reporte de Estructura en PDF — la cascada completa de un
  * coordinador y su equipo, descargable, con control documental.
  */
-router.get('/pdf/persona/:usuarioId', async (req, res) => {
+router.get('/pdf/persona/:usuarioId', soloMiRama, async (req, res) => {
   const campanaId = req.usuario.campana_id;
   const usuarioId = req.params.usuarioId;
 
@@ -751,21 +801,24 @@ router.get('/mi-coordinador', async (req, res) => {
 });
 
 router.get('/', async (req, res) => {
-  const esRamaLimitada = req.usuario.rol === 'coord_seccional';
+  // 🔒 Antes solo el coordinador seccional veía únicamente su rama; un
+  // distrital o municipal veía correos y teléfonos de TODO el equipo.
+  // Ahora cualquier coordinador ve su rama + su jefe directo.
+  const esRamaLimitada = !ROLES_MANDO.includes(req.usuario.rol);
+  let params = [req.usuario.campana_id];
+  let filtro = '';
+  if (esRamaLimitada) {
+    const { equipo } = await alcanceDe(req.usuario);
+    const yo = await query('SELECT parent_id FROM usuarios WHERE id=$1 AND campana_id=$2', [req.usuario.sub, req.usuario.campana_id]);
+    const visibles = [...equipo, yo.rows[0]?.parent_id].filter(Boolean);
+    params.push(visibles);
+    filtro = 'AND id = ANY($2::uuid[])';
+  }
   const resultado = await query(
-    esRamaLimitada
-      ? `WITH RECURSIVE mi_rama AS (
-           SELECT id FROM usuarios WHERE id = $2
-           UNION ALL
-           SELECT u.id FROM usuarios u JOIN mi_rama r ON u.parent_id = r.id
-         )
-         SELECT id, nombre, email, telefono, rol, puesto, parent_id, territorio_tipo, territorio_id,
-                meta_diaria, activo, ultimo_acceso, creado_en
-         FROM usuarios WHERE campana_id = $1 AND id IN (SELECT id FROM mi_rama) ORDER BY creado_en`
-      : `SELECT id, nombre, email, telefono, rol, puesto, parent_id, territorio_tipo, territorio_id,
-                meta_diaria, activo, ultimo_acceso, creado_en
-         FROM usuarios WHERE campana_id = $1 ORDER BY creado_en`,
-    esRamaLimitada ? [req.usuario.campana_id, req.usuario.sub] : [req.usuario.campana_id]
+    `SELECT id, nombre, email, telefono, rol, puesto, parent_id, territorio_tipo, territorio_id,
+            meta_diaria, activo, ultimo_acceso, creado_en
+     FROM usuarios WHERE campana_id = $1 ${filtro} ORDER BY creado_en`,
+    params
   );
   const usuarios = resultado.rows;
   const conteoDirectos = {};
@@ -787,7 +840,7 @@ router.get('/', async (req, res) => {
   res.json({ ok: true, data: conSalud });
 });
 
-router.get('/cadena/:usuarioId', async (req, res) => {
+router.get('/cadena/:usuarioId', datosBasicos, soloMiRama, async (req, res) => {
   const cadena = [];
   let actualId = req.params.usuarioId;
   let vueltas = 0;
@@ -924,6 +977,8 @@ router.post('/', async (req, res) => {
   }
   const errorReferencia = await referenciasSonDeMiCampana(d, req.usuario.campana_id);
   if (errorReferencia) return res.status(400).json({ ok: false, error: errorReferencia });
+  const errorRama = await errorDeRamaOTerritorio(req.usuario, d);
+  if (errorRama) return res.status(403).json({ ok: false, error: errorRama });
   try {
     const existente = await query(
       'SELECT id FROM usuarios WHERE campana_id=$1 AND lower(email)=lower($2)',
@@ -933,7 +988,8 @@ router.post('/', async (req, res) => {
       return res.status(409).json({ ok: false, error: 'Ya existe un miembro con ese correo' });
     }
     const passwordHash = await bcrypt.hash(d.password, 12);
-    let parentId = d.parent_id || null;
+    // Si un coordinador no dice bajo quién va, queda bajo él mismo.
+    let parentId = d.parent_id || (ROLES_MANDO.includes(req.usuario.rol) ? null : req.usuario.sub);
     if (!parentId) {
       const candidatoRes = await query(
         `SELECT id FROM usuarios WHERE campana_id=$1 AND rol='candidato' LIMIT 1`,
@@ -1018,6 +1074,18 @@ router.patch('/:id', async (req, res) => {
   }
   const errorReferencia = await referenciasSonDeMiCampana(d, req.usuario.campana_id);
   if (errorReferencia) return res.status(400).json({ ok: false, error: errorReferencia });
+  if (req.params.id !== req.usuario.sub) {
+    // Solo se revisan los campos que DE VERDAD cambian (el formulario
+    // manda todo, aunque no se toque el territorio o la región).
+    const cambios = {};
+    for (const c of ['parent_id', 'region_id']) if (cambiosReales.includes(c)) cambios[c] = d[c];
+    if (cambiosReales.includes('territorio_tipo') || cambiosReales.includes('territorio_id')) {
+      cambios.territorio_tipo = d.territorio_tipo ?? actual.territorio_tipo;
+      cambios.territorio_id = d.territorio_id ?? actual.territorio_id;
+    }
+    const errorRama = await errorDeRamaOTerritorio(req.usuario, cambios, req.params.id);
+    if (errorRama) return res.status(403).json({ ok: false, error: errorRama });
+  }
 
   if ('parent_id' in d) {
     const actual = await query('SELECT parent_id FROM usuarios WHERE id=$1 AND campana_id=$2', [req.params.id, req.usuario.campana_id]);
@@ -1068,6 +1136,8 @@ router.post('/:id/reasignar-equipo', async (req, res) => {
   }
   const errorReferencia = await referenciasSonDeMiCampana({ parent_id: nuevo_parent_id }, req.usuario.campana_id);
   if (errorReferencia) return res.status(400).json({ ok: false, error: errorReferencia });
+  const errorRama = await errorDeRamaOTerritorio(req.usuario, { parent_id: nuevo_parent_id }, req.params.id);
+  if (errorRama) return res.status(403).json({ ok: false, error: errorRama });
   const hijos = await query('SELECT id FROM usuarios WHERE parent_id=$1 AND campana_id=$2', [req.params.id, req.usuario.campana_id]);
   if (hijos.rows.length === 0) return res.json({ ok: true, movidos: 0 });
   for (const h of hijos.rows) {
@@ -1104,7 +1174,7 @@ router.get('/historial-completo', async (req, res) => {
   res.json({ ok: true, data: resultado.rows });
 });
 
-router.get('/:id/historial', async (req, res) => {
+router.get('/:id/historial', datosBasicos, soloMiRama, async (req, res) => {
   const resultado = await query(
     `SELECT h.*, ua.nombre as nombre_anterior, un.nombre as nombre_nuevo, uc.nombre as nombre_cambiado_por
      FROM estructura_historial h
@@ -1125,7 +1195,7 @@ router.get('/:id/historial', async (req, res) => {
 // cuántos promovidos capturó — con duplicados marcados (mismo
 // nombre + misma sección, sin importar quién lo capturó).
 // ═══════════════════════════════════════════════════════════════
-router.get('/:id/reporte-equipo', async (req, res) => {
+router.get('/:id/reporte-equipo', soloMiRama, async (req, res) => {
   const coord = await query('SELECT id, nombre, rol, puesto FROM usuarios WHERE id=$1 AND campana_id=$2', [req.params.id, req.usuario.campana_id]);
   if (!coord.rows[0]) return res.status(404).json({ ok: false, error: 'No encontrado' });
 
@@ -1299,7 +1369,7 @@ router.get('/vacantes/catalogo', async (req, res) => {
   res.json({ ok: true, data: vacantes });
 });
 
-router.get('/:id/zonas', async (req, res) => {
+router.get('/:id/zonas', datosBasicos, soloMiRama, async (req, res) => {
   const resultado = await query(
     `SELECT s.numero FROM zonas_asignadas z JOIN secciones s ON s.id = z.seccion_id
      WHERE z.campana_id=$1 AND z.usuario_id=$2 ORDER BY s.numero`,
@@ -1308,7 +1378,7 @@ router.get('/:id/zonas', async (req, res) => {
   res.json({ ok: true, data: resultado.rows.map((r) => r.numero) });
 });
 
-router.get('/:id/rendimiento-rama', async (req, res) => {
+router.get('/:id/rendimiento-rama', soloMiRama, async (req, res) => {
   const rama = await query(
     `WITH RECURSIVE descendientes AS (
        SELECT id, nombre, rol, puesto FROM usuarios WHERE id=$1 AND campana_id=$2
@@ -1350,13 +1420,15 @@ router.get('/:id/rendimiento-rama', async (req, res) => {
 });
 
 router.get('/representantes-ine', async (req, res) => {
+  const pri = [req.usuario.campana_id];
+  const fri = await filtroAlcance(req.usuario, pri, { seccion: 'a.seccion_id' });
   const resultado = await query(
     `SELECT a.id, a.nombre_rep, a.telefono_rep, a.estado, a.fecha_ini, a.fecha_vence, a.notas,
             s.numero as seccion_numero
      FROM activos a LEFT JOIN secciones s ON s.id = a.seccion_id
-     WHERE a.campana_id=$1 AND a.tipo='ine_representante'
+     WHERE a.campana_id=$1 AND a.tipo='ine_representante' ${fri}
      ORDER BY s.numero`,
-    [req.usuario.campana_id]
+    pri
   );
   res.json({ ok: true, data: resultado.rows });
 });
@@ -1495,6 +1567,8 @@ router.get('/sugerir-meta', async (req, res) => {
 // están trabajando la misma calle sin saberlo.
 // ═══════════════════════════════════════════════════════════════
 router.get('/duplicados', async (req, res) => {
+  const pdup = [req.usuario.campana_id];
+  const fdup = await filtroAlcance(req.usuario, pdup, { personas: ['prom.registrado_por', 'prom.asignado_seguimiento_a'], seccion: 'prom.seccion_id' });
   const resultado = await query(
     `SELECT s.numero as seccion_numero, prom.nombre,
             COUNT(*) as veces_registrado,
@@ -1503,12 +1577,12 @@ router.get('/duplicados', async (req, res) => {
      FROM promovidos prom
      JOIN secciones s ON s.id = prom.seccion_id
      LEFT JOIN usuarios u ON u.id = prom.registrado_por
-     WHERE prom.campana_id=$1
+     WHERE prom.campana_id=$1 ${fdup}
      GROUP BY s.numero, prom.nombre
      HAVING COUNT(*) > 1
      ORDER BY personas_distintas DESC, veces_registrado DESC
      LIMIT 200`,
-    [req.usuario.campana_id]
+    pdup
   );
   res.json({ ok: true, data: resultado.rows });
 });
@@ -1593,7 +1667,7 @@ const esquemaRegion = z.object({
   unidades_ids: z.array(z.number().int()).min(1, 'Selecciona al menos una unidad'),
 });
 
-router.post('/regiones', async (req, res) => {
+router.post('/regiones', requiereRol(...ROLES_MANDO), async (req, res) => {
   const parseado = esquemaRegion.safeParse(req.body);
   if (!parseado.success) return res.status(400).json({ ok: false, error: parseado.error.errors[0].message });
   const d = parseado.data;
@@ -1605,7 +1679,7 @@ router.post('/regiones', async (req, res) => {
   res.status(201).json({ ok: true, data: resultado.rows[0] });
 });
 
-router.patch('/regiones/:id', async (req, res) => {
+router.patch('/regiones/:id', requiereRol(...ROLES_MANDO), async (req, res) => {
   const parseado = esquemaRegion.partial().safeParse(req.body);
   if (!parseado.success) return res.status(400).json({ ok: false, error: parseado.error.errors[0].message });
   const d = parseado.data;
@@ -1621,8 +1695,8 @@ router.patch('/regiones/:id', async (req, res) => {
   res.json({ ok: true, data: resultado.rows[0] });
 });
 
-router.delete('/regiones/:id', async (req, res) => {
-  const conGente = await query('SELECT COUNT(*) as total FROM usuarios WHERE region_id=$1', [req.params.id]);
+router.delete('/regiones/:id', requiereRol(...ROLES_MANDO), async (req, res) => {
+  const conGente = await query('SELECT COUNT(*) as total FROM usuarios WHERE region_id=$1 AND campana_id=$2', [req.params.id, req.usuario.campana_id]);
   if (parseInt(conGente.rows[0].total) > 0) {
     return res.status(400).json({ ok: false, error: 'Esta región todavía tiene personas asignadas — reasígnalas antes de borrarla.' });
   }
@@ -1651,7 +1725,9 @@ router.get('/representantes-casilla', async (req, res) => {
   if (disponibles === 'true') sql += ` AND c.id IS NULL`;
   sql += ' ORDER BY u.nombre';
   const resultado = await query(sql, params);
-  res.json({ ok: true, data: resultado.rows });
+  // 🔒 El correo solo lo ve la dirección de campaña.
+  const filas = ROLES_MANDO.includes(req.usuario.rol) ? resultado.rows : resultado.rows.map(({ email, ...r }) => r);
+  res.json({ ok: true, data: filas });
 });
 
 export default router;

@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { condicionAlcance, filtroAlcance } from '../lib/alcance.js';
 import { z } from 'zod';
 import Anthropic from '@anthropic-ai/sdk';
 import { query } from '../db/pool.js';
@@ -106,9 +107,12 @@ router.get('/', async (req, res) => {
   }
 
   // Un promotor / coord_seccional sin gente a cargo solo ve lo suyo.
-  if (req.usuario.rol === 'promotor' || req.usuario.rol === 'representante_casilla') {
-    condiciones.push(`b.usuario_id = $${i++}`);
-    valores.push(req.usuario.sub);
+  // 🔒 Territorio + equipo (lib/alcance.js). Antes solo promotor y
+  // representante estaban limitados; un coordinador o encargado veía
+  // la bitácora (con ubicaciones GPS) de toda la campaña.
+  if (req.usuario.rol !== 'encargado_juridico') {
+    const cond = await condicionAlcance(req.usuario, valores, { personas: ['b.usuario_id'], seccion: 'b.seccion_id' });
+    if (cond !== 'TRUE') { condiciones.push(cond); i = valores.length + 1; }
   }
 
   const resultado = await query(
@@ -288,6 +292,9 @@ router.get('/resumen-texto', async (req, res) => {
 // abierto. Reutiliza la tabla incidencias — no duplica datos.
 // ═══════════════════════════════════════════════════════════════
 router.get('/incidencias-abiertas', async (req, res) => {
+  // 🔒 Mismo alcance que el módulo de Incidencias (antes un promotor las veía todas por aquí).
+  const paramsInc = [req.usuario.campana_id];
+  const filtroInc = req.usuario.rol === 'encargado_juridico' ? '' : await filtroAlcance(req.usuario, paramsInc, { personas: ['i.reportado_por'], seccion: 'i.seccion_id' });
   const resultado = await query(
     `SELECT i.id, i.tipo, i.urgencia, i.descripcion, i.estado, i.creado_en,
             s.numero as seccion_numero, m.nombre as municipio_nombre,
@@ -296,10 +303,10 @@ router.get('/incidencias-abiertas', async (req, res) => {
      LEFT JOIN secciones s ON s.id = i.seccion_id
      LEFT JOIN municipios m ON m.id = s.municipio_id
      LEFT JOIN usuarios u ON u.id = i.reportado_por
-     WHERE i.campana_id=$1 AND i.estado != 'resuelta'
+     WHERE i.campana_id=$1 AND i.estado != 'resuelta' ${filtroInc}
      ORDER BY CASE i.urgencia WHEN 'urgente' THEN 4 WHEN 'alta' THEN 3 WHEN 'media' THEN 2 ELSE 1 END DESC, i.creado_en DESC
      LIMIT 50`,
-    [req.usuario.campana_id]
+    paramsInc
   );
   res.json({ ok: true, data: resultado.rows });
 });

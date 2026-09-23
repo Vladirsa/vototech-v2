@@ -38,6 +38,9 @@ const MODULOS_POR_ROL = {
   // 🆕 Centro de Decisiones — quienes tienen responsabilidad real de
   // coordinar territorio (no promotores, representantes de casilla,
   // voluntarios, ni encargados de un área acotada como jurídico/finanzas).
+  // 🆕 Faltaba: el Coordinador Regional no tenía NINGÚN módulo en el
+  // servidor (todo le salía "sin acceso"). Mismo alcance que un distrital.
+  coord_regional: TODOS_LOS_MODULOS.filter((m) => !['finanzas', 'activos', 'juridico'].includes(m)),
   coord_distrital: TODOS_LOS_MODULOS.filter((m) => !['finanzas', 'activos', 'juridico'].includes(m)),
   coord_municipal: TODOS_LOS_MODULOS.filter((m) => !['finanzas', 'activos', 'juridico'].includes(m)),
   coord_seccional: ['promovidos', 'estructura', 'dia-eleccion', 'incidencias', 'bitacora', 'logistica', 'centro-decisiones'],
