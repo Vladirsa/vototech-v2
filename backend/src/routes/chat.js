@@ -3,7 +3,7 @@ import { query } from '../db/pool.js';
 import { requiereAuth } from '../middleware/auth.js';
 import { getIo } from '../io.js';
 import { enviarPush } from './push.js';
-import { usuarioEsDeMiCampana } from '../lib/pertenencia.js';
+import { usuarioEsDeMiCampana, ROLES_COORDINACION } from '../lib/pertenencia.js';
 
 const router = Router();
 router.use(requiereAuth);
@@ -17,7 +17,8 @@ const CANALES_VALIDOS = ['general', 'coordinadores'];
  */
 function validarCanal(canal, usuarioId, rol) {
   if (CANALES_VALIDOS.includes(canal)) {
-    if (canal === 'coordinadores' && rol === 'promotor') return { ok: false, error: 'Este canal es solo para coordinadores' };
+    // 🔒 Solo coordinación y mando (antes solo se excluía al promotor; representantes y voluntarios sí entraban).
+    if (canal === 'coordinadores' && !ROLES_COORDINACION.includes(rol)) return { ok: false, error: 'Este canal es solo para coordinadores' };
     return { ok: true };
   }
   const match = canal.match(/^dm-([0-9a-f-]{36})-([0-9a-f-]{36})$/);

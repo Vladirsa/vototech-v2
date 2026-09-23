@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { query } from '../db/pool.js';
 import { requiereAuth } from '../middleware/auth.js';
+import { soloVeLoPropio } from '../lib/pertenencia.js';
 
 const router = Router();
 router.use(requiereAuth);
@@ -143,12 +144,16 @@ router.post('/', async (req, res) => {
 });
 
 router.delete('/:id', async (req, res) => {
-  const actual = await query('SELECT agenda_id FROM caminatas WHERE id=$1 AND campana_id=$2', [req.params.id, req.usuario.campana_id]);
+  const actual = await query('SELECT agenda_id, creado_por FROM caminatas WHERE id=$1 AND campana_id=$2', [req.params.id, req.usuario.campana_id]);
   if (!actual.rows[0]) return res.status(404).json({ ok: false, error: 'No encontrada' });
-  if (actual.rows[0].agenda_id) {
-    await query('DELETE FROM agenda WHERE id=$1', [actual.rows[0].agenda_id]);
+  // 🔒 Borrar: solo coordinación/mandos o quien la creó (también borra su evento de agenda).
+  if (soloVeLoPropio(req.usuario) && actual.rows[0].creado_por !== req.usuario.sub) {
+    return res.status(403).json({ ok: false, error: 'Solo quien creó la caminata o un coordinador la pueden borrar.' });
   }
-  await query('DELETE FROM caminatas WHERE id=$1', [req.params.id]);
+  if (actual.rows[0].agenda_id) {
+    await query('DELETE FROM agenda WHERE id=$1 AND campana_id=$2', [actual.rows[0].agenda_id, req.usuario.campana_id]);
+  }
+  await query('DELETE FROM caminatas WHERE id=$1 AND campana_id=$2', [req.params.id, req.usuario.campana_id]);
   res.json({ ok: true });
 });
 

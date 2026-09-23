@@ -279,6 +279,10 @@ router.post('/2fa/verificar-login', async (req, res) => {
  * error al escanear el QR).
  */
 router.post('/2fa/generar-secreto', requiereAuth, async (req, res) => {
+  // 🔒 La cuenta demo es compartida (su contraseña es pública): si alguien
+  // le activara la verificación en dos pasos, nadie más podría entrar.
+  const demo = await query('SELECT es_demo FROM campanas WHERE id=$1', [req.usuario.campana_id]);
+  if (demo.rows[0]?.es_demo) return res.status(403).json({ ok: false, error: 'La verificación en dos pasos no está disponible en la cuenta demo.' });
   const usuarioRes = await query('SELECT email FROM usuarios WHERE id=$1', [req.usuario.sub]);
   const secreto = speakeasy.generateSecret({ length: 20, name: `VotoTech (${usuarioRes.rows[0].email})`, issuer: 'VotoTech' });
   const qrDataUrl = await QRCode.toDataURL(secreto.otpauth_url);
@@ -296,6 +300,8 @@ router.post('/2fa/generar-secreto', requiereAuth, async (req, res) => {
  * correcto, ACTIVA 2FA de verdad.
  */
 router.post('/2fa/activar', requiereAuth, async (req, res) => {
+  const demo = await query('SELECT es_demo FROM campanas WHERE id=$1', [req.usuario.campana_id]);
+  if (demo.rows[0]?.es_demo) return res.status(403).json({ ok: false, error: 'La verificación en dos pasos no está disponible en la cuenta demo.' });
   const { codigo } = req.body;
   const usuarioRes = await query('SELECT dos_factores_secreto FROM usuarios WHERE id=$1', [req.usuario.sub]);
   const secreto = usuarioRes.rows[0]?.dos_factores_secreto;

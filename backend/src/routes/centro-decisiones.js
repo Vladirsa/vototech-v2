@@ -370,7 +370,7 @@ const esquemaActualizarTarea = z.object({
   estado: z.enum(['pendiente', 'asignada', 'en_proceso', 'bloqueada', 'completada', 'cancelada']).optional(),
   responsable_id: z.string().uuid().nullable().optional(),
   comentario: z.string().max(2000).optional(),
-  evidencia_url: z.string().url().optional(),
+  evidencia_url: z.string().url().max(1000).regex(/^https:\/\//i, 'El enlace debe empezar con https://').optional(),
   fecha_limite: z.string().optional(),
 });
 router.patch('/tareas/:id', async (req, res) => {

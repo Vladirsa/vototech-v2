@@ -5,6 +5,7 @@ import rateLimit from 'express-rate-limit';
 import { createClient } from '@supabase/supabase-js';
 import { query } from '../db/pool.js';
 import { getIo } from '../io.js';
+import { subirPrivado } from '../lib/almacenamientoPrivado.js';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 8 * 1024 * 1024 } });
@@ -18,6 +19,10 @@ const clienteSupabase = () => {
 // 8 intentos por hora por IP es suficiente para uso legítimo (nadie
 // se afilia 8 veces en una hora) y frena el abuso automatizado.
 const limiteAfiliacion = rateLimit({ windowMs: 60 * 60 * 1000, max: 8, standardHeaders: true, legacyHeaders: false });
+// 🔒 Límites propios para lo público (antes solo aplicaba el general de
+// 1,500 por IP, así que alguien podía llenar una encuesta miles de veces).
+const limiteRespuestasPublicas = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false, message: { ok: false, error: 'Demasiadas respuestas desde tu conexión. Intenta más tarde.' } });
+const limiteContacto = rateLimit({ windowMs: 60 * 60 * 1000, max: 5, standardHeaders: true, legacyHeaders: false, message: { ok: false, error: 'Ya recibimos tu solicitud. Te contactaremos pronto.' } });
 
 /**
  * GET /api/publico/confirmar-voto/:id
@@ -33,7 +38,19 @@ router.get('/confirmar-voto/:id', async (req, res) => {
   res.json({ ok: true, data: resultado.rows[0] });
 });
 
-router.post('/confirmar-voto/:id', async (req, res) => {
+router.post('/confirmar-voto/:id', limiteRespuestasPublicas, async (req, res) => {
+  // 🔒 Solo se puede marcar "ya voté" el día de la elección (±1 día por
+  // husos horarios) — antes cualquiera con el enlace reenviado podía
+  // marcarlo en cualquier momento y ensuciar la lista de movilización.
+  const ventana = await query(
+    `SELECT c.fecha_eleccion FROM promovidos p JOIN campanas c ON c.id = p.campana_id WHERE p.id=$1`,
+    [req.params.id]
+  );
+  if (!ventana.rows[0]) return res.status(404).json({ ok: false, error: 'Enlace inválido' });
+  const fechaEleccion = ventana.rows[0].fecha_eleccion ? new Date(ventana.rows[0].fecha_eleccion) : null;
+  if (fechaEleccion && Math.abs(Date.now() - fechaEleccion.getTime()) > 36 * 60 * 60 * 1000) {
+    return res.status(403).json({ ok: false, error: 'Este enlace solo funciona el día de la elección.' });
+  }
   const resultado = await query(
     `UPDATE promovidos SET ya_voto = true, hora_voto = now() WHERE id=$1 RETURNING id, nombre, campana_id`,
     [req.params.id]
@@ -60,11 +77,14 @@ router.get('/confirmar-evento/:agendaId/:promovidoId', async (req, res) => {
   res.json({ ok: true, data: { evento: evento.rows[0], nombre: promovido.rows[0].nombre, va: confirmacion.rows[0]?.va ?? null } });
 });
 
-router.post('/confirmar-evento/:agendaId/:promovidoId', async (req, res) => {
+router.post('/confirmar-evento/:agendaId/:promovidoId', limiteRespuestasPublicas, async (req, res) => {
   const { va } = req.body;
   if (typeof va !== 'boolean') return res.status(400).json({ ok: false, error: 'Falta indicar si va o no' });
   const evento = await query('SELECT id, campana_id, titulo FROM agenda WHERE id=$1', [req.params.agendaId]);
   if (!evento.rows[0]) return res.status(404).json({ ok: false, error: 'Enlace inválido' });
+  // 🔒 La persona debe ser de la MISMA campaña que el evento.
+  const mismaCampana = await query('SELECT 1 FROM promovidos WHERE id=$1 AND campana_id=$2', [req.params.promovidoId, evento.rows[0].campana_id]);
+  if (!mismaCampana.rows[0]) return res.status(404).json({ ok: false, error: 'Enlace inválido' });
   await query(
     `INSERT INTO agenda_confirmaciones (agenda_id, promovido_id, va) VALUES ($1,$2,$3)
      ON CONFLICT (agenda_id, promovido_id) DO UPDATE SET va=$3, confirmado_en=now()`,
@@ -88,9 +108,13 @@ router.get('/encuesta/:id', async (req, res) => {
   res.json({ ok: true, data: { ...encuesta.rows[0], preguntas: preguntas.rows } });
 });
 
-router.post('/encuesta/:id/responder', async (req, res) => {
+router.post('/encuesta/:id/responder', limiteRespuestasPublicas, async (req, res) => {
   const { respuestas, lat, lng } = req.body;
-  if (!respuestas || typeof respuestas !== 'object') return res.status(400).json({ ok: false, error: 'Respuestas inválidas' });
+  if (!respuestas || typeof respuestas !== 'object' || Array.isArray(respuestas)) return res.status(400).json({ ok: false, error: 'Respuestas inválidas' });
+  // 🔒 Una encuesta real cabe de sobra en 10,000 caracteres (antes se aceptaban hasta 2 MB por respuesta).
+  if (JSON.stringify(respuestas).length > 10000 || Object.keys(respuestas).length > 100) {
+    return res.status(413).json({ ok: false, error: 'Respuesta demasiado grande' });
+  }
   const encuesta = await query('SELECT id, activa FROM encuestas WHERE id=$1', [req.params.id]);
   if (!encuesta.rows[0]) return res.status(404).json({ ok: false, error: 'Encuesta no encontrada' });
   if (!encuesta.rows[0].activa) return res.status(403).json({ ok: false, error: 'Esta encuesta ya no está activa' });
@@ -141,6 +165,10 @@ router.post('/afiliar/:subdominio', limiteAfiliacion, upload.fields([{ name: 'cr
   const { nombre, telefono, calle, lat, lng, consentimiento, consentimiento_credencial } = req.body;
 
   if (!nombre || nombre.trim().length < 3) return res.status(400).json({ ok: false, error: 'Falta el nombre completo' });
+  // 🔒 Límites de tamaño y sin "<" ">" (el nombre se muestra en pantallas del equipo).
+  if (nombre.length > 200 || /[<>]/.test(nombre) || String(calle || '').length > 255 || String(telefono).length > 20) {
+    return res.status(400).json({ ok: false, error: 'Revisa los datos: hay un campo demasiado largo o con caracteres no permitidos.' });
+  }
   if (!telefono || telefono.replace(/\D/g, '').length < 10) return res.status(400).json({ ok: false, error: 'Falta un teléfono válido a 10 dígitos' });
   if (consentimiento !== 'true' && consentimiento !== true) {
     return res.status(400).json({ ok: false, error: 'Es necesario aceptar el aviso de privacidad para continuar' });
@@ -194,24 +222,21 @@ router.post('/afiliar/:subdominio', limiteAfiliacion, upload.fields([{ name: 'cr
 
   // Fotos de credencial — SOLO si la persona dio su consentimiento
   // explícito para esto específicamente (aparte del consentimiento
-  // general). Se guardan en un bucket privado, nunca público.
+  // general).
+  // 🔒 Ahora SÍ van a la carpeta privada (antes el comentario decía
+  // "privado" pero el código las subía a una carpeta PÚBLICA con enlace
+  // permanente). Solo se aceptan imágenes.
   let credencialFrenteUrl = null, credencialReversoUrl = null;
   const consintioCredencial = consentimiento_credencial === 'true' || consentimiento_credencial === true;
-  if (consintioCredencial && (req.files?.credencial_frente || req.files?.credencial_reverso)) {
-    const supabase = clienteSupabase();
-    if (supabase) {
-      if (req.files.credencial_frente) {
-        const archivo = req.files.credencial_frente[0];
-        const ruta = `${campanaId}/afiliaciones/${crypto.randomBytes(8).toString('hex')}-frente.jpg`;
-        const { error } = await supabase.storage.from('documentos').upload(ruta, archivo.buffer, { contentType: archivo.mimetype });
-        if (!error) credencialFrenteUrl = supabase.storage.from('documentos').getPublicUrl(ruta).data.publicUrl;
-      }
-      if (req.files.credencial_reverso) {
-        const archivo = req.files.credencial_reverso[0];
-        const ruta = `${campanaId}/afiliaciones/${crypto.randomBytes(8).toString('hex')}-reverso.jpg`;
-        const { error } = await supabase.storage.from('documentos').upload(ruta, archivo.buffer, { contentType: archivo.mimetype });
-        if (!error) credencialReversoUrl = supabase.storage.from('documentos').getPublicUrl(ruta).data.publicUrl;
-      }
+  const esImagen = (a) => ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'].includes(a?.mimetype);
+  if (consintioCredencial) {
+    const frente = req.files?.credencial_frente?.[0];
+    const reverso = req.files?.credencial_reverso?.[0];
+    if (frente && esImagen(frente)) {
+      credencialFrenteUrl = await subirPrivado(`${campanaId}/afiliaciones/${crypto.randomBytes(8).toString('hex')}-frente`, frente.buffer, frente.mimetype);
+    }
+    if (reverso && esImagen(reverso)) {
+      credencialReversoUrl = await subirPrivado(`${campanaId}/afiliaciones/${crypto.randomBytes(8).toString('hex')}-reverso`, reverso.buffer, reverso.mimetype);
     }
   }
 
@@ -289,9 +314,13 @@ router.post('/cotizar', async (req, res) => {
  * — se guarda como lead, para que Vlado lo revise cuando pueda, sin
  * tener que estar pendiente de un chat en vivo.
  */
-router.post('/solicitar-contacto', async (req, res) => {
+router.post('/solicitar-contacto', limiteContacto, async (req, res) => {
   const { nombre, telefono, email, tipo_eleccion, estado_id, electores_aproximados, cargo_judicial, basico, premium } = req.body;
   if (!nombre || !telefono) return res.status(400).json({ ok: false, error: 'Falta nombre y teléfono' });
+  // 🔒 Tamaños razonables — evita que alguien llene la lista de prospectos con basura enorme.
+  if (String(nombre).length > 200 || String(telefono).length > 20 || String(email || '').length > 200 || String(tipo_eleccion || '').length > 40) {
+    return res.status(400).json({ ok: false, error: 'Revisa los datos: hay un campo demasiado largo.' });
+  }
   await query(
     // 🆕 Se reusan las mismas columnas precio_min/precio_max — ahora
     // significan "básico" y "premium" en vez de un rango de un solo

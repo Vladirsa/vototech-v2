@@ -480,6 +480,8 @@ export default function Dashboard() {
           </div>
         )}
 
+        {/* 🔒 Activos y gasto solo llegan a quien tiene el módulo de finanzas */}
+        {d.activos && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
             <h3 className="text-xs font-bold text-slate-400 uppercase mb-3">📺 Activos de campaña</h3>
@@ -504,6 +506,7 @@ export default function Dashboard() {
             <Link to="/finanzas" className="text-[10px] font-bold text-indigo-400 block pt-2">Ver control financiero →</Link>
           </div>
         </div>
+        )}
 
         {encuestasResumen && encuestasResumen.total_respuestas > 0 && (
           <div className="bg-slate-900/60 border border-pink-800/30 rounded-xl p-4">

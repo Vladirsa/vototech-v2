@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { query } from '../db/pool.js';
 import { requiereAuth } from '../middleware/auth.js';
+import { tieneModulo } from '../middleware/permisos.js';
 
 const router = Router();
 router.use(requiereAuth);
@@ -13,6 +14,7 @@ router.use(requiereAuth);
  */
 router.get('/resumen', async (req, res) => {
   const campanaId = req.usuario.campana_id;
+  const verDinero = await tieneModulo(req.usuario, 'finanzas');
 
   try {
     const campanaRes = await query(
@@ -240,8 +242,10 @@ router.get('/resumen', async (req, res) => {
         actividad_reciente: actividadRecienteRes.rows,
         mejor_promotor: mejorPromotorRes.rows[0] || null,
         coordinadores: coordinadoresRes.rows,
-        activos: resumenActivos,
-        gasto_total: gastoTotal,
+        // 🔒 Dinero y costos solo para quien tiene el módulo de finanzas
+        // (antes cualquier promotor veía cuánto ha gastado la campaña).
+        activos: verDinero ? resumenActivos : null,
+        gasto_total: verDinero ? gastoTotal : null,
       },
     });
   } catch (e) {

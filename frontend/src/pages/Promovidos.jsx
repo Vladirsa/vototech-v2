@@ -674,6 +674,7 @@ export default function Promovidos() {
   // herramienta de priorización para coordinadores, a un promotor en
   // campo no le sirve y solo le estorba en la pantalla.
   const esPromotor = useAuth((s) => s.usuario?.rol) === 'promotor';
+  const usuario = useAuth((s) => s.usuario);
   const [params] = useSearchParams();
   const seccionFiltro = params.get('seccion') ? parseInt(params.get('seccion')) : null;
   const [lista, setLista] = useState([]);
@@ -721,10 +722,12 @@ export default function Promovidos() {
               className="px-3 py-2.5 rounded-xl bg-emerald-700/50 text-emerald-300 text-sm font-bold" title="Descargar Excel">
               📥 Excel
             </button>
+            {['candidato', 'jefe_campana', 'coord_general'].includes(usuario?.rol) && (
             <button onClick={() => setMostrarImportar(true)}
               className="px-3 py-2.5 rounded-xl bg-purple-700/50 text-purple-300 text-sm font-bold" title="Importar tu base propia">
               📤 Importar
             </button>
+            )}
             <button onClick={() => setMostrarModal(true)} className="px-4 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-bold">
               + Agregar
             </button>

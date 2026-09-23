@@ -4,6 +4,16 @@ import PDFDocument from 'pdfkit';
 import { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, AlignmentType, HeadingLevel } from 'docx';
 import { query } from '../db/pool.js';
 import { requiereAuth, requiereRol } from '../middleware/auth.js';
+// 🔒 Además del rol, se revisa el módulo: un Coord. General cuyo puesto
+// es solo "Finanzas" ya no puede bajar el padrón de promovidos, etc.
+import { requiereModulo, modulosBaseDe, TODOS_LOS_MODULOS } from '../middleware/permisos.js';
+
+// El respaldo completo trae TODO (padrón, dinero, estructura): solo
+// Candidato, Jefe y un Coord. General SIN puesto limitado.
+function soloAccesoTotal(req, res, next) {
+  if (req.usuario.rol !== 'coord_general' || modulosBaseDe(req.usuario).length >= TODOS_LOS_MODULOS.length) return next();
+  return res.status(403).json({ ok: false, error: 'El respaldo completo solo lo puede bajar la dirección de campaña.' });
+}
 
 const router = Router();
 router.use(requiereAuth);
@@ -16,7 +26,7 @@ function estiloEncabezado(hoja) {
   hoja.getRow(1).height = 22;
 }
 
-router.get('/promovidos', requiereRol(...ROLES_EXPORT), async (req, res) => {
+router.get('/promovidos', requiereRol(...ROLES_EXPORT), requiereModulo('promovidos'), async (req, res) => {
   const datos = await query(
     `SELECT p.nombre, p.telefono, p.curp, s.numero as seccion, p.calle,
             p.partido, p.clasificacion, p.temperatura,
@@ -55,7 +65,7 @@ router.get('/promovidos', requiereRol(...ROLES_EXPORT), async (req, res) => {
   res.end();
 });
 
-router.get('/gastos', requiereRol(...ROLES_EXPORT), async (req, res) => {
+router.get('/gastos', requiereRol(...ROLES_EXPORT), requiereModulo('finanzas'), async (req, res) => {
   const gastos = await query(
     `SELECT g.fecha, g.categoria, g.descripcion, g.monto, g.proveedor, g.rfc,
             g.factura_uuid, g.forma_pago, u.nombre as registrado_por
@@ -121,7 +131,7 @@ router.get('/gastos', requiereRol(...ROLES_EXPORT), async (req, res) => {
  * (transferido/vendido/donado/destruido), tal como lo exige el
  * control de inventarios del Reglamento de Fiscalización.
  */
-router.get('/activos-excel', requiereRol(...ROLES_EXPORT), async (req, res) => {
+router.get('/activos-excel', requiereRol(...ROLES_EXPORT), requiereModulo('activos'), async (req, res) => {
   const datos = await query(
     `SELECT a.codigo_inventario, a.tipo, a.subtipo, a.direccion, a.empresa, a.costo,
             a.fecha_ini, a.fecha_vence, a.estado, r.nombre as responsable,
@@ -174,7 +184,7 @@ router.get('/activos-excel', requiereRol(...ROLES_EXPORT), async (req, res) => {
  * copie cada dato una sola vez, en vez de volver a levantar la
  * información desde cero.
  */
-router.get('/propaganda-ine', requiereRol(...ROLES_EXPORT), async (req, res) => {
+router.get('/propaganda-ine', requiereRol(...ROLES_EXPORT), requiereModulo('finanzas'), async (req, res) => {
   const datos = await query(
     `SELECT a.codigo_inventario, a.tipo, a.direccion, a.dimensiones, s.numero as seccion,
             a.empresa, a.costo, a.fecha_ini, a.fecha_vence, a.foto_url,
@@ -257,7 +267,7 @@ router.get('/propaganda-ine', requiereRol(...ROLES_EXPORT), async (req, res) => 
  * VotoTech prepara el paquete, la presentación oficial la hace la
  * campaña directo en el portal del INE.
  */
-router.get('/comprobantes-pdf', requiereRol(...ROLES_EXPORT), async (req, res) => {
+router.get('/comprobantes-pdf', requiereRol(...ROLES_EXPORT), requiereModulo('finanzas'), async (req, res) => {
   const campana = await query('SELECT nombre_candidato, tipo_eleccion FROM campanas WHERE id=$1', [req.usuario.campana_id]);
   const gastos = await query(
     `SELECT fecha, categoria, descripcion, monto, proveedor, rfc, tipo_comprobante, numero_comprobante, evidencia_url
@@ -330,7 +340,7 @@ router.get('/comprobantes-pdf', requiereRol(...ROLES_EXPORT), async (req, res) =
  * de campaña. Se entrega en .docx para poder editarla libremente
  * antes de imprimir/firmar.
  */
-router.get('/oficio-word', requiereRol(...ROLES_EXPORT), async (req, res) => {
+router.get('/oficio-word', requiereRol(...ROLES_EXPORT), requiereModulo('finanzas'), async (req, res) => {
   const campana = await query(
     `SELECT nombre_candidato, tipo_eleccion, tope_gasto_ople,
             (SELECT COALESCE(SUM(monto),0) FROM gastos_campana WHERE campana_id=campanas.id) as total_gastado
@@ -373,7 +383,7 @@ router.get('/oficio-word', requiereRol(...ROLES_EXPORT), async (req, res) => {
   res.send(buffer);
 });
 
-router.get('/estructura', requiereRol(...ROLES_EXPORT), async (req, res) => {
+router.get('/estructura', requiereRol(...ROLES_EXPORT), requiereModulo('estructura'), async (req, res) => {
   const datos = await query(
     `SELECT u.nombre, u.email, u.telefono, u.rol, p.nombre as reporta_a, u.creado_en
      FROM usuarios u LEFT JOIN usuarios p ON p.id = u.parent_id
@@ -400,7 +410,7 @@ router.get('/estructura', requiereRol(...ROLES_EXPORT), async (req, res) => {
   res.end();
 });
 
-router.get('/incidencias', requiereRol(...ROLES_EXPORT), async (req, res) => {
+router.get('/incidencias', requiereRol(...ROLES_EXPORT), requiereModulo('incidencias'), async (req, res) => {
   const datos = await query(
     `SELECT i.tipo, i.urgencia, i.descripcion, s.numero as seccion, i.casilla,
             i.testigos, CASE WHEN i.notificado_ople THEN 'Sí' ELSE 'No' END as notificado_ople,
@@ -435,7 +445,7 @@ router.get('/incidencias', requiereRol(...ROLES_EXPORT), async (req, res) => {
   res.end();
 });
 
-router.get('/respaldo-completo', requiereRol(...ROLES_EXPORT), async (req, res) => {
+router.get('/respaldo-completo', requiereRol(...ROLES_EXPORT), soloAccesoTotal, async (req, res) => {
   const campanaId = req.usuario.campana_id;
   const libro = new ExcelJS.Workbook();
 

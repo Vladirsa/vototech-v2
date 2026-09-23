@@ -34,3 +34,19 @@ export function nombreArchivoSeguro(nombreOriginal) {
     .slice(-120);
   return limpio || 'archivo';
 }
+
+/**
+ * 🔒 NIVELES DE ACCESO A DATOS DENTRO DE UNA MISMA CAMPAÑA.
+ *
+ * El mayor riesgo real no es un hacker de fuera: es alguien de la
+ * campaña rival que se registra como promotor, o un celular de
+ * promotor robado. Por eso los roles "de campo" solo ven y tocan lo
+ * que ELLOS capturaron o tienen asignado — nunca la base completa.
+ */
+export const ROLES_MANDO = ['candidato', 'jefe_campana', 'coord_general'];
+export const ROLES_COORDINACION = [...ROLES_MANDO, 'coord_regional', 'coord_distrital', 'coord_municipal', 'coord_seccional'];
+
+/** ¿Este usuario solo debe ver lo suyo? (promotor, voluntario, encargados, representante) */
+export function soloVeLoPropio(usuario) {
+  return !ROLES_COORDINACION.includes(usuario?.rol);
+}

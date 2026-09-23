@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { query } from '../db/pool.js';
-import { requiereAuth } from '../middleware/auth.js';
+import { requiereAuth, requiereRol } from '../middleware/auth.js';
+import { ROLES_COORDINACION } from '../lib/pertenencia.js';
 
 const router = Router();
 router.use(requiereAuth);
@@ -34,7 +35,8 @@ const esquemaAsignar = z.object({
  * es lo que permite "trazar una zona" en el mapa en vez de dar de
  * alta sección por sección.
  */
-router.post('/asignar', async (req, res) => {
+// 🔒 Asignar/quitar zonas del equipo: solo coordinación y mandos.
+router.post('/asignar', requiereRol(...ROLES_COORDINACION), async (req, res) => {
   const parseado = esquemaAsignar.safeParse(req.body);
   if (!parseado.success) return res.status(400).json({ ok: false, error: 'Datos inválidos' });
   const { usuario_id, secciones } = parseado.data;
@@ -61,7 +63,7 @@ router.post('/asignar', async (req, res) => {
  * DELETE /api/zonas/:usuarioId/:seccionNumero
  * Quitar una sección de la zona de alguien (por si se reasigna).
  */
-router.delete('/:usuarioId/:seccionNumero', async (req, res) => {
+router.delete('/:usuarioId/:seccionNumero', requiereRol(...ROLES_COORDINACION), async (req, res) => {
   const s = await query('SELECT id FROM secciones WHERE estado_id=$2 AND numero=$1', [req.params.seccionNumero, req.usuario.estado_id]);
   if (!s.rows[0]) return res.status(404).json({ ok: false, error: 'Sección no encontrada' });
   await query(

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { query } from '../db/pool.js';
 import { requiereAuth } from '../middleware/auth.js';
+import { soloVeLoPropio } from '../lib/pertenencia.js';
 import { getIo } from '../io.js';
 import { enviarPushMasivo } from './push.js';
 
@@ -54,7 +55,7 @@ const esquemaIncidencia = z.object({
   casilla: z.string().optional(),
   lat: z.number().optional(),
   lng: z.number().optional(),
-  foto_url: z.string().url().optional(),
+  foto_url: z.string().url().max(1000).regex(/^https:\/\//i, 'El enlace debe empezar con https://').optional(),
   testigos: z.string().max(500).optional(),
   notificado_ople: z.boolean().optional(),
 });
@@ -105,10 +106,18 @@ const esquemaEditar = z.object({
   notificado_ople: z.boolean().optional(),
 });
 
+/** 🔒 Coordinación y mandos: cualquier incidencia. Los demás: solo las que ellos reportaron. */
+async function puedeTocarIncidencia(usuario, id) {
+  const r = await query('SELECT reportado_por FROM incidencias WHERE id=$1 AND campana_id=$2', [id, usuario.campana_id]);
+  if (!r.rows[0]) return false;
+  return !soloVeLoPropio(usuario) || r.rows[0].reportado_por === usuario.sub;
+}
+
 router.patch('/:id', async (req, res) => {
   const parseado = esquemaEditar.safeParse(req.body);
   if (!parseado.success) return res.status(400).json({ ok: false, error: parseado.error.errors[0].message });
   const d = parseado.data;
+  if (!(await puedeTocarIncidencia(req.usuario, req.params.id))) return res.status(404).json({ ok: false, error: 'No encontrada' });
 
   const campos = [];
   const valores = [];
@@ -130,6 +139,7 @@ router.patch('/:id', async (req, res) => {
 });
 
 router.patch('/:id/resolver', async (req, res) => {
+  if (!(await puedeTocarIncidencia(req.usuario, req.params.id))) return res.status(404).json({ ok: false, error: 'No encontrada' });
   await query('UPDATE incidencias SET estado=$1 WHERE id=$2 AND campana_id=$3', ['resuelta', req.params.id, req.usuario.campana_id]);
   res.json({ ok: true });
 });

@@ -27,7 +27,18 @@ export async function guardarEnColaOffline(tipo, endpoint, payload, metodo = 'po
 
 export async function contarPendientesOffline() {
   const db = await abrirDB();
-  return db.count(TIENDA);
+  return (await db.getAll(TIENDA)).filter((x) => !x.rechazado).length;
+}
+
+/** Capturas que el servidor RECHAZÓ (ej. casilla que no es tuya) — se muestran para que no se pierdan en silencio. */
+export async function obtenerRechazadosOffline() {
+  const db = await abrirDB();
+  return (await db.getAll(TIENDA)).filter((x) => x.rechazado);
+}
+
+export async function descartarOffline(id) {
+  const db = await abrirDB();
+  await db.delete(TIENDA, id);
 }
 
 export async function obtenerPendientesOffline() {
@@ -48,6 +59,7 @@ export async function sincronizarColaOffline() {
   let exitosos = 0;
 
   for (const item of pendientes) {
+    if (item.rechazado) continue; // ya lo rechazó el servidor: no se reintenta
     try {
       // 🆕 Ahora respeta el método real (POST o PATCH) — antes
       // siempre mandaba POST sin importar cuál necesitaba la
@@ -63,7 +75,19 @@ export async function sincronizarColaOffline() {
       // queda — mejor que la persona lo vea y decida, que perderlo
       // silenciosamente.
       const item2 = await db.get(TIENDA, item.id);
-      if (item2) await db.put(TIENDA, { ...item2, intentos: item2.intentos + 1 });
+      const estado = e?.response?.status;
+      // 🆕 Si el servidor lo RECHAZÓ por una razón que no se arregla
+      // reintentando (datos inválidos, sin permiso, no existe), se marca
+      // como rechazado y se le muestra a la persona con el motivo, en
+      // vez de reintentarlo para siempre sin que nadie se entere.
+      const definitivo = estado >= 400 && estado < 500 && ![401, 408, 429].includes(estado);
+      if (item2) {
+        await db.put(TIENDA, {
+          ...item2,
+          intentos: item2.intentos + 1,
+          ...(definitivo ? { rechazado: true, error: e?.response?.data?.error || `Error ${estado}` } : {}),
+        });
+      }
     }
   }
   return { total: pendientes.length, exitosos };

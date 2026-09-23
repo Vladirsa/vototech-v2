@@ -11,7 +11,9 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { setIo } from './io.js';
 import { query } from './db/pool.js';
-import { requiereAuth, verificarTokenSesion } from './middleware/auth.js';
+import { requiereAuth, requiereRol, verificarTokenSesion } from './middleware/auth.js';
+import { limiteIA, RUTAS_IA } from './lib/limiteIA.js';
+import { ROLES_COORDINACION } from './lib/pertenencia.js';
 import { requiereModulo, requiereModuloMarketing } from './middleware/permisos.js';
 import { correrSeed, cargarHistorico2021 } from '../seed.js';
 
@@ -127,7 +129,10 @@ const QUINCE_MIN = 15 * 60 * 1000;
 const llavePorCuenta = (req) =>
   `${String(req.body?.subdominio || '').toLowerCase().trim()}|${String(req.body?.email || '').toLowerCase().trim()}`;
 
-const limiteGeneral = rateLimit({ windowMs: QUINCE_MIN, max: 1500, message: MENSAJE_LIMITE });
+// El Día de la Elección tiene su PROPIO límite (más alto, abajo) — antes
+// también contaba contra este general, así que la noche de la elección
+// las pantallas en vivo se congelaban con "demasiadas peticiones".
+const limiteGeneral = rateLimit({ windowMs: QUINCE_MIN, max: 1500, message: MENSAJE_LIMITE, skip: (req) => req.path.startsWith('/dia-eleccion') });
 app.use('/api/', limiteGeneral);
 
 const limiteDiaEleccion = rateLimit({ windowMs: QUINCE_MIN, max: 3000, message: MENSAJE_LIMITE });
@@ -173,6 +178,13 @@ app.use('/api/auth/registrar-con-codigo',
 app.use('/api/auth/registrar-campana',
   rateLimit({ windowMs: QUINCE_MIN, max: 10, message: MENSAJE_INTENTOS }),
 );
+
+// 🔒 IA de pago: primero se revisa que el rol tenga el módulo que usa
+// esa función, y luego el tope de uso (ver lib/limiteIA.js).
+app.use('/api/ia/leer-credencial', requiereAuth, requiereModulo('promovidos'));
+app.use('/api/ia/leer-acta', requiereAuth, requiereModulo('dia-eleccion'));
+app.use('/api/ia/estado', requiereAuth, requiereRol('candidato', 'jefe_campana', 'coord_general'));
+app.use(RUTAS_IA, requiereAuth, ...limiteIA);
 
 app.use('/api/auth', authRoutes);
 app.use('/api/geo', geoRoutes);
@@ -313,6 +325,29 @@ function miniaturaVideo(url) {
   return null;
 }
 
+// 🔒 Blindaje del blog público: aunque solo el Super Admin escribe,
+// si algún día se roba esa sesión, el atacante no podrá meter código
+// en vototech.com.mx. Se escapan títulos/etiquetas y solo se aceptan
+// enlaces http(s).
+function escHTML(t) {
+  return String(t ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+function limpiarPost(p) {
+  const url = (u) => (u && /^https?:\/\//i.test(String(u).trim()) ? escHTML(String(u).trim()) : null);
+  return {
+    ...p,
+    titulo_crudo: p.titulo,
+    titulo: escHTML(p.titulo),
+    meta_titulo: p.meta_titulo ? escHTML(p.meta_titulo) : null,
+    resumen: p.resumen ? escHTML(p.resumen) : null,
+    meta_descripcion: p.meta_descripcion ? escHTML(p.meta_descripcion) : null,
+    slug: encodeURIComponent(String(p.slug || '')),
+    etiquetas: (p.etiquetas || []).map(escHTML),
+    imagen_portada: url(p.imagen_portada),
+    url_archivo: url(p.url_archivo),
+  };
+}
+
 function markdownAHtml(texto) {
   if (!texto) return '';
   let seguro = texto
@@ -320,8 +355,13 @@ function markdownAHtml(texto) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
 
-  seguro = seguro.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" loading="lazy">');
-  seguro = seguro.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  // 🔒 También se escapan comillas (antes una comilla en el texto podía
+  // "romper" la etiqueta y meter código) y los enlaces/imágenes solo
+  // se aceptan si empiezan con http:// o https:// (nada de "javascript:").
+  seguro = seguro.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  const urlSegura = (u) => (/^https?:\/\//i.test(u.trim()) ? u.trim() : '#');
+  seguro = seguro.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_, alt, u) => `<img src="${urlSegura(u)}" alt="${alt}" loading="lazy">`);
+  seguro = seguro.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, txt, u) => `<a href="${urlSegura(u)}" target="_blank" rel="noopener nofollow">${txt}</a>`);
   seguro = seguro.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
   seguro = seguro.replace(/\*([^*]+)\*/g, '<em>$1</em>');
   seguro = seguro.replace(/^### (.+)$/gm, '<h3>$1</h3>');
@@ -349,7 +389,7 @@ function barraLateralHTML(recientes) {
 
 app.get('/blog', async (req, res) => {
   const r = await query(`SELECT titulo, slug, tipo, resumen, imagen_portada, url_archivo, etiquetas, fecha_publicacion FROM blog_publicaciones WHERE publicado=true ORDER BY fecha_publicacion DESC LIMIT 100`);
-  const tarjetas = r.rows.map((p) => {
+  const tarjetas = r.rows.map(limpiarPost).map((p) => {
     const imagen = p.imagen_portada || (p.tipo === 'video' ? miniaturaVideo(p.url_archivo) : null);
     return `
     <a class="tarjeta" href="/blog/${p.slug}">
@@ -400,10 +440,11 @@ app.get('/robots.txt', (req, res) => {
 
 app.get('/blog/:slug', async (req, res) => {
   const r = await query('SELECT * FROM blog_publicaciones WHERE slug=$1 AND publicado=true', [req.params.slug]);
-  const p = r.rows[0];
-  if (!p) return res.status(404).send('<h1>No encontrado</h1><a href="/blog">← Volver al blog</a>');
+  if (!r.rows[0]) return res.status(404).send('<h1>No encontrado</h1><a href="/blog">← Volver al blog</a>');
+  const p = limpiarPost(r.rows[0]);
   query('UPDATE blog_publicaciones SET vistas=vistas+1 WHERE id=$1', [p.id]).catch(() => {});
-  const recientes = await query(`SELECT titulo, slug FROM blog_publicaciones WHERE publicado=true AND slug != $1 ORDER BY fecha_publicacion DESC LIMIT 5`, [p.slug]);
+  const recientes = await query(`SELECT titulo, slug FROM blog_publicaciones WHERE publicado=true AND slug != $1 ORDER BY fecha_publicacion DESC LIMIT 5`, [r.rows[0].slug]);
+  recientes.rows = recientes.rows.map(limpiarPost);
 
   let cuerpoMedia = '';
   if (p.tipo === 'video' && p.url_archivo) {
@@ -413,7 +454,7 @@ app.get('/blog/:slug', async (req, res) => {
     cuerpoMedia = `<a class="pdf-embed" href="${p.url_archivo}" target="_blank">📎 Descargar / ver PDF</a>`;
   }
 
-  const metaDesc = (p.meta_descripcion || p.resumen || '').replace(/"/g, '&quot;');
+  const metaDesc = p.meta_descripcion || p.resumen || '';
   res.send(`<!DOCTYPE html><html lang="es-MX"><head><meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>${p.meta_titulo || p.titulo} | Blog VotoTech</title>
@@ -425,7 +466,7 @@ app.get('/blog/:slug', async (req, res) => {
     ${p.imagen_portada ? `<meta property="og:image" content="${p.imagen_portada}">` : ''}
     <meta name="robots" content="index, follow">
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-    <script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'Article', headline: p.titulo, description: metaDesc, datePublished: p.fecha_publicacion })}</script>
+    <script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'Article', headline: p.titulo_crudo, description: r.rows[0].meta_descripcion || r.rows[0].resumen || '', datePublished: p.fecha_publicacion }).replace(/</g, '\\u003c')}</script>
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/style.css">
     <style>${ESTILO_BLOG}</style></head><body>
@@ -440,18 +481,18 @@ app.get('/blog/:slug', async (req, res) => {
           ${p.imagen_portada ? `<img class="art-portada" src="${p.imagen_portada}" alt="${p.titulo}">` : ''}
           <div class="compartir">
             <span class="compartir-label">Compartir:</span>
-            <a href="https://wa.me/?text=${encodeURIComponent(`${p.titulo} — https://www.vototech.com.mx/blog/${p.slug}`)}" target="_blank" rel="noopener">💬 WhatsApp</a>
+            <a href="https://wa.me/?text=${encodeURIComponent(`${p.titulo_crudo} — https://www.vototech.com.mx/blog/${p.slug}`)}" target="_blank" rel="noopener">💬 WhatsApp</a>
             <a href="https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(`https://www.vototech.com.mx/blog/${p.slug}`)}" target="_blank" rel="noopener">📘 Facebook</a>
-            <a href="https://twitter.com/intent/tweet?text=${encodeURIComponent(p.titulo)}&url=${encodeURIComponent(`https://www.vototech.com.mx/blog/${p.slug}`)}" target="_blank" rel="noopener">🐦 X</a>
+            <a href="https://twitter.com/intent/tweet?text=${encodeURIComponent(p.titulo_crudo)}&url=${encodeURIComponent(`https://www.vototech.com.mx/blog/${p.slug}`)}" target="_blank" rel="noopener">🐦 X</a>
             <button onclick="navigator.clipboard.writeText('https://www.vototech.com.mx/blog/${p.slug}').then(()=>{this.textContent='✅ Copiado';setTimeout(()=>{this.textContent='🔗 Copiar link'},2000)})">🔗 Copiar link</button>
           </div>
           ${cuerpoMedia}
           <div class="art-contenido">${markdownAHtml(p.contenido)}</div>
           <div class="compartir">
             <span class="compartir-label">¿Te sirvió? Compártelo:</span>
-            <a href="https://wa.me/?text=${encodeURIComponent(`${p.titulo} — https://www.vototech.com.mx/blog/${p.slug}`)}" target="_blank" rel="noopener">💬 WhatsApp</a>
+            <a href="https://wa.me/?text=${encodeURIComponent(`${p.titulo_crudo} — https://www.vototech.com.mx/blog/${p.slug}`)}" target="_blank" rel="noopener">💬 WhatsApp</a>
             <a href="https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(`https://www.vototech.com.mx/blog/${p.slug}`)}" target="_blank" rel="noopener">📘 Facebook</a>
-            <a href="https://twitter.com/intent/tweet?text=${encodeURIComponent(p.titulo)}&url=${encodeURIComponent(`https://www.vototech.com.mx/blog/${p.slug}`)}" target="_blank" rel="noopener">🐦 X</a>
+            <a href="https://twitter.com/intent/tweet?text=${encodeURIComponent(p.titulo_crudo)}&url=${encodeURIComponent(`https://www.vototech.com.mx/blog/${p.slug}`)}" target="_blank" rel="noopener">🐦 X</a>
           </div>
           <a class="cta" href="/#demo">Probar VotoTech →</a>
         </div>
@@ -511,7 +552,9 @@ io.on('connection', (socket) => {
   // para mandos (canal de coordinadores) — así los mensajes privados
   // ya no viajan al celular de toda la campaña.
   socket.join(`usuario:${sub}`);
-  if (rol !== 'promotor') socket.join(`campana:${campana_id}:coordinadores`);
+  // Solo roles de coordinación y mando (antes entraban también
+  // representantes de casilla y voluntarios).
+  if (ROLES_COORDINACION.includes(rol)) socket.join(`campana:${campana_id}:coordinadores`);
   console.log(`🔌 ${socket.usuario.nombre} conectado a ${sala}`);
 
   if (!usuariosEnLinea.has(campana_id)) usuariosEnLinea.set(campana_id, new Set());

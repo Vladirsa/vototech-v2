@@ -33,7 +33,8 @@ export default function ChatFlotante() {
   const [noLeidos, setNoLeidos] = useState(0);
   const [noLeidosPorConversacion, setNoLeidosPorConversacion] = useState({});
   const finRef = useRef(null);
-  const esPromotor = usuario?.rol === 'promotor';
+  // Canal "Coords.": solo roles de coordinación (igual que el servidor).
+  const esPromotor = !['candidato', 'jefe_campana', 'coord_general', 'coord_regional', 'coord_distrital', 'coord_municipal', 'coord_seccional'].includes(usuario?.rol);
 
   useEffect(() => {
     if (!usuario) return;

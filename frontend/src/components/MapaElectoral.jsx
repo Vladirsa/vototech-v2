@@ -291,10 +291,10 @@ export default function MapaElectoral({ campanaId, estadoId = 29, territorioTipo
   }, [estadoId]);
   useEffect(() => {
     if (!anio) { setResultados({}); return; }
-    api.get(`/resultados/${tipoEleccion}/${anio}`)
+    api.get(`/resultados/${tipoEleccion}/${anio}`, { params: estadoId ? { estado: estadoId } : {} })
       .then(r => setResultados(r.data.data))
       .catch(() => setResultados({}));
-  }, [tipoEleccion, anio]);
+  }, [tipoEleccion, anio, estadoId]);
   const [manzanaActiva, setManzanaActiva] = useState(null);
   const [casas, setCasas] = useState([]);
   const [cargandoManzanas, setCargandoManzanas] = useState(false);

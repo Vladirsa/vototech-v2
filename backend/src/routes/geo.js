@@ -34,7 +34,21 @@ router.get('/manzanas/:seccion', (req, res) => {
   }
 });
 
+// 🔒 Pública y pesada (polígonos de todo un estado): se valida el id
+// y se guarda 5 minutos en memoria para que repetirla mil veces no
+// tumbe la base de datos.
+const cacheSecciones = new Map(); // estadoId → { hasta, cuerpo }
+
 router.get('/secciones/:estadoId', async (req, res) => {
+  const estadoId = parseInt(req.params.estadoId, 10);
+  if (!Number.isInteger(estadoId) || estadoId < 1 || estadoId > 32) {
+    return res.status(400).json({ ok: false, error: 'Estado inválido' });
+  }
+  const guardado = cacheSecciones.get(estadoId);
+  if (guardado && guardado.hasta > Date.now()) {
+    res.set('Cache-Control', 'public, max-age=60');
+    return res.json(guardado.cuerpo);
+  }
   try {
     // 🆕 LA CORRECCIÓN REAL — antes esto SIEMPRE leía el archivo fijo
     // de Tlaxcala, sin importar qué estadoId se pidiera. Ahora la
@@ -53,7 +67,7 @@ router.get('/secciones/:estadoId', async (req, res) => {
       `SELECT s.numero as seccion, m.clave_ine as municipio, m.nombre as municipio_nombre, s.distrito_local, s.distrito_federal, s.geometria
        FROM secciones s JOIN municipios m ON m.id = s.municipio_id
        WHERE s.estado_id = $1 AND s.geometria IS NOT NULL`,
-      [req.params.estadoId]
+      [estadoId]
     );
     const featureCollection = {
       type: 'FeatureCollection',
@@ -69,8 +83,10 @@ router.get('/secciones/:estadoId', async (req, res) => {
     // usar modo incógnito para probar cambios. Con 1 minuto, el mapa
     // sigue cargando rápido en el uso normal, pero un cambio real se
     // nota casi de inmediato.
+    const cuerpo = { ok: true, data: featureCollection };
+    cacheSecciones.set(estadoId, { hasta: Date.now() + 5 * 60 * 1000, cuerpo });
     res.set('Cache-Control', 'public, max-age=60');
-    res.json({ ok: true, data: featureCollection });
+    res.json(cuerpo);
   } catch (e) {
     console.error('Error sirviendo GeoJSON:', e);
     res.status(500).json({ ok: false, error: 'No se pudo cargar el mapa' });

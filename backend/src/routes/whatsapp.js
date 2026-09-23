@@ -3,6 +3,7 @@ import twilio from 'twilio';
 import { z } from 'zod';
 import { query } from '../db/pool.js';
 import { requiereAuth, requiereRol } from '../middleware/auth.js';
+import { esCampanaDemo } from '../lib/limiteIA.js';
 
 const router = Router();
 router.use(requiereAuth);
@@ -38,12 +39,36 @@ router.post('/config', requiereRol('candidato', 'jefe_campana'), async (req, res
  * campaña configuró Twilio. destinatarios = [{telefono, mensaje}]
  */
 const esquemaEnvio = z.object({
-  destinatarios: z.array(z.object({ telefono: z.string(), mensaje: z.string() })).min(1).max(500),
+  destinatarios: z.array(z.object({ telefono: z.string().max(20), mensaje: z.string().min(1).max(1000) })).min(1).max(200),
 });
 
-router.post('/enviar', async (req, res) => {
+/**
+ * 🔒 Antes CUALQUIER usuario (hasta un promotor o un celular robado)
+ * podía mandar hasta 500 WhatsApps por petición, a CUALQUIER número y
+ * con CUALQUIER texto, desde el número oficial de la campaña y a costa
+ * de su cuenta de Twilio (fraude, spam, suplantación). Ahora:
+ *  - solo candidato y jefe de campaña;
+ *  - solo a teléfonos de ciudadanos registrados en SU campaña;
+ *  - máximo 200 por envío y nunca desde la cuenta demo.
+ * (Ninguna pantalla usa este envío hoy — el marketing actual va por
+ * enlaces de WhatsApp — pero seguía abierto.)
+ */
+router.post('/enviar', requiereRol('candidato', 'jefe_campana'), async (req, res) => {
   const parseado = esquemaEnvio.safeParse(req.body);
   if (!parseado.success) return res.status(400).json({ ok: false, error: 'Destinatarios inválidos' });
+  if (await esCampanaDemo(req.usuario.campana_id)) {
+    return res.status(403).json({ ok: false, error: 'La cuenta demo no puede enviar mensajes reales.' });
+  }
+  const ultimos10 = (t) => String(t).replace(/\D/g, '').slice(-10);
+  const telefonosCampana = await query(
+    `SELECT DISTINCT right(regexp_replace(telefono, '\\D', '', 'g'), 10) AS tel FROM promovidos WHERE campana_id=$1 AND telefono IS NOT NULL`,
+    [req.usuario.campana_id]
+  );
+  const permitidos = new Set(telefonosCampana.rows.map((r) => r.tel));
+  const ajenos = parseado.data.destinatarios.filter((d) => !permitidos.has(ultimos10(d.telefono)));
+  if (ajenos.length > 0) {
+    return res.status(400).json({ ok: false, error: `${ajenos.length} número(s) no pertenecen a ciudadanos registrados en tu campaña. Solo se puede enviar a tus promovidos.` });
+  }
 
   const config = await query('SELECT * FROM whatsapp_config WHERE campana_id=$1', [req.usuario.campana_id]);
   if (!config.rows[0]) {

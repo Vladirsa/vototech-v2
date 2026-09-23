@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { query } from '../db/pool.js';
-import { requiereAuth } from '../middleware/auth.js';
+import { requiereAuth, requiereRol } from '../middleware/auth.js';
+import { ROLES_COORDINACION } from '../lib/pertenencia.js';
 
 const router = Router();
 router.use(requiereAuth);
@@ -56,12 +57,14 @@ router.post('/', async (req, res) => {
   res.status(201).json({ ok: true, data: encuesta.rows[0] });
 });
 
-router.patch('/:id/activa', async (req, res) => {
+// 🔒 Activar/desactivar o borrar encuestas: solo coordinación y mandos
+// (antes cualquier promotor podía borrar las encuestas de la campaña).
+router.patch('/:id/activa', requiereRol(...ROLES_COORDINACION), async (req, res) => {
   await query('UPDATE encuestas SET activa=$1 WHERE id=$2 AND campana_id=$3', [!!req.body.activa, req.params.id, req.usuario.campana_id]);
   res.json({ ok: true });
 });
 
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requiereRol(...ROLES_COORDINACION), async (req, res) => {
   await query('DELETE FROM encuestas WHERE id=$1 AND campana_id=$2', [req.params.id, req.usuario.campana_id]);
   res.json({ ok: true });
 });

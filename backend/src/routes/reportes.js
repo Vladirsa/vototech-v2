@@ -4,7 +4,7 @@ import PDFDocument from 'pdfkit';
 import ExcelJS from 'exceljs';
 import Anthropic from '@anthropic-ai/sdk';
 import { query } from '../db/pool.js';
-import { requiereAuth } from '../middleware/auth.js';
+import { requiereAuth, requiereRol } from '../middleware/auth.js';
 
 const router = Router();
 router.use(requiereAuth);
@@ -1906,7 +1906,10 @@ router.get('/personalizado', async (req, res) => {
 });
 
 // GET /reportes/personalizado/exportar — mismo reporte pero como Excel descargable
-router.get('/personalizado/exportar', async (req, res) => {
+// 🔒 Descargar en Excel (con nombres y teléfonos) solo lo pueden los
+// mismos roles que las demás exportaciones — antes esta ruta se saltaba
+// esa regla y la podían usar coordinadores distritales y municipales.
+router.get('/personalizado/exportar', requiereRol('candidato', 'jefe_campana', 'coord_general'), async (req, res) => {
   try {
     const resultado = await obtenerReportePersonalizado(req.usuario.campana_id, req.query);
     const libro = new ExcelJS.Workbook();

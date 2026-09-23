@@ -5,6 +5,7 @@ import PDFDocument from 'pdfkit';
 import { query } from '../db/pool.js';
 import { requiereAuth } from '../middleware/auth.js';
 import { registrarAuditoria } from '../lib/auditoria.js';
+import { limpiarCachePermisos } from '../middleware/permisos.js';
 import { puedeAsignarRol, puedeGestionarA, CAMPOS_EDITABLES_DE_UNO_MISMO, MENSAJE_SIN_RANGO } from '../lib/jerarquiaRoles.js';
 const router = Router();
 router.use(requiereAuth);
@@ -148,6 +149,7 @@ router.put('/permisos', async (req, res) => {
      ON CONFLICT (campana_id, rol, modulo) DO UPDATE SET permitido=$4`,
     [req.usuario.campana_id, rol, modulo, permitido]
   );
+  limpiarCachePermisos(req.usuario.campana_id);
   res.json({ ok: true });
 });
 
@@ -164,6 +166,7 @@ router.delete('/permisos', async (req, res) => {
     'DELETE FROM permisos_personalizados WHERE campana_id=$1 AND rol=$2 AND modulo=$3',
     [req.usuario.campana_id, rol, modulo]
   );
+  limpiarCachePermisos(req.usuario.campana_id);
   res.json({ ok: true });
 });
 
@@ -923,7 +926,7 @@ router.post('/', async (req, res) => {
   if (errorReferencia) return res.status(400).json({ ok: false, error: errorReferencia });
   try {
     const existente = await query(
-      'SELECT id FROM usuarios WHERE campana_id=$1 AND email=$2',
+      'SELECT id FROM usuarios WHERE campana_id=$1 AND lower(email)=lower($2)',
       [req.usuario.campana_id, d.email]
     );
     if (existente.rows.length > 0) {

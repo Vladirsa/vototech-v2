@@ -4,6 +4,18 @@ import crypto from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 import { query } from '../db/pool.js';
 import { requiereAuth } from '../middleware/auth.js';
+import { subirPrivado, enlaceParaVer, TIPOS_DOCUMENTO_PERMITIDOS } from '../lib/almacenamientoPrivado.js';
+
+/**
+ * 🔒 Documentos personales (INE, acta de nacimiento, comprobante de
+ * domicilio) — antes CUALQUIER usuario con sesión, hasta un promotor,
+ * podía ver o reemplazar los del candidato. Ahora solo:
+ *  - candidato, jefe de campaña, coord. general y encargado jurídico;
+ *  - o la propia persona, para sus propios documentos.
+ */
+const ROLES_DOCUMENTOS = ['candidato', 'jefe_campana', 'coord_general', 'encargado_juridico'];
+const puedeVerDocumentosDe = (usuario, usuarioId) => ROLES_DOCUMENTOS.includes(usuario.rol) || usuario.sub === usuarioId;
+const SIN_PERMISO = { ok: false, error: 'Solo el candidato, el jefe de campaña, jurídico o la propia persona pueden ver estos documentos.' };
 
 const router = Router();
 router.use(requiereAuth);
@@ -41,21 +53,23 @@ const DOCUMENTOS_POR_ROL = {
  * tocan según su rol, y cuáles ya se marcaron como entregados.
  */
 router.get('/:usuarioId', async (req, res) => {
+  if (!puedeVerDocumentosDe(req.usuario, req.params.usuarioId)) return res.status(403).json(SIN_PERMISO);
   const usuarioRes = await query('SELECT id, nombre, rol FROM usuarios WHERE id=$1 AND campana_id=$2', [req.params.usuarioId, req.usuario.campana_id]);
   if (!usuarioRes.rows[0]) return res.status(404).json({ ok: false, error: 'Persona no encontrada' });
   const persona = usuarioRes.rows[0];
 
   const plantilla = DOCUMENTOS_POR_ROL[persona.rol] || [];
-  const existentesRes = await query('SELECT * FROM documentos_persona WHERE usuario_id=$1', [req.params.usuarioId]);
+  const existentesRes = await query('SELECT * FROM documentos_persona WHERE usuario_id=$1 AND campana_id=$2', [req.params.usuarioId, req.usuario.campana_id]);
   const existentesPorTipo = {};
   existentesRes.rows.forEach((d) => { existentesPorTipo[d.tipo_documento] = d; });
 
-  const checklist = plantilla.map((doc) => ({
+  // 🔒 Los archivos privados se entregan como enlace temporal (5 min).
+  const checklist = await Promise.all(plantilla.map(async (doc) => ({
     ...doc,
     entregado: existentesPorTipo[doc.tipo]?.entregado || false,
-    archivo_url: existentesPorTipo[doc.tipo]?.archivo_url || null,
+    archivo_url: await enlaceParaVer(existentesPorTipo[doc.tipo]?.archivo_url),
     notas: existentesPorTipo[doc.tipo]?.notas || null,
-  }));
+  })));
 
   res.json({
     ok: true,
@@ -77,11 +91,12 @@ router.get('/:usuarioId', async (req, res) => {
  */
 router.post('/:usuarioId/:tipoDocumento/subir', upload.single('archivo'), async (req, res) => {
   if (!req.file) return res.status(400).json({ ok: false, error: 'No se recibió ningún archivo' });
+  if (!puedeVerDocumentosDe(req.usuario, req.params.usuarioId)) return res.status(403).json(SIN_PERMISO);
+  if (!TIPOS_DOCUMENTO_PERMITIDOS.includes(req.file.mimetype)) {
+    return res.status(400).json({ ok: false, error: 'Solo se aceptan fotos (JPG, PNG, WEBP) o PDF.' });
+  }
   const usuarioRes = await query('SELECT id FROM usuarios WHERE id=$1 AND campana_id=$2', [req.params.usuarioId, req.usuario.campana_id]);
   if (!usuarioRes.rows[0]) return res.status(404).json({ ok: false, error: 'Persona no encontrada' });
-
-  const supabase = clienteSupabase();
-  if (!supabase) return res.status(500).json({ ok: false, error: 'Almacenamiento no configurado en el servidor' });
 
   // 🔒 Tipo de documento y extensión solo con letras/números/guion —
   // antes se usaban tal cual en la ruta del archivo, y con "../" se
@@ -92,9 +107,9 @@ router.post('/:usuarioId/:tipoDocumento/subir', upload.single('archivo'), async 
   const extensionCruda = (req.file.originalname.split('.').pop() || 'jpg').toLowerCase();
   const extension = /^[a-z0-9]{1,5}$/.test(extensionCruda) ? extensionCruda : 'bin';
   const ruta = `${req.usuario.campana_id}/documentos-persona/${req.params.usuarioId}/${req.params.tipoDocumento}-${crypto.randomBytes(6).toString('hex')}.${extension}`;
-  const { error } = await supabase.storage.from('documentos').upload(ruta, req.file.buffer, { contentType: req.file.mimetype });
-  if (error) return res.status(500).json({ ok: false, error: 'No se pudo subir el archivo' });
-  const archivoUrl = supabase.storage.from('documentos').getPublicUrl(ruta).data.publicUrl;
+  // 🔒 A la carpeta PRIVADA (antes a una pública, con enlace permanente).
+  const archivoUrl = await subirPrivado(ruta, req.file.buffer, req.file.mimetype);
+  if (!archivoUrl) return res.status(500).json({ ok: false, error: 'No se pudo subir el archivo' });
 
   const resultado = await query(
     `INSERT INTO documentos_persona (usuario_id, campana_id, tipo_documento, entregado, archivo_url, actualizado_por)
@@ -104,7 +119,7 @@ router.post('/:usuarioId/:tipoDocumento/subir', upload.single('archivo'), async 
      RETURNING *`,
     [req.params.usuarioId, req.usuario.campana_id, req.params.tipoDocumento, archivoUrl, req.usuario.sub]
   );
-  res.json({ ok: true, data: resultado.rows[0] });
+  res.json({ ok: true, data: { ...resultado.rows[0], archivo_url: await enlaceParaVer(archivoUrl) } });
 });
 
 /**
@@ -113,20 +128,24 @@ router.post('/:usuarioId/:tipoDocumento/subir', upload.single('archivo'), async 
  * opcional (ej. "trae copia, falta el original").
  */
 router.patch('/:usuarioId/:tipoDocumento', async (req, res) => {
-  const { entregado, notas, archivo_url } = req.body;
+  // 🔒 Ya no se acepta "archivo_url" desde fuera (antes se podía plantar
+  // cualquier enlace, p. ej. uno falso de phishing, como "documento").
+  const { entregado, notas } = req.body;
+  if (!puedeVerDocumentosDe(req.usuario, req.params.usuarioId)) return res.status(403).json(SIN_PERMISO);
+  if (!/^[a-z0-9_-]{1,40}$/i.test(req.params.tipoDocumento)) return res.status(400).json({ ok: false, error: 'Tipo de documento inválido' });
 
   const usuarioRes = await query('SELECT id FROM usuarios WHERE id=$1 AND campana_id=$2', [req.params.usuarioId, req.usuario.campana_id]);
   if (!usuarioRes.rows[0]) return res.status(404).json({ ok: false, error: 'Persona no encontrada' });
 
   const resultado = await query(
-    `INSERT INTO documentos_persona (usuario_id, campana_id, tipo_documento, entregado, notas, archivo_url, actualizado_por)
-     VALUES ($1,$2,$3,$4,$5,$6,$7)
+    `INSERT INTO documentos_persona (usuario_id, campana_id, tipo_documento, entregado, notas, actualizado_por)
+     VALUES ($1,$2,$3,$4,$5,$6)
      ON CONFLICT (usuario_id, tipo_documento)
-     DO UPDATE SET entregado=$4, notas=$5, archivo_url=COALESCE($6, documentos_persona.archivo_url), actualizado_por=$7, actualizado_en=now()
+     DO UPDATE SET entregado=$4, notas=$5, actualizado_por=$6, actualizado_en=now()
      RETURNING *`,
-    [req.params.usuarioId, req.usuario.campana_id, req.params.tipoDocumento, entregado ?? false, notas || null, archivo_url || null, req.usuario.sub]
+    [req.params.usuarioId, req.usuario.campana_id, req.params.tipoDocumento, !!entregado, typeof notas === 'string' ? notas.slice(0, 500) : null, req.usuario.sub]
   );
-  res.json({ ok: true, data: resultado.rows[0] });
+  res.json({ ok: true, data: { ...resultado.rows[0], archivo_url: await enlaceParaVer(resultado.rows[0].archivo_url) } });
 });
 
 /**
@@ -136,6 +155,7 @@ router.patch('/:usuarioId/:tipoDocumento', async (req, res) => {
  * vistazo a quién le falta algo sin tener que revisar uno por uno.
  */
 router.get('/resumen/faltantes', async (req, res) => {
+  if (!ROLES_DOCUMENTOS.includes(req.usuario.rol)) return res.status(403).json(SIN_PERMISO);
   const personas = await query(
     `SELECT id, nombre, rol, puesto FROM usuarios WHERE campana_id=$1 AND rol IN ('candidato', 'representante_casilla')`,
     [req.usuario.campana_id]

@@ -10,7 +10,8 @@ const router = Router();
 router.use(requiereAuth);
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
+// 🔒 6 MB basta para una foto de celular de credencial o acta (antes 15 MB).
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 6 * 1024 * 1024 } });
 
 /**
  * Redimensiona a 1200px en su lado más largo (suficiente para texto
@@ -23,7 +24,10 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 
  * razonamiento más potente (y más caro) de Sonnet.
  */
 async function comprimirParaClaude(bufferOriginal) {
-  const bufferComprimido = await sharp(bufferOriginal)
+  // 🔒 limitInputPixels: rechaza imágenes "bomba" (pesan poco pero
+  // miden decenas de miles de píxeles) que agotarían la memoria del
+  // servidor y lo tumbarían — 40 megapíxeles sobra para cualquier celular.
+  const bufferComprimido = await sharp(bufferOriginal, { limitInputPixels: 40_000_000 })
     .rotate()
     .resize(1200, 1200, { fit: 'inside', withoutEnlargement: true })
     .jpeg({ quality: 85 })

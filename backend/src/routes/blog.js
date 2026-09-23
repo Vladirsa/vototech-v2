@@ -42,7 +42,7 @@ const esquemaPublicacion = z.object({
   resumen: z.string().max(500).optional(),
   contenido: z.string().optional(),
   url_video: z.preprocess((v) => (v === '' ? undefined : v), z.string().url('El link del video no es válido').optional()),
-  imagen_portada: z.preprocess((v) => (v === '' ? undefined : v), z.string().url().optional()),
+  imagen_portada: z.preprocess((v) => (v === '' ? undefined : v), z.string().url().max(1000).regex(/^https:\/\//i, 'El enlace debe empezar con https://').optional()),
   etiquetas: z.array(z.string()).default([]),
   meta_titulo: z.string().max(200).optional(),
   meta_descripcion: z.string().max(320).optional(),

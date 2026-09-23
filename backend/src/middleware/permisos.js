@@ -1,3 +1,4 @@
+import { query } from '../db/pool.js';
 /**
  * Control de acceso real por módulo — la misma matriz que ya se usa
  * en el frontend (AppShell.jsx) para ocultar el menú, pero aplicada
@@ -98,17 +99,64 @@ function modulosDeCoordGeneral(puesto) {
  * Middleware: exige que el rol del usuario tenga acceso al módulo
  * indicado. Debe usarse DESPUÉS de requiereAuth (necesita req.usuario.rol).
  */
+// 🔒 Restricciones personalizadas que el Jefe marca en Estructura →
+// Permisos. Antes se guardaban pero NADIE las revisaba: quitarle
+// "Finanzas" a un rol no le quitaba nada en realidad. Ahora el
+// servidor las respeta. Se guardan en memoria 60 segundos para no
+// consultar la base en cada clic (y se borran al instante cuando el
+// Jefe cambia un permiso).
+// Nota: solo se aplican las RESTRICCIONES (permitido = false). Dar un
+// módulo extra a un rol que normalmente no lo tiene no se permite por
+// seguridad: los permisos base de cada rol siguen siendo el máximo.
+const cacheRestricciones = new Map(); // campana → { hasta, set("rol|modulo") }
+
+async function restriccionesDe(campanaId) {
+  const c = cacheRestricciones.get(campanaId);
+  if (c && c.hasta > Date.now()) return c.set;
+  const r = await query(
+    'SELECT rol, modulo FROM permisos_personalizados WHERE campana_id=$1 AND permitido=false',
+    [campanaId]
+  );
+  const set = new Set(r.rows.map((x) => `${x.rol}|${x.modulo}`));
+  cacheRestricciones.set(campanaId, { hasta: Date.now() + 60 * 1000, set });
+  return set;
+}
+
+/** Llamar cuando se cambia un permiso para que aplique de inmediato. */
+export function limpiarCachePermisos(campanaId) {
+  cacheRestricciones.delete(campanaId);
+}
+
+/** Lista de módulos base según rol/puesto (sin restricciones personalizadas). */
+export function modulosBaseDe(usuario) {
+  if (!usuario) return [];
+  if (usuario.rol === 'voluntario') return modulosDeVoluntario(usuario.puesto);
+  if (usuario.rol === 'coord_general') return modulosDeCoordGeneral(usuario.puesto);
+  return MODULOS_POR_ROL[usuario.rol] || [];
+}
+
+/** ¿El usuario tiene este módulo? (incluye restricciones personalizadas) */
+export async function tieneModulo(usuario, clave) {
+  if (!modulosBaseDe(usuario).includes(clave)) return false;
+  if (usuario.rol === 'candidato') return true; // el candidato nunca se restringe
+  try {
+    const restricciones = await restriccionesDe(usuario.campana_id);
+    return !restricciones.has(`${usuario.rol}|${clave}`);
+  } catch {
+    return true; // si la base falla, se aplican solo los permisos base
+  }
+}
+
+/**
+ * Middleware: exige que el rol del usuario tenga acceso al módulo
+ * indicado. Debe usarse DESPUÉS de requiereAuth (necesita req.usuario.rol).
+ */
 export function requiereModulo(clave) {
-  return (req, res, next) => {
+  return async (req, res, next) => {
     if (!req.usuario) {
       return res.status(401).json({ ok: false, error: 'No autenticado' });
     }
-    let permitidos;
-    if (req.usuario.rol === 'voluntario') permitidos = modulosDeVoluntario(req.usuario.puesto);
-    else if (req.usuario.rol === 'coord_general') permitidos = modulosDeCoordGeneral(req.usuario.puesto);
-    else permitidos = MODULOS_POR_ROL[req.usuario.rol] || [];
-
-    if (!permitidos.includes(clave)) {
+    if (!(await tieneModulo(req.usuario, clave))) {
       return res.status(403).json({
         ok: false,
         error: `Tu rol no tiene acceso al módulo de ${clave}. Si crees que esto es un error, contacta al jefe de campaña.`,

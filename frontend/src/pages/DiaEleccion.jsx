@@ -25,6 +25,10 @@ const ROLES_ALTOS = ['candidato', 'jefe_campana', 'coord_general'];
 // de TODA la campaña — eso lo distrae y no le sirve para su tarea.
 // Prep y Conteo rápido son vistas de mando, no de campo.
 const ROLES_VISTA_SIMPLE = ['promotor', 'coord_seccional'];
+// Mismos roles que el servidor considera "coordinación" (lib/pertenencia.js):
+// el resto (representantes, voluntarios, promotores...) no pide los
+// avances de toda la campaña, porque el servidor ya no se los da.
+const ROLES_COORDINACION = ['candidato', 'jefe_campana', 'coord_general', 'coord_regional', 'coord_distrital', 'coord_municipal', 'coord_seccional'];
 
 /** Captura rápida: foto primero, números mientras se sube en segundo plano. */
 function FormularioCaptura({ onGuardado, bloqueada }) {
@@ -196,6 +200,7 @@ export default function DiaEleccion() {
   // sensible del día de la elección.
   const puedeVerAvanceEnVivo = ROLES_AVANCE_EN_VIVO.includes(usuario?.rol);
   const vistaSimple = ROLES_VISTA_SIMPLE.includes(usuario?.rol);
+  const veAvances = !vistaSimple && ROLES_COORDINACION.includes(usuario?.rol);
   const [tab, setTab] = useState('captura');
   const [resultados, setResultados] = useState([]);
   const [caceria, setCaceria] = useState([]);
@@ -228,8 +233,8 @@ export default function DiaEleccion() {
     cargarConteo();
     api.get('/dia-eleccion/alertas-sin-reportar').then((r) => setAlertasSinReportar(r.data.data));
     if (puedeVerAvanceEnVivo) api.get('/dia-eleccion/ultimos-reportes').then((r) => setNotificaciones(r.data.data)).catch(() => {});
-    if (!vistaSimple) api.get('/dia-eleccion/avance-estructura').then((r) => setAvanceEstructura(r.data.data)).catch(() => {});
-    if (!vistaSimple) api.get('/dia-eleccion/avance-por-seccion').then((r) => setAvancePorSeccion(r.data.data)).catch(() => {});
+    if (veAvances) api.get('/dia-eleccion/avance-estructura').then((r) => setAvanceEstructura(r.data.data)).catch(() => {});
+    if (veAvances) api.get('/dia-eleccion/avance-por-seccion').then((r) => setAvancePorSeccion(r.data.data)).catch(() => {});
     api.get('/auth/mi-campana').then((r) => setEsDemo(r.data.data.es_demo)).catch(() => {});
   };
   useEffect(cargarTodo, []);
@@ -294,7 +299,7 @@ export default function DiaEleccion() {
       // 🆕 Antes solo se actualizaba la lista de Cacería — el panel
       // de "avance por sección" se quedaba desactualizado hasta la
       // siguiente vez que se recargara toda la página.
-      if (!vistaSimple) api.get('/dia-eleccion/avance-por-seccion').then((r) => setAvancePorSeccion(r.data.data)).catch(() => {});
+      if (veAvances) api.get('/dia-eleccion/avance-por-seccion').then((r) => setAvancePorSeccion(r.data.data)).catch(() => {});
     },
     captura_estado_cambio: (d) => setCapturaCerrada(d.cerrada),
   });

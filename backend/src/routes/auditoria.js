@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { query } from '../db/pool.js';
-import { requiereAuth } from '../middleware/auth.js';
+import { requiereAuth, requiereRol } from '../middleware/auth.js';
 
 const router = Router();
 router.use(requiereAuth);
@@ -15,7 +15,9 @@ router.use(requiereAuth);
  * Filtros opcionales: ?tabla=gastos_campana, ?accion=borrar,
  * ?usuario_id=..., ?desde=2026-08-01, ?hasta=2026-08-31
  */
-router.get('/', async (req, res) => {
+// 🔒 La bitácora completa (quién hizo qué, IPs, datos) solo la ven los
+// mandos — antes cualquier usuario con sesión podía leerla completa.
+router.get('/', requiereRol('candidato', 'jefe_campana', 'coord_general'), async (req, res) => {
   const { tabla, accion, usuario_id, desde, hasta, buscar } = req.query;
   let sql = `SELECT * FROM auditoria WHERE campana_id = $1`;
   const params = [req.usuario.campana_id];

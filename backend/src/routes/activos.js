@@ -355,7 +355,7 @@ const esquemaBaja = z.object({
   destino_baja: z.enum(['transferido_partido', 'vendido', 'donado', 'destruido', 'devuelto_comodato', 'perdido']),
   motivo_baja: z.string().min(3).max(500),
   valor_venta: z.number().optional(),
-  evidencia_baja_url: z.string().url().optional(),
+  evidencia_baja_url: z.string().url().max(1000).regex(/^https:\/\//i, 'El enlace debe empezar con https://').optional(),
 });
 router.post('/:id/baja', async (req, res) => {
   const parseado = esquemaBaja.safeParse(req.body);

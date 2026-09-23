@@ -20,6 +20,24 @@ function clienteSupabase() {
 }
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 
+// 🔒 Estas subidas van a carpetas PÚBLICAS. Antes aceptaban cualquier
+// tipo de archivo con el nombre que mandara el usuario: alguien podía
+// subir una página HTML falsa (con apariencia de VotoTech) o un
+// programa, y usar tu dominio de almacenamiento para engañar gente.
+// Ahora solo fotos, videos cortos y PDF, y el nombre se limpia.
+const TIPOS_IMAGEN = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+const TIPOS_BIBLIOTECA = [...TIPOS_IMAGEN, 'video/mp4', 'video/quicktime', 'video/webm', 'application/pdf', 'audio/mpeg', 'audio/mp4', 'audio/ogg'];
+const EXTENSION_POR_TIPO = {
+  'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif',
+  'video/mp4': 'mp4', 'video/quicktime': 'mov', 'video/webm': 'webm', 'application/pdf': 'pdf',
+  'audio/mpeg': 'mp3', 'audio/mp4': 'm4a', 'audio/ogg': 'ogg',
+};
+function nombreSeguro(archivo) {
+  const base = (archivo.originalname || 'archivo').replace(/\.[^.]*$/, '').normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 40) || 'archivo';
+  return `${crypto.randomBytes(8).toString('hex')}-${base}.${EXTENSION_POR_TIPO[archivo.mimetype]}`;
+}
+
 // 🆕 QUITADO — el envío automático por Twilio (WhatsApp Business API)
 // se eliminó por completo. Mandar mensajes de campaña a gente que
 // nunca dio opt-in específico de WhatsApp (distinto al consentimiento
@@ -178,7 +196,7 @@ const esquemaEnvio = z.object({
   // 🆕 Enlaces de imágenes ya subidas (con /subir-imagen-envio) — se
   // agregan al final del mensaje de cada persona, para que WhatsApp
   // muestre su vista previa sola.
-  imagenes: z.array(z.string().url()).max(5).default([]),
+  imagenes: z.array(z.string().url().max(1000).regex(/^https:\/\//i, 'El enlace debe empezar con https://')).max(5).default([]),
   // 🆕 Enlace de confirmación — se agrega personalizado a cada
   // persona, para que conteste tocando un botón en vez de un chat
   // que nadie ve. 'voto' usa la pantalla ya existente de "¿ya
@@ -202,9 +220,11 @@ const esquemaEnvio = z.object({
  */
 router.post('/subir-imagen-envio', upload.single('imagen'), async (req, res) => {
   if (!req.file) return res.status(400).json({ ok: false, error: 'No se recibió ninguna imagen' });
+  if (!TIPOS_IMAGEN.includes(req.file.mimetype)) return res.status(400).json({ ok: false, error: 'Solo se permiten imágenes (JPG, PNG, WEBP o GIF)' });
+  if (req.file.size > 8 * 1024 * 1024) return res.status(400).json({ ok: false, error: 'La imagen pesa más de 8 MB' });
   const supabase = clienteSupabase();
   if (!supabase) return res.status(500).json({ ok: false, error: 'Almacenamiento no configurado' });
-  const ruta = `${req.usuario.campana_id}/envios-whatsapp/${crypto.randomBytes(8).toString('hex')}-${req.file.originalname}`;
+  const ruta = `${req.usuario.campana_id}/envios-whatsapp/${nombreSeguro(req.file)}`;
   const { error } = await supabase.storage.from('blog-publico').upload(ruta, req.file.buffer, { contentType: req.file.mimetype });
   if (error) return res.status(500).json({ ok: false, error: 'No se pudo subir la imagen' });
   const url = supabase.storage.from('blog-publico').getPublicUrl(ruta).data.publicUrl;
@@ -311,13 +331,17 @@ router.post('/biblioteca', upload.single('archivo'), async (req, res) => {
   if (req.file) {
     const supabase = clienteSupabase();
     if (!supabase) return res.status(500).json({ ok: false, error: 'Almacenamiento no configurado' });
-    const ruta = `${req.usuario.campana_id}/biblioteca/${crypto.randomBytes(8).toString('hex')}-${req.file.originalname}`;
+    if (!TIPOS_BIBLIOTECA.includes(req.file.mimetype)) return res.status(400).json({ ok: false, error: 'Tipo de archivo no permitido. Usa foto, video, audio o PDF.' });
+    const ruta = `${req.usuario.campana_id}/biblioteca/${nombreSeguro(req.file)}`;
     const { error } = await supabase.storage.from('blog-publico').upload(ruta, req.file.buffer, { contentType: req.file.mimetype });
     if (error) return res.status(500).json({ ok: false, error: 'No se pudo subir el archivo' });
     url = supabase.storage.from('blog-publico').getPublicUrl(ruta).data.publicUrl;
   }
 
-  const etiquetasArr = etiquetas ? (typeof etiquetas === 'string' ? JSON.parse(etiquetas) : etiquetas) : [];
+  let etiquetasArr = [];
+  try { etiquetasArr = etiquetas ? (typeof etiquetas === 'string' ? JSON.parse(etiquetas) : etiquetas) : []; } catch { etiquetasArr = []; }
+  if (!Array.isArray(etiquetasArr)) etiquetasArr = [];
+  etiquetasArr = etiquetasArr.slice(0, 20).map((e) => String(e).slice(0, 40));
   const resultado = await query(
     `INSERT INTO contenido_biblioteca (campana_id, tipo, titulo, url, texto, etiquetas, creado_por)
      VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
@@ -519,10 +543,13 @@ router.post('/monitoreo-redes', upload.single('captura'), async (req, res) => {
   const d = parseado.data;
 
   let capturaUrl = null;
+  if (req.file && !TIPOS_IMAGEN.includes(req.file.mimetype)) {
+    return res.status(400).json({ ok: false, error: 'La captura debe ser una imagen (JPG, PNG, WEBP o GIF)' });
+  }
   if (req.file) {
     const supabase = clienteSupabase();
     if (supabase) {
-      const ruta = `${req.usuario.campana_id}/monitoreo-redes/${crypto.randomBytes(8).toString('hex')}.jpg`;
+      const ruta = `${req.usuario.campana_id}/monitoreo-redes/${nombreSeguro(req.file)}`;
       const { error } = await supabase.storage.from('documentos').upload(ruta, req.file.buffer, { contentType: req.file.mimetype });
       if (!error) capturaUrl = supabase.storage.from('documentos').getPublicUrl(ruta).data.publicUrl;
     }

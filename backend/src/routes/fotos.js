@@ -5,6 +5,8 @@ import crypto from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 import { query } from '../db/pool.js';
 import { requiereAuth } from '../middleware/auth.js';
+import { soloVeLoPropio } from '../lib/pertenencia.js';
+import { registrarAuditoria } from '../lib/auditoria.js';
 
 const router = Router();
 router.use(requiereAuth);
@@ -69,7 +71,8 @@ router.post('/subir', upload.single('foto'), async (req, res) => {
 
     // Comprimir: max 1600px del lado largo, JPEG calidad 78 — un acta
     // sigue siendo perfectamente legible y pesa 20 veces menos
-    const comprimida = await sharp(req.file.buffer)
+    // 🔒 limitInputPixels: rechaza imágenes "bomba" que tumbarían el servidor.
+    const comprimida = await sharp(req.file.buffer, { limitInputPixels: 40_000_000 })
       .rotate() // respeta la orientación EXIF del celular
       .resize(1600, 1600, { fit: 'inside', withoutEnlargement: true })
       .jpeg({ quality: 78 })
@@ -117,6 +120,17 @@ router.get('/:contexto/:referenciaId', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   const foto = await query('SELECT * FROM fotos WHERE id=$1 AND campana_id=$2', [req.params.id, req.usuario.campana_id]);
   if (!foto.rows[0]) return res.status(404).json({ ok: false, error: 'Foto no encontrada' });
+  // 🔒 Las fotos de ACTA son evidencia legal del resultado: solo los
+  // mandos las pueden borrar. Las demás: coordinación o quien la subió.
+  const f = foto.rows[0];
+  const esMando = ['candidato', 'jefe_campana', 'coord_general'].includes(req.usuario.rol);
+  if (f.contexto === 'acta' ? !esMando : (soloVeLoPropio(req.usuario) && f.subido_por !== req.usuario.sub)) {
+    return res.status(403).json({ ok: false, error: f.contexto === 'acta' ? 'Las fotos de acta son evidencia: solo el candidato, jefe de campaña o coord. general las pueden borrar.' : 'Solo puedes borrar fotos que tú subiste.' });
+  }
+  registrarAuditoria({
+    campanaId: req.usuario.campana_id, usuarioId: req.usuario.sub, usuarioNombre: req.usuario.nombre,
+    accion: 'borrar', tabla: 'fotos', registroId: f.id, detalle: { contexto: f.contexto, referencia_id: f.referencia_id, url: f.url }, ip: req.ip,
+  });
 
   const supabase = clienteSupabase();
   if (supabase) {
@@ -124,7 +138,7 @@ router.delete('/:id', async (req, res) => {
     const ruta = foto.rows[0].url.split('/fotos/')[1];
     if (ruta) await supabase.storage.from('fotos').remove([ruta]);
   }
-  await query('DELETE FROM fotos WHERE id=$1', [req.params.id]);
+  await query('DELETE FROM fotos WHERE id=$1 AND campana_id=$2', [req.params.id, req.usuario.campana_id]);
   res.json({ ok: true });
 });
 

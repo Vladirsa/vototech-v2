@@ -4,6 +4,26 @@ import { query } from '../db/pool.js';
 import { requiereAuth } from '../middleware/auth.js';
 import { registrarAuditoria } from '../lib/auditoria.js';
 import { encontrarSeccionRealDelPunto } from '../lib/geoUtils.js';
+import { soloVeLoPropio, ROLES_COORDINACION, ROLES_MANDO, usuarioEsDeMiCampana } from '../lib/pertenencia.js';
+import { requiereRol } from '../middleware/auth.js';
+
+/**
+ * 🔒 ¿Puede este usuario tocar a ESTE promovido? Coordinadores y
+ * mandos: cualquiera de su campaña. Promotores, voluntarios y
+ * encargados: solo los que ellos registraron o tienen asignados para
+ * seguimiento. Antes cualquier promotor podía leer y modificar la base
+ * completa de la campaña.
+ */
+async function puedeTocarPromovido(usuario, promovidoId) {
+  const r = await query(
+    'SELECT registrado_por, asignado_seguimiento_a FROM promovidos WHERE id=$1 AND campana_id=$2',
+    [promovidoId, usuario.campana_id]
+  );
+  const p = r.rows[0];
+  if (!p) return false;
+  if (!soloVeLoPropio(usuario)) return true;
+  return p.registrado_por === usuario.sub || p.asignado_seguimiento_a === usuario.sub;
+}
 
 const router = Router();
 router.use(requiereAuth); // todo este módulo requiere sesión
@@ -66,6 +86,8 @@ router.get('/', async (req, res) => {
     WHERE p.campana_id = $1`;
   const params = [req.usuario.campana_id];
 
+  // 🔒 Roles de campo: solo sus propios promovidos.
+  if (soloVeLoPropio(req.usuario)) { params.push(req.usuario.sub); sql += ` AND (p.registrado_por = $${params.length} OR p.asignado_seguimiento_a = $${params.length})`; }
   if (seccion) { params.push(seccion); sql += ` AND s.numero = $${params.length}`; }
   if (registrador) { params.push(registrador); sql += ` AND p.registrado_por = $${params.length}`; }
   if (buscar) { params.push(`%${buscar}%`); sql += ` AND (unaccent(p.nombre) ILIKE unaccent($${params.length}) OR p.telefono ILIKE $${params.length})`; }
@@ -95,8 +117,9 @@ router.get('/duplicados', async (req, res) => {
      LEFT JOIN secciones s ON s.id = p.seccion_id
      LEFT JOIN usuarios u ON u.id = p.registrado_por
      WHERE p.campana_id = $1 AND p.veces_intentado > 1
+       ${soloVeLoPropio(req.usuario) ? 'AND (p.registrado_por = $2 OR p.asignado_seguimiento_a = $2)' : ''}
      ORDER BY p.veces_intentado DESC LIMIT 100`,
-    [req.usuario.campana_id]
+    soloVeLoPropio(req.usuario) ? [req.usuario.campana_id, req.usuario.sub] : [req.usuario.campana_id]
   );
   res.json({ ok: true, data: resultado.rows });
 });
@@ -151,9 +174,10 @@ router.get('/seguimiento-prioritario', async (req, res) => {
      FROM promovidos p
      LEFT JOIN secciones s ON s.id = p.seccion_id
      WHERE p.campana_id = $1 AND p.comprometido IS NULL
+       ${soloVeLoPropio(req.usuario) ? 'AND (p.registrado_por = $2 OR p.asignado_seguimiento_a = $2)' : ''}
      ORDER BY p.ultimo_contacto ASC NULLS FIRST, p.creado_en ASC
      LIMIT 50`,
-    [req.usuario.campana_id]
+    soloVeLoPropio(req.usuario) ? [req.usuario.campana_id, req.usuario.sub] : [req.usuario.campana_id]
   );
   res.json({ ok: true, data: resultado.rows });
 });
@@ -213,7 +237,8 @@ const META_MINIMA_PROMOTOR = 5;
  * tiempo), luego por fecha de próximo contacto más próxima.
  */
 router.get('/seguimiento', async (req, res) => {
-  const soloMios = req.query.solo_mios === 'true';
+  // 🔒 Roles de campo siempre ven solo los suyos, pidan lo que pidan.
+  const soloMios = req.query.solo_mios === 'true' || soloVeLoPropio(req.usuario);
   const filtroAsignado = soloMios ? 'AND (p.asignado_seguimiento_a=$2 OR p.registrado_por=$2)' : '';
   const params = soloMios ? [req.usuario.campana_id, req.usuario.sub] : [req.usuario.campana_id];
 
@@ -225,7 +250,8 @@ router.get('/seguimiento', async (req, res) => {
      LEFT JOIN secciones s ON s.id = p.seccion_id
      LEFT JOIN usuarios u ON u.id = p.asignado_seguimiento_a
      WHERE p.campana_id=$1 AND p.comprometido IS NULL ${filtroAsignado}
-     ORDER BY (p.proximo_seguimiento IS NULL) ASC, p.proximo_seguimiento ASC NULLS LAST`,
+     ORDER BY (p.proximo_seguimiento IS NULL) ASC, p.proximo_seguimiento ASC NULLS LAST
+     LIMIT 2000`,
     params
   );
   res.json({ ok: true, data: resultado.rows });
@@ -241,8 +267,11 @@ router.get('/seguimiento', async (req, res) => {
 router.patch('/:id/seguimiento', async (req, res) => {
   const { notas, proximo_seguimiento, asignado_a, se_convencio } = req.body;
 
-  const actual = await query('SELECT veces_contactado FROM promovidos WHERE id=$1 AND campana_id=$2', [req.params.id, req.usuario.campana_id]);
-  if (!actual.rows[0]) return res.status(404).json({ ok: false, error: 'No encontrado' });
+  if (!(await puedeTocarPromovido(req.usuario, req.params.id))) return res.status(404).json({ ok: false, error: 'No encontrado' });
+  // 🔒 Solo se reasigna a alguien de esta misma campaña.
+  if (asignado_a && !(await usuarioEsDeMiCampana(asignado_a, req.usuario.campana_id))) {
+    return res.status(400).json({ ok: false, error: 'La persona asignada no pertenece a esta campaña' });
+  }
 
   if (se_convencio) {
     const resultado = await query(
@@ -448,12 +477,9 @@ router.post('/:id/contacto', async (req, res) => {
   const d = parseado.data;
 
   try {
-    // Verificar que el promovido pertenece a la campaña del usuario (aislamiento multi-tenant)
-    const propietario = await query(
-      'SELECT id FROM promovidos WHERE id=$1 AND campana_id=$2',
-      [req.params.id, req.usuario.campana_id]
-    );
-    if (propietario.rows.length === 0) {
+    // Verificar que el promovido pertenece a la campaña del usuario
+    // (aislamiento multi-tenant) y que este usuario lo puede tocar.
+    if (!(await puedeTocarPromovido(req.usuario, req.params.id))) {
       return res.status(404).json({ ok: false, error: 'Promovido no encontrado' });
     }
 
@@ -492,6 +518,7 @@ router.post('/:id/contacto', async (req, res) => {
  * conversación, a mano, en 2 clics.
  */
 router.get('/:id/interacciones', async (req, res) => {
+  if (!(await puedeTocarPromovido(req.usuario, req.params.id))) return res.status(404).json({ ok: false, error: 'No encontrado' });
   const resultado = await query(
     `SELECT pi.*, u.nombre as creado_por_nombre
      FROM promovidos_interacciones pi
@@ -507,8 +534,7 @@ router.get('/:id/interacciones', async (req, res) => {
 router.post('/:id/interacciones', async (req, res) => {
   const { nota, canal } = req.body;
   if (!nota || nota.trim().length < 2) return res.status(400).json({ ok: false, error: 'Escribe qué se platicó' });
-  const promovido = await query('SELECT id FROM promovidos WHERE id=$1 AND campana_id=$2', [req.params.id, req.usuario.campana_id]);
-  if (!promovido.rows[0]) return res.status(404).json({ ok: false, error: 'Promovido no encontrado' });
+  if (!(await puedeTocarPromovido(req.usuario, req.params.id))) return res.status(404).json({ ok: false, error: 'Promovido no encontrado' });
   const resultado = await query(
     `INSERT INTO promovidos_interacciones (campana_id, promovido_id, canal, nota, creado_por) VALUES ($1,$2,$3,$4,$5) RETURNING *`,
     [req.usuario.campana_id, req.params.id, canal || 'whatsapp', nota.trim(), req.usuario.sub]
@@ -516,7 +542,8 @@ router.post('/:id/interacciones', async (req, res) => {
   res.status(201).json({ ok: true, data: resultado.rows[0] });
 });
 
-router.get('/verificacion-campo', async (req, res) => {
+// 🔒 Supervisión de promotores: solo coordinadores y mandos.
+router.get('/verificacion-campo', requiereRol(...ROLES_COORDINACION), async (req, res) => {
   const resultado = await query(
     `SELECT
        u.id as promotor_id, u.nombre as promotor_nombre,
@@ -543,7 +570,8 @@ router.get('/verificacion-campo', async (req, res) => {
  * un promovido, reusando ese mismo dato en vez de pedir uno nuevo).
  * Solo trae promotores que sí tienen al menos una captura con GPS.
  */
-router.get('/ubicaciones-promotores', async (req, res) => {
+// 🔒 Ubicación GPS del equipo: solo coordinadores y mandos (antes cualquier promotor veía dónde estaban todos).
+router.get('/ubicaciones-promotores', requiereRol(...ROLES_COORDINACION), async (req, res) => {
   const resultado = await query(
     `SELECT DISTINCT ON (p.registrado_por)
        p.registrado_por as promotor_id, u.nombre as promotor_nombre,
@@ -563,6 +591,7 @@ router.get('/ubicaciones-promotores', async (req, res) => {
 // fuera un ID (incluyendo 'ubicaciones-promotores'), y eso causaba
 // un error 500 al intentar buscar un promovido con ese "id" inválido.
 router.get('/:id', async (req, res) => {
+  if (!(await puedeTocarPromovido(req.usuario, req.params.id))) return res.status(404).json({ ok: false, error: 'No encontrado' });
   const promovido = await query(
     `SELECT p.*, s.numero as seccion_numero, u.nombre as registrado_por_nombre
      FROM promovidos p
@@ -576,8 +605,8 @@ router.get('/:id', async (req, res) => {
   const historial = await query(
     `SELECT c.*, u.nombre as usuario_nombre FROM contactos c
      JOIN usuarios u ON u.id = c.usuario_id
-     WHERE c.promovido_id=$1 ORDER BY c.creado_en DESC`,
-    [req.params.id]
+     WHERE c.promovido_id=$1 AND c.campana_id=$2 ORDER BY c.creado_en DESC`,
+    [req.params.id, req.usuario.campana_id]
   );
 
   res.json({ ok: true, data: { ...promovido.rows[0], historial: historial.rows } });
@@ -610,6 +639,8 @@ router.patch('/:id', async (req, res) => {
   const parseado = esquemaEditar.safeParse(req.body);
   if (!parseado.success) return res.status(400).json({ ok: false, error: parseado.error.errors[0].message });
   const d = parseado.data;
+  // 🔒 Roles de campo solo editan sus propios promovidos.
+  if (!(await puedeTocarPromovido(req.usuario, req.params.id))) return res.status(404).json({ ok: false, error: 'No encontrado' });
 
   let seccionId;
   if (d.seccion_numero) {
@@ -654,7 +685,9 @@ const esquemaFilaImportar = z.object({
  * El candidato declara aquí que esos contactos son suyos y que ya
  * contaba con su consentimiento al recopilarlos.
  */
-router.post('/importar', async (req, res) => {
+// 🔒 Importar hasta 5,000 contactos de golpe: solo mandos (antes cualquier
+// promotor podía meter miles de registros basura a la base).
+router.post('/importar', requiereRol(...ROLES_MANDO), async (req, res) => {
   const { filas, declaro_consentimiento } = req.body;
   if (!declaro_consentimiento) {
     return res.status(400).json({ ok: false, error: 'Debes confirmar que ya contabas con el consentimiento de estos contactos' });

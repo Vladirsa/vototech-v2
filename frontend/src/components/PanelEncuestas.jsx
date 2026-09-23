@@ -173,8 +173,15 @@ export default function PanelEncuestas() {
   const cargar = () => api.get('/encuestas').then((r) => setEncuestas(r.data.data));
   useEffect(cargar, []);
 
-  const toggleActiva = async (id, activa) => { await api.patch(`/encuestas/${id}/activa`, { activa: !activa }); cargar(); };
-  const eliminar = async (id) => { if (confirm('¿Eliminar esta encuesta y todas sus respuestas?')) { await api.delete(`/encuestas/${id}`); cargar(); } };
+  const toggleActiva = async (id, activa) => {
+    try { await api.patch(`/encuestas/${id}/activa`, { activa: !activa }); cargar(); }
+    catch (err) { alert(err.response?.data?.error || 'No se pudo cambiar la encuesta'); }
+  };
+  const eliminar = async (id) => {
+    if (!confirm('¿Eliminar esta encuesta y todas sus respuestas?')) return;
+    try { await api.delete(`/encuestas/${id}`); cargar(); }
+    catch (err) { alert(err.response?.data?.error || 'No se pudo eliminar la encuesta'); }
+  };
 
   const abrirCampo = async (id) => {
     const { data } = await api.get(`/encuestas/${id}`);

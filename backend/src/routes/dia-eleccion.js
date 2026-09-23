@@ -8,6 +8,35 @@ import { query } from '../db/pool.js';
 import { requiereAuth } from '../middleware/auth.js';
 import { getIo } from '../io.js';
 import { registrarAuditoria } from '../lib/auditoria.js';
+import { soloVeLoPropio, ROLES_MANDO } from '../lib/pertenencia.js';
+
+/**
+ * 🔒 ¿Esta persona puede tocar esta casilla? Coordinadores y mandos:
+ * cualquiera de su campaña. Representantes/promotores: SOLO la casilla
+ * donde están asignados como representante o suplente. Antes cualquier
+ * representante podía capturar o cambiar resultados de casillas ajenas.
+ */
+async function puedeTocarCasilla(usuario, { casillaId, seccionId, numero }) {
+  if (!soloVeLoPropio(usuario)) return true; // coordinadores y mandos: cualquiera de su campaña
+  const r = casillaId
+    ? await query('SELECT representante_id, suplente_id FROM casillas WHERE id=$1 AND campana_id=$2', [casillaId, usuario.campana_id])
+    : await query(
+      "SELECT representante_id, suplente_id FROM casillas WHERE campana_id=$1 AND seccion_id=$2 AND upper(replace(numero,' ',''))=upper(replace($3,' ',''))",
+      [usuario.campana_id, seccionId, numero]
+    );
+  const c = r.rows[0];
+  if (c) {
+    // Casilla sin representante asignado todavía: se permite (y queda en
+    // la bitácora quién capturó). Si tiene dueño, solo él o su suplente.
+    if (!c.representante_id && !c.suplente_id) return true;
+    return c.representante_id === usuario.sub || c.suplente_id === usuario.sub;
+  }
+  if (casillaId) return false;
+  // La casilla no está dada de alta: se permite solo si la campaña aún
+  // no ha cargado NINGUNA casilla (campañas que no usan ese módulo).
+  const hay = await query('SELECT 1 FROM casillas WHERE campana_id=$1 LIMIT 1', [usuario.campana_id]);
+  return !hay.rows[0];
+}
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const router = Router();
@@ -133,6 +162,7 @@ router.get('/casillas-sugeridas', async (req, res) => {
  * listas para arrastrarse a su ubicación real en cuanto se sepa.
  */
 router.post('/casillas-sugeridas/:seccion_numero/generar', async (req, res) => {
+  if (soloVeLoPropio(req.usuario)) return res.status(403).json({ ok: false, error: 'Solo coordinadores y mandos pueden hacer esto.' });
   const campanaId = req.usuario.campana_id;
   const numeroSeccion = parseInt(req.params.seccion_numero);
 
@@ -175,11 +205,17 @@ router.get('/prep', async (req, res) => {
   const campanaId = req.usuario.campana_id;
 
   const casillas = await query(
-    `SELECT c.*, s.numero as seccion_numero, u.nombre as representante_nombre
+    // 🔒 Sin clave de elector ni domicilio del representante (antes
+    // cualquier promotor los veía de TODOS). Los roles de campo solo
+    // ven sus propias casillas.
+    `SELECT c.id, c.campana_id, c.seccion_id, c.numero, c.lat, c.lng, c.direccion, c.representante_id,
+            c.suplente_id, c.confirmado_asistencia, c.nombramiento_generado_en,
+            s.numero as seccion_numero, u.nombre as representante_nombre
      FROM casillas c JOIN secciones s ON s.id=c.seccion_id
      LEFT JOIN usuarios u ON u.id = c.representante_id
-     WHERE c.campana_id=$1 ORDER BY s.numero`,
-    [campanaId]
+     WHERE c.campana_id=$1 ${soloVeLoPropio(req.usuario) ? 'AND (c.representante_id=$2 OR c.suplente_id=$2)' : ''}
+     ORDER BY s.numero`,
+    soloVeLoPropio(req.usuario) ? [campanaId, req.usuario.sub] : [campanaId]
   );
 
   const total = casillas.rows.length;
@@ -270,6 +306,9 @@ const esquemaCasilla = z.object({
  * panel de Prep.
  */
 router.post('/casillas', async (req, res) => {
+  // 🔒 Asignar representantes/crear casillas: solo coordinadores y mandos
+  // (antes un representante podía asignarse a sí mismo cualquier casilla).
+  if (soloVeLoPropio(req.usuario)) return res.status(403).json({ ok: false, error: 'Solo coordinadores y mandos pueden hacer esto.' });
   const parseado = esquemaCasilla.safeParse(req.body);
   if (!parseado.success) return res.status(400).json({ ok: false, error: parseado.error.errors[0].message });
   const d = parseado.data;
@@ -321,6 +360,7 @@ router.post('/casillas', async (req, res) => {
  * por accidente al solo mover el punto.
  */
 router.patch('/casillas/:id/posicion', async (req, res) => {
+  if (!(await puedeTocarCasilla(req.usuario, { casillaId: req.params.id }))) return res.status(403).json({ ok: false, error: 'Solo puedes mover tu propia casilla' });
   const { lat, lng } = req.body;
   if (typeof lat !== 'number' || typeof lng !== 'number') return res.status(400).json({ ok: false, error: 'Coordenadas inválidas' });
   const resultado = await query(
@@ -339,6 +379,7 @@ router.patch('/casillas/:id/posicion', async (req, res) => {
  * se piden en ningún otro lado del sistema.
  */
 router.patch('/casillas/:id/datos-nombramiento', async (req, res) => {
+  if (!(await puedeTocarCasilla(req.usuario, { casillaId: req.params.id }))) return res.status(403).json({ ok: false, error: 'Solo puedes editar los datos de tu propia casilla' });
   const { representante_clave_elector, representante_domicilio } = req.body;
   const campos = [];
   const valores = [];
@@ -368,6 +409,11 @@ router.patch('/casillas/:id/datos-nombramiento', async (req, res) => {
  * para el registro, 10 días antes como límite para el Consejo).
  */
 router.get('/casillas/:id/nombramiento-pdf', async (req, res) => {
+  // 🔒 El nombramiento trae clave de elector y domicilio: solo el
+  // propio representante/suplente o la coordinación.
+  if (!(await puedeTocarCasilla(req.usuario, { casillaId: req.params.id }))) {
+    return res.status(403).json({ ok: false, error: 'Solo puedes descargar el nombramiento de tu propia casilla.' });
+  }
   const casillaRes = await query(
     `SELECT c.*, s.numero as seccion_numero, s.distrito_local, s.distrito_federal,
             u.nombre as representante_nombre, u2.nombre as suplente_nombre,
@@ -450,8 +496,9 @@ router.get('/casillas', async (req, res) => {
      LEFT JOIN usuarios u ON u.id = c.representante_id
      LEFT JOIN usuarios u2 ON u2.id = c.suplente_id
      LEFT JOIN riesgo_llenado_distrito r ON r.distrito_local = s.distrito_local
-     WHERE c.campana_id=$1`,
-    [req.usuario.campana_id]
+     WHERE c.campana_id=$1
+       ${soloVeLoPropio(req.usuario) ? 'AND (c.representante_id=$2 OR c.suplente_id=$2)' : ''}`,
+    soloVeLoPropio(req.usuario) ? [req.usuario.campana_id, req.usuario.sub] : [req.usuario.campana_id]
   );
   const conEstimado = resultado.rows.map((c) => ({
     ...c,
@@ -465,6 +512,7 @@ router.get('/casillas', async (req, res) => {
  * El representante confirma "sí voy a estar" — parte del prep.
  */
 router.patch('/casillas/:id/confirmar', async (req, res) => {
+  if (!(await puedeTocarCasilla(req.usuario, { casillaId: req.params.id }))) return res.status(403).json({ ok: false, error: 'Solo puedes confirmar tu propia casilla' });
   const resultado = await query(
     `UPDATE casillas SET confirmado_asistencia=true WHERE id=$1 AND campana_id=$2 RETURNING *`,
     [req.params.id, req.usuario.campana_id]
@@ -482,27 +530,38 @@ router.get('/resultados', async (req, res) => {
      FROM resultados_casilla r
      JOIN secciones s ON s.id = r.seccion_id
      JOIN usuarios u ON u.id = r.capturado_por
-     WHERE r.campana_id = $1 ORDER BY r.capturado_en DESC`,
-    [req.usuario.campana_id]
+     WHERE r.campana_id = $1 ${soloVeLoPropio(req.usuario) ? 'AND r.capturado_por = $2' : ''}
+     ORDER BY r.capturado_en DESC`,
+    soloVeLoPropio(req.usuario) ? [req.usuario.campana_id, req.usuario.sub] : [req.usuario.campana_id]
   );
   res.json({ ok: true, data: resultado.rows });
 });
 
+// 🔒 Números de un acta REAL: nunca negativos, nunca enormes. Una
+// casilla recibe máximo 750 electores (INE) — el tope de 3,000 deja
+// margen para casillas especiales y aun así impide inflar el conteo.
+const VOTOS_MAX_POR_CASILLA = 3000;
 const esquemaResultado = z.object({
-  seccion_numero: z.number().int(),
-  casilla: z.string().default('B'),
-  votos: z.record(z.number().int()),
-  nulos: z.number().int().default(0),
-  lista_nominal: z.number().int().optional(),
-  foto_acta_url: z.string().url().optional(),
+  seccion_numero: z.number().int().positive(),
+  casilla: z.string().trim().min(1).max(20).regex(/^[A-Za-z0-9 -]+$/, 'Casilla inválida').default('B').transform((v) => v.toUpperCase().replace(/\s+/g, '')),
+  votos: z.record(
+    z.string().min(1).max(40),
+    z.number().int().min(0, 'No puede haber votos negativos').max(VOTOS_MAX_POR_CASILLA),
+  ).refine((v) => Object.keys(v).length <= 40, 'Demasiados partidos en el acta'),
+  nulos: z.number().int().min(0).max(VOTOS_MAX_POR_CASILLA).default(0),
+  lista_nominal: z.number().int().min(0).max(20000).optional(),
+  foto_acta_url: z.string().url().max(1000).regex(/^https:\/\//i, 'El enlace debe empezar con https://').optional(),
   // 🆕 Lo que el acta MISMA dice como total (apartado 6) — se compara
   // contra la suma real de lo capturado. El ITE Tlaxcala encontró que
   // esta es la inconsistencia más común y más grave en las actas
   // reales (68.31% de las actas tuvieron algún error justo en esta
   // relación aritmética) — con este campo, VotoTech detecta el mismo
   // tipo de error al momento, no días después.
-  total_declarado_acta: z.number().int().optional(),
-});
+  total_declarado_acta: z.number().int().min(0).max(VOTOS_MAX_POR_CASILLA).optional(),
+}).refine(
+  (d) => Object.values(d.votos).reduce((s, v) => s + v, 0) + d.nulos <= VOTOS_MAX_POR_CASILLA,
+  `La suma de votos no puede pasar de ${VOTOS_MAX_POR_CASILLA} en una casilla — revisa los números`,
+);
 
 /**
  * POST /api/dia-eleccion/resultados
@@ -542,6 +601,18 @@ router.post('/resultados', async (req, res) => {
     const seccion = await query('SELECT id FROM secciones WHERE estado_id=$2 AND numero=$1', [d.seccion_numero, req.usuario.estado_id]);
     if (!seccion.rows[0]) return res.status(404).json({ ok: false, error: 'Sección no encontrada' });
 
+    // 🔒 Representantes y promotores: SOLO la casilla donde están
+    // asignados. (Coordinadores y mandos pueden capturar cualquiera.)
+    if (!(await puedeTocarCasilla(req.usuario, { seccionId: seccion.rows[0].id, numero: d.casilla }))) {
+      return res.status(403).json({ ok: false, error: 'Solo puedes capturar el resultado de la casilla que tienes asignada. Revisa la sección y la casilla (ej. B, C1) o pide a tu coordinador que te la asigne.' });
+    }
+
+    // Valor anterior, para que la bitácora guarde "antes → después".
+    const anterior = await query(
+      'SELECT votos, nulos, capturado_por FROM resultados_casilla WHERE campana_id=$1 AND seccion_id=$2 AND casilla=$3',
+      [req.usuario.campana_id, seccion.rows[0].id, d.casilla]
+    );
+
     const resultado = await query(
       `INSERT INTO resultados_casilla (campana_id, seccion_id, casilla, votos, nulos, lista_nominal, foto_acta_url, capturado_por)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
@@ -552,7 +623,8 @@ router.post('/resultados', async (req, res) => {
     );
 
     const filaCompleta = { ...resultado.rows[0], seccion_numero: d.seccion_numero, capturado_por_nombre: req.usuario.nombre };
-    getIo().to(`campana:${req.usuario.campana_id}`).emit('resultado_actualizado', filaCompleta);
+    // 🔒 Los resultados en vivo solo viajan a coordinadores y mandos.
+    getIo().to(`campana:${req.usuario.campana_id}:coordinadores`).emit('resultado_actualizado', filaCompleta);
 
     // Los resultados electorales son lo más sensible de todo el
     // sistema — cada captura/corrección queda en la bitácora, con
@@ -560,8 +632,11 @@ router.post('/resultados', async (req, res) => {
     // cualquier cambio después.
     registrarAuditoria({
       campanaId: req.usuario.campana_id, usuarioId: req.usuario.sub, usuarioNombre: req.usuario.nombre,
-      accion: 'crear', tabla: 'resultados_casilla', registroId: resultado.rows[0].id,
-      detalle: { seccion: d.seccion_numero, casilla: d.casilla, votos: d.votos, nulos: d.nulos },
+      accion: anterior.rows[0] ? 'editar' : 'crear', tabla: 'resultados_casilla', registroId: resultado.rows[0].id,
+      detalle: {
+        seccion: d.seccion_numero, casilla: d.casilla, votos: d.votos, nulos: d.nulos,
+        antes: anterior.rows[0] ? { votos: anterior.rows[0].votos, nulos: anterior.rows[0].nulos, capturado_por: anterior.rows[0].capturado_por } : null,
+      },
       ip: req.ip,
     });
 
@@ -578,6 +653,9 @@ router.post('/resultados', async (req, res) => {
  * casillas ya reportadas — tu propio "conteo rápido" antes del oficial.
  */
 router.get('/conteo-rapido', async (req, res) => {
+  // 🔒 El conteo agregado de toda la campaña solo lo ve el mando (la
+  // pantalla ya lo ocultaba a los demás, pero el servidor lo entregaba).
+  if (!ROLES_MANDO.includes(req.usuario.rol)) return res.json({ ok: true, data: null });
   const campanaId = req.usuario.campana_id;
   const resultados = await query(`SELECT votos, nulos, lista_nominal, capturado_en FROM resultados_casilla WHERE campana_id=$1`, [campanaId]);
   const totalCasillasRes = await query(`SELECT COUNT(*) as total FROM casillas WHERE campana_id=$1`, [campanaId]);
@@ -652,6 +730,7 @@ router.get('/conteo-rapido', async (req, res) => {
  * evento en vivo por el socket.
  */
 router.get('/ultimos-reportes', async (req, res) => {
+  if (!ROLES_MANDO.includes(req.usuario.rol)) return res.json({ ok: true, data: [] });
   const resultado = await query(
     `SELECT r.id, s.numero as seccion_numero, r.casilla, u.nombre as capturado_por_nombre, r.capturado_en
      FROM resultados_casilla r
@@ -670,6 +749,7 @@ router.get('/ultimos-reportes', async (req, res) => {
  * representantes con problemas antes de que sea muy tarde.
  */
 router.get('/alertas-sin-reportar', async (req, res) => {
+  if (soloVeLoPropio(req.usuario)) return res.json({ ok: true, data: [] });
   const campanaId = req.usuario.campana_id;
   const casillas = await query(
     `SELECT c.id, s.numero as seccion_numero, c.numero as casilla_numero, u.nombre as representante_nombre, u.telefono
@@ -709,8 +789,10 @@ router.get('/caceria', async (req, res) => {
      FROM promovidos p
      LEFT JOIN secciones s ON s.id = p.seccion_id
      WHERE p.campana_id = $1 AND p.clasificacion = 'base' AND p.comprometido = true AND p.ya_voto = false
-     ORDER BY s.numero`,
-    [req.usuario.campana_id]
+       ${soloVeLoPropio(req.usuario) ? 'AND (p.registrado_por = $2 OR p.asignado_seguimiento_a = $2)' : ''}
+     ORDER BY s.numero
+     LIMIT 5000`,
+    soloVeLoPropio(req.usuario) ? [req.usuario.campana_id, req.usuario.sub] : [req.usuario.campana_id]
   );
   res.json({ ok: true, data: resultado.rows, total: resultado.rows.length });
 });
@@ -726,8 +808,10 @@ router.get('/confirmados', async (req, res) => {
      FROM promovidos p
      LEFT JOIN secciones s ON s.id = p.seccion_id
      WHERE p.campana_id = $1 AND p.clasificacion = 'base' AND p.comprometido = true AND p.ya_voto = true
-     ORDER BY p.hora_voto DESC`,
-    [req.usuario.campana_id]
+       ${soloVeLoPropio(req.usuario) ? 'AND (p.registrado_por = $2 OR p.asignado_seguimiento_a = $2)' : ''}
+     ORDER BY p.hora_voto DESC
+     LIMIT 5000`,
+    soloVeLoPropio(req.usuario) ? [req.usuario.campana_id, req.usuario.sub] : [req.usuario.campana_id]
   );
   res.json({ ok: true, data: resultado.rows });
 });
@@ -735,8 +819,9 @@ router.get('/confirmados', async (req, res) => {
 router.patch('/caceria/:id/voto', async (req, res) => {
   const resultado = await query(
     `UPDATE promovidos SET ya_voto = true, hora_voto = now()
-     WHERE id=$1 AND campana_id=$2 RETURNING id, nombre`,
-    [req.params.id, req.usuario.campana_id]
+     WHERE id=$1 AND campana_id=$2 ${soloVeLoPropio(req.usuario) ? 'AND (registrado_por = $3 OR asignado_seguimiento_a = $3)' : ''}
+     RETURNING id, nombre`,
+    soloVeLoPropio(req.usuario) ? [req.params.id, req.usuario.campana_id, req.usuario.sub] : [req.params.id, req.usuario.campana_id]
   );
   if (!resultado.rows[0]) return res.status(404).json({ ok: false, error: 'No encontrado' });
 
@@ -751,6 +836,7 @@ router.patch('/caceria/:id/voto', async (req, res) => {
  * no — para saber a quién llamarle, no solo "falta el 30%".
  */
 router.get('/avance-estructura', async (req, res) => {
+  if (soloVeLoPropio(req.usuario)) return res.status(403).json({ ok: false, error: 'Solo coordinadores y mandos pueden hacer esto.' });
   const campanaId = req.usuario.campana_id;
 
   const casillas = await query(
@@ -801,6 +887,7 @@ router.get('/avance-estructura', async (req, res) => {
  * ya capturadas — votos reales, no una suposición.
  */
 router.get('/avance-por-seccion', async (req, res) => {
+  if (soloVeLoPropio(req.usuario)) return res.status(403).json({ ok: false, error: 'Solo coordinadores y mandos pueden hacer esto.' });
   const campanaId = req.usuario.campana_id;
   const campanaRes = await query('SELECT partido FROM campanas WHERE id=$1', [campanaId]);
   const partidoPropio = campanaRes.rows[0]?.partido;
