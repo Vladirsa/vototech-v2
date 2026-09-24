@@ -229,6 +229,7 @@ router.post('/login', async (req, res) => {
     // 🔒 Se firma con la clave de tokens TEMPORALES: ya no sirve como
     // sesión, aunque alguien intente usarlo en otra ruta.
     registrarAcceso(usuario.campana_id, usuario.id, usuario.dos_factores_activo ? 'login_paso1_ok' : 'login_ok', req);
+    if (!usuario.dos_factores_activo) avisarEntradaNueva(usuario, req);
     if (usuario.dos_factores_activo) {
       const tokenPreAuth = firmarTokenTemporal(usuario.id, 'pre_2fa', '5m');
       return res.json({ ok: true, requiere_2fa: true, token_pre_auth: tokenPreAuth });
@@ -300,6 +301,7 @@ router.post('/2fa/verificar-login', async (req, res) => {
     return res.status(401).json({ ok: false, error: 'Código incorrecto. Revisa tu app autenticadora.' });
   }
   registrarAcceso(usuario.campana_id, usuario.id, 'login_2fa_ok', req);
+  avisarEntradaNueva(usuario, req);
 
   await query('UPDATE usuarios SET ultimo_acceso = now() WHERE id = $1', [usuario.id]);
   const token = generarToken(usuario);
@@ -414,6 +416,65 @@ router.post('/2fa/desactivar', requiereAuth, limiteSensiblePorPersona, async (re
  * flujo además de quitar la dependencia de Twilio para esto.
  */
 const resend = new Resend(process.env.RESEND_API_KEY);
+
+// 🔒 Protección contra correos falsos (phishing): todos los correos del
+// sistema llevan este aviso, y el nombre de la persona se "limpia" para
+// que nadie pueda meter enlaces o código dentro del correo poniendo
+// algo raro en su nombre.
+function escaparCorreo(t) {
+  return String(t ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+const PIE_ANTIFRAUDE = `
+  <div style="border-top: 1px solid #e2e8f0; margin-top: 20px; padding-top: 12px; color: #94a3b8; font-size: 11px; line-height: 1.5;">
+    🔒 <b>Cómo saber que este correo es real:</b> VotoTech solo escribe desde una dirección que termina en <b>@vototech.com.mx</b>.
+    Nunca te pediremos tu contraseña ni este código por teléfono, WhatsApp o correo, y nunca te mandaremos archivos para descargar.
+    Si algo no cuadra, no hagas clic: entra tú mismo escribiendo <b>vototech.com.mx</b> en tu navegador.
+  </div>`;
+
+/**
+ * 🆕 AVISO DE ENTRADA DESDE UN APARATO NUEVO — si alguien entra a tu
+ * cuenta desde una red y un aparato que nunca habías usado, te llega un
+ * correo. Si no fuiste tú, sabes de inmediato que debes cambiar tu
+ * contraseña. No se manda en la primera entrada ni en la cuenta demo.
+ */
+async function avisarEntradaNueva(usuario, req) {
+  try {
+    if (!process.env.RESEND_API_KEY || !usuario?.email || usuario.es_demo) return;
+    const ip = (req.ip || '').slice(0, 45);
+    const aparato = String(req.headers['user-agent'] || '').slice(0, 300);
+    const previas = await query(
+      `SELECT COUNT(*) FILTER (WHERE ip = $2 OR user_agent = $3) as conocidas, COUNT(*) as total
+       FROM registro_accesos
+       WHERE usuario_id=$1 AND pagina IN ('login_ok', 'login_2fa_ok') AND creado_en < now() - interval '5 seconds'
+         AND creado_en > now() - interval '180 days'`,
+      [usuario.id, ip, aparato]
+    );
+    const { conocidas, total } = previas.rows[0] || {};
+    if (!parseInt(total) || parseInt(conocidas) > 0) return;
+    const cuando = new Date().toLocaleString('es-MX', { timeZone: 'America/Mexico_City', dateStyle: 'long', timeStyle: 'short' });
+    await resend.emails.send({
+      from: process.env.RESEND_FROM || 'VotoTech <onboarding@resend.dev>',
+      to: usuario.email,
+      subject: '🔐 Entraron a tu cuenta de VotoTech desde un aparato nuevo',
+      html: `
+        <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
+          <h2 style="color: #1e3a5f;">🗳️ VotoTech</h2>
+          <p>Hola ${escaparCorreo(usuario.nombre)},</p>
+          <p>Alguien entró a tu cuenta desde un aparato o una red que no habías usado antes:</p>
+          <ul style="color: #334155; font-size: 14px;">
+            <li><b>Cuándo:</b> ${escaparCorreo(cuando)}</li>
+            <li><b>Red (IP):</b> ${escaparCorreo(ip)}</li>
+          </ul>
+          <p><b>¿Fuiste tú?</b> No tienes que hacer nada.</p>
+          <p><b>¿No fuiste tú?</b> Entra a VotoTech y cambia tu contraseña de inmediato (Dashboard → 🔑 Cambiar mi contraseña), y avisa a tu Jefe de Campaña.</p>
+          ${PIE_ANTIFRAUDE}
+        </div>`,
+    });
+  } catch (e) {
+    console.error('Aviso de entrada nueva (no crítico):', e.message);
+  }
+}
+
 async function enviarCorreoRecuperacion(email, nombre, codigo) {
   if (!process.env.RESEND_API_KEY) throw new Error('RESEND_NO_CONFIGURADO');
   await resend.emails.send({
@@ -423,12 +484,13 @@ async function enviarCorreoRecuperacion(email, nombre, codigo) {
     html: `
       <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
         <h2 style="color: #1e3a5f;">🗳️ VotoTech</h2>
-        <p>Hola ${nombre},</p>
+        <p>Hola ${escaparCorreo(nombre)},</p>
         <p>Tu código para recuperar tu contraseña es:</p>
         <div style="background: #f1f5f9; border-radius: 12px; padding: 20px; text-align: center; margin: 20px 0;">
           <span style="font-size: 32px; font-weight: bold; letter-spacing: 8px; color: #1e3a5f;">${codigo}</span>
         </div>
         <p style="color: #64748b; font-size: 13px;">Válido por 10 minutos. Si tú no pediste esto, ignora este correo — tu contraseña no cambiará.</p>
+        ${PIE_ANTIFRAUDE}
       </div>
     `,
   });
