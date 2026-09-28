@@ -67,7 +67,9 @@ api.interceptors.response.use(
       // El refresh token también falló (expiró a los 30 días, fue
       // revocado o la cuenta se desactivó) — ahí sí ya no hay forma
       // de continuar sin que la persona vuelva a poner su contraseña.
-      localStorage.clear();
+      // Solo se borra la SESIÓN; se conservan el correo y la campaña
+      // recordados para que volver a entrar sea más rápido.
+      ['vototech_token', 'vototech_refresh_token', 'vototech_usuario'].forEach((k) => localStorage.removeItem(k));
       window.location.href = '/login';
     }
     return Promise.reject(err);

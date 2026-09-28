@@ -13,7 +13,10 @@ import { ErrorBoundarySilencioso } from './ErrorBoundary';
 export default function RutaProtegida({ children, bloquearRoles }) {
   const token = useAuth((s) => s.token);
   const usuario = useAuth((s) => s.usuario);
-  if (!token) return <Navigate to="/login" replace />;
+  if (!token) {
+    // Si todavía hay con qué renovar la sesión, se intenta antes de pedir contraseña.
+    return <Navigate to={localStorage.getItem('vototech_refresh_token') ? '/app' : '/login'} replace />;
+  }
   if (bloquearRoles && usuario?.rol && bloquearRoles.includes(usuario.rol)) {
     return <Navigate to="/mi-avance" replace />;
   }

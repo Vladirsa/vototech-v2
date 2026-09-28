@@ -84,7 +84,11 @@ const sha256 = (texto) => crypto.createHash('sha256').update(texto).digest('hex'
  */
 export async function generarRefreshToken(usuarioId) {
   const valorReal = crypto.randomBytes(40).toString('hex');
-  const expiraEn = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 días
+  // 🆕 90 días, y se renueva cada vez que se usa: mientras la persona
+  // abra la app al menos una vez cada 3 meses, nunca tiene que volver a
+  // escribir su contraseña. Sigue protegida: se corta al desactivarla,
+  // al cambiar su contraseña, al cerrar sesión o si se detecta un robo.
+  const expiraEn = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000); // 90 días
   await query(
     `INSERT INTO refresh_tokens (usuario_id, token_hash, expira_en) VALUES ($1, $2, $3)`,
     [usuarioId, sha256(valorReal), expiraEn]

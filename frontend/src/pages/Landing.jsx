@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import { Link, Navigate } from 'react-router-dom';
 
 /**
  * 🆕 Página pública de inicio — antes vototech.com.mx mandaba
@@ -125,6 +125,11 @@ const PROXIMOS_SERVICIOS = [
 ];
 
 export default function Landing() {
+  // 🆕 Si se abre como APP INSTALADA (no en el navegador), no se muestra
+  // la página de presentación: se entra directo al sistema.
+  const esAppInstalada = typeof window !== 'undefined'
+    && (window.matchMedia?.('(display-mode: standalone)').matches || window.navigator.standalone === true);
+  if (esAppInstalada) return <Navigate to="/app" replace />;
   return (
     <div className="min-h-screen bg-slate-950 text-white">
       {/* Barra superior */}

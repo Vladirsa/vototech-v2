@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import api from '../lib/api';
 import { useAuth } from '../lib/authStore';
+import { haySesionGuardada, pantallaDeInicio } from '../components/EntradaApp';
 
 // El subdominio se detecta automáticamente de la URL en producción
 // (andrea.vototech.mx -> "andrea"). En desarrollo local, usamos uno
@@ -20,7 +21,9 @@ function detectarSubdominio() {
 }
 
 export default function Login() {
-  const [email, setEmail] = useState('');
+  // 🆕 Se recuerda el último correo usado en este aparato (la contraseña
+  // la guarda el propio celular si la persona lo acepta).
+  const [email, setEmail] = useState(localStorage.getItem('vototech_ultimo_email') || '');
   const [password, setPassword] = useState('');
   const [verPassword, setVerPassword] = useState(false);
   const [error, setError] = useState('');
@@ -29,6 +32,13 @@ export default function Login() {
   const iniciarSesion = useAuth((s) => s.iniciarSesion);
   const [subdominio, setSubdominio] = useState(detectarSubdominio() || localStorage.getItem('vototech_ultimo_subdominio') || '');
   const subdominioAutomatico = !!detectarSubdominio();
+
+  // 🆕 Si ya hay una sesión guardada en este aparato, no se pide volver
+  // a entrar: se manda directo a su pantalla.
+  useEffect(() => {
+    if (haySesionGuardada()) navigate('/app', { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Segundo paso — solo aparece si la cuenta tiene 2FA activo
   const [tokenPreAuth, setTokenPreAuth] = useState(null);
@@ -42,14 +52,16 @@ export default function Login() {
       const { data } = await api.post('/auth/login', { subdominio, email, password });
       if (data.requiere_2fa) {
         localStorage.setItem('vototech_ultimo_subdominio', subdominio);
+        localStorage.setItem('vototech_ultimo_email', email);
         setTokenPreAuth(data.token_pre_auth);
         setCargando(false);
         return;
       }
       if (data.ok) {
         localStorage.setItem('vototech_ultimo_subdominio', subdominio);
+        localStorage.setItem('vototech_ultimo_email', email);
         iniciarSesion(data.token, data.usuario, subdominio, data.refresh_token);
-        navigate(data.usuario?.rol === 'promotor' ? '/mi-avance' : '/mapa');
+        navigate(pantallaDeInicio(data.usuario));
       }
     } catch (err) {
       setError(err.response?.data?.error || 'Error al iniciar sesión');
@@ -65,7 +77,7 @@ export default function Login() {
       const { data } = await api.post('/auth/2fa/verificar-login', { token_pre_auth: tokenPreAuth, codigo: codigo2FA });
       if (data.ok) {
         iniciarSesion(data.token, data.usuario, subdominio, data.refresh_token);
-        navigate('/mapa');
+        navigate(pantallaDeInicio(data.usuario));
       }
     } catch (err) {
       setError(err.response?.data?.error || 'Código incorrecto');
@@ -85,7 +97,7 @@ export default function Login() {
           <form onSubmit={verificarCodigo2FA} className="space-y-4">
             {error && <div className="bg-red-500/10 text-red-400 text-xs rounded-lg px-3 py-2 text-center">{error}</div>}
             <input value={codigo2FA} onChange={(e) => setCodigo2FA(e.target.value.replace(/\D/g, '').slice(0, 6))}
-              placeholder="000000" maxLength={6} autoFocus
+              placeholder="000000" maxLength={6} autoFocus inputMode="numeric" autoComplete="one-time-code"
               className="w-full px-4 py-3 rounded-xl bg-slate-800/80 border border-slate-700 text-white text-2xl text-center tracking-[0.5em] focus:outline-none focus:border-indigo-500" />
             <button type="submit" disabled={cargando || codigo2FA.length !== 6}
               className="w-full py-3 rounded-xl bg-indigo-600 text-white font-bold text-sm disabled:opacity-40">
@@ -135,7 +147,7 @@ export default function Login() {
           <div>
             <label className="block text-xs font-semibold text-slate-400 mb-1.5">Correo electrónico</label>
             <input
-              type="email" required autoFocus={!!subdominio} disabled={cargando} value={email} onChange={(e) => setEmail(e.target.value)}
+              type="email" name="email" autoComplete="username" required autoFocus={!!subdominio && !email} disabled={cargando} value={email} onChange={(e) => setEmail(e.target.value)}
               className="w-full px-4 py-2.5 rounded-xl bg-slate-800/80 border border-slate-700 text-white text-sm focus:outline-none focus:border-indigo-500 disabled:opacity-50"
               placeholder="tucorreo@ejemplo.com"
             />
@@ -145,7 +157,7 @@ export default function Login() {
             <label className="block text-xs font-semibold text-slate-400 mb-1.5">Contraseña</label>
             <div className="relative">
               <input
-                type={verPassword ? 'text' : 'password'} required disabled={cargando} value={password} onChange={(e) => setPassword(e.target.value)}
+                type={verPassword ? 'text' : 'password'} name="password" autoComplete="current-password" autoFocus={!!subdominio && !!email} required disabled={cargando} value={password} onChange={(e) => setPassword(e.target.value)}
                 className="w-full px-4 py-2.5 pr-10 rounded-xl bg-slate-800/80 border border-slate-700 text-white text-sm focus:outline-none focus:border-indigo-500 disabled:opacity-50"
                 placeholder="••••••••"
               />

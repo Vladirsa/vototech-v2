@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import Login from './pages/Login';
 import RutaProtegida from './components/RutaProtegida';
+import EntradaApp from './components/EntradaApp';
 import AvisoOffline from './components/AvisoOffline';
 import ErrorBoundary, { ErrorBoundarySilencioso } from './components/ErrorBoundary';
 import { useSuscripcionPush } from './lib/useSuscripcionPush';
@@ -105,6 +106,7 @@ export default function App() {
               }
             />
             <Route path="/login" element={<Login />} />
+            <Route path="/app" element={<EntradaApp />} />
             <Route path="/" element={<Landing />} />
             <Route path="/registro" element={<RegistroCampana />} />
             <Route path="/registro-invitacion" element={<RegistroInvitacion />} />
